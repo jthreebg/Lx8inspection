@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="96" fill="#1a365d"/>
+<rect x="78" y="70" width="356" height="372" rx="42" fill="#ffffff"/>
+<path d="M138 150h236M138 230h236M138 310h150" stroke="#2b6cb0" stroke-width="30" stroke-linecap="round"/>
+<path d="M138 150l18 18 36-42M138 230l18 18 36-42M138 310l18 18 36-42" fill="none" stroke="#48bb78" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="256" y="395" text-anchor="middle" font-family="Arial,sans-serif" font-size="54" font-weight="700" fill="#1a365d">LX-8</text>
+</svg>

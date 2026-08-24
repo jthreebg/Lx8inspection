@@ -1,0 +1,19 @@
+{
+  "name": "LX-8 Baking Equipment Inspection",
+  "short_name": "LX-8 Inspect",
+  "description": "LeMatic LX-8 Baking Equipment Inspection App",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1117",
+  "theme_color": "#1a365d",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
