@@ -5,16 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="description" content="LeMatic LX-8 Baking Equipment Inspection App" />
   <meta name="color-scheme" content="dark" />
-  <meta name="theme-color" content="#07070a" />
+  <meta name="theme-color" content="#000000" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="LX-8 Inspect" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="application-name" content="LX-8 Inspect" />
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
-  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
-  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <!-- Manifest + icons: root apple-touch-icon.png is what Safari prefers -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./favicon.png" type="image/png" sizes="32x32" />
+  <link rel="icon" href="./icon.png" type="image/png" sizes="192x192" />
+  <link rel="icon" href="./icons/icon-512.png" type="image/png" sizes="512x512" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="120x120" href="./icons/icon-120.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="./icons/icon-152.png" />
+  <link rel="apple-touch-icon" sizes="167x167" href="./icons/icon-167.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
   <title>LeMatic LX-8 Inspection</title>
   <!-- jsPDF for report generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -1137,10 +1143,13 @@
               </div>
               <div class="photo-area ${res.photoDataUrl ? 'has-photo' : ''}" data-item="${item.item_id}">
                 ${res.photoDataUrl
-                  ? `<img class="photo-preview" src="${res.photoDataUrl}" alt="Photo" /><br><button class="photo-btn" data-item="${item.item_id}">Change Photo</button>`
-                  : `<div>📷 Photo required</div><button class="photo-btn" data-item="${item.item_id}">Take / Choose Photo</button>`
+                  ? `<img class="photo-preview" src="${res.photoDataUrl}" alt="Photo" /><br>
+                     <button type="button" class="photo-btn" data-item="${item.item_id}">Change Photo</button>`
+                  : `<div>📷 Photo</div>
+                     <button type="button" class="photo-btn" data-item="${item.item_id}">Take Photo or Choose from Library</button>`
                 }
-                <input type="file" accept="image/*" capture="environment" class="photo-input hidden" data-item="${item.item_id}" />
+                <!-- No capture= attribute so iOS/Android offer Camera AND Photo Library -->
+                <input type="file" accept="image/*" class="photo-input hidden" data-item="${item.item_id}" />
               </div>
             </div>`;
         }
