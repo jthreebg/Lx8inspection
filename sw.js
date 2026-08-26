@@ -1,5 +1,5 @@
 /* LX-8 Inspection PWA service worker */
-const CACHE_NAME = 'lx8-inspection-v6';
+const CACHE_NAME = 'lx8-inspection-v7';
 const ASSETS = [
   './',
   './index.html',
