@@ -1,7 +1,7 @@
 /* LX-8 Inspect — service worker
    Caches the app shell so the PWA opens offline after first visit.
    Bump CACHE when you ship a new build. */
-const CACHE = 'lx8-inspect-v4';
+const CACHE = 'lx8-inspect-v1';
 
 const SHELL = [
   './',
