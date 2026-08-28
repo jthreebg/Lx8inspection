@@ -1,6 +1,6 @@
-# LX-8 Inspect PWA
+# LeMatic Inspect PWA
 
-Standalone Progressive Web App for LeMatic LX-8 bakery equipment inspections.
+Standalone Progressive Web App for LeMatic bakery equipment inspections.
 
 Works as a home-screen app on iPhone (Safari → **Add to Home Screen**). Inspection data stays in the device’s `localStorage`. PDF reports use jsPDF from a CDN (needs network the first time a report is generated).
 
@@ -41,7 +41,7 @@ Put these files in that repo’s root.
 
 1. Open the Pages URL in **Safari** (not Chrome).
 2. Share → **Add to Home Screen**.
-3. Launch from the LX-8 Inspect icon. It runs fullscreen (standalone).
+3. Launch from the LeMatic Inspect icon. It runs fullscreen (standalone).
 
 Android: Chrome → menu → **Install app**.
 
@@ -51,7 +51,7 @@ Android: Chrome → menu → **Install app**.
 2. Bump the cache name in `sw.js`:
 
    ```js
-   const CACHE = 'lx8-inspect-v2';
+   const CACHE = 'lematic-inspect-v5';
    ```
 
 3. Commit and push. Hard-refresh once, or close and reopen the home-screen app.

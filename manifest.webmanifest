@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "LeMatic LX-8 Inspection",
-  "short_name": "LX-8 Inspect",
-  "description": "Baking equipment inspections for LeMatic LX-8 lines.",
+  "name": "LeMatic Inspection",
+  "short_name": "LeMatic Inspect",
+  "description": "LeMatic bakery equipment inspection app.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

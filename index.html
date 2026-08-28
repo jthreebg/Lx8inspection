@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="description" content="LeMatic LX-8 Baking Equipment Inspection App" />
+  <meta name="description" content="LeMatic Baking Equipment Inspection App" />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#000000" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="LX-8 Inspect" />
+  <meta name="apple-mobile-web-app-title" content="LeMatic Inspect" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="application-name" content="LX-8 Inspect" />
+  <meta name="application-name" content="LeMatic Inspect" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <title>LeMatic LX-8 Inspection</title>
+  <title>LeMatic Inspection</title>
   <!-- jsPDF for report generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -107,8 +107,11 @@
       transform: translate3d(0, 0, 0);
       backface-visibility: hidden;
       -webkit-backface-visibility: hidden;
-      contain: paint;
       transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .app-header,
+    .section-progress {
+      contain: paint;
     }
 
     .app-header {
@@ -144,16 +147,21 @@
     body:not(.on-home) .app-header {
       background: #000000;
     }
-    /* Ambient red glow — fixed to the viewport so it cannot
-       fight the header height measurement and jumble on load. */
+    body:not(.on-home) #btnSearch,
+    body:not(.on-home) #searchBar,
+    body:not(.on-home) #searchResults,
+    body:not(.on-home) #searchScrim {
+      display: none !important;
+    }
+    /* Ambient red glow — lives on the home page so it scrolls with content */
     #homeAmbientGlow {
       display: none;
-      position: fixed;
-      top: 90px;
+      position: absolute;
+      top: calc(61px - var(--header-h));
       left: 50%;
       transform: translateX(-50%);
       width: 180%;
-      height: 360px;
+      height: 400px;
       pointer-events: none;
       z-index: 0;
       background:
@@ -184,7 +192,7 @@
       display: none !important;
     }
     #screenHome > #homeAmbientGlow {
-      position: fixed;
+      position: absolute;
       z-index: 0;
       pointer-events: none;
     }
@@ -193,6 +201,9 @@
     #screenHome > .card {
       position: relative;
       z-index: 1;
+    }
+    #screenHome > .stat-row {
+      margin-top: 126px;
     }
     /* Push page content below fixed header */
     body {
@@ -204,14 +215,20 @@
       flex: 1; justify-content: flex-start;
     }
     .header-logo-img {
-      height: 36px;
+      height: 34px;
       width: auto;
       max-width: 220px;
       object-fit: contain;
+      object-position: center;
       background: #fff;
-      padding: 4px 10px;
-      border-radius: 10px;
+      padding: 5px 16px;
+      border-radius: 999px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      display: block;
+    }
+    body.on-home .header-logo-img {
+      height: 44px;
+      padding: 6px 21px;
     }
     .header-btn {
       background: rgba(255, 255, 255, 0.1);
@@ -234,36 +251,132 @@
     }
     .search-bar {
       display: none;
-      background: #1a1a1b;
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
+      background: transparent;
+      padding: 8px 16px 10px;
+      border-bottom: none;
+      box-shadow: none;
       position: fixed;
       top: var(--header-h);
       left: 0;
       right: 0;
       z-index: 109;
       will-change: transform;
+      align-items: center;
+      gap: 10px;
     }
-    .search-bar.show { display: block; }
+    .search-bar.show { display: flex; }
+    .search-field {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      border-radius: var(--radius-pill);
+      background: rgba(42, 42, 46, 0.05);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      border: 0.5px solid rgba(255, 255, 255, 0.28);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
+    }
+    .search-field .search-glyph {
+      position: absolute;
+      left: 14px;
+      width: 16px;
+      height: 16px;
+      color: rgba(249, 253, 255, 0.55);
+      pointer-events: none;
+    }
     .search-bar input {
       width: 100%;
-      padding: 12px 14px;
-      border: 1px solid rgba(249, 253, 255, 0.08);
-      border-radius: var(--radius-sm);
+      padding: 12px 40px 12px 38px;
+      border: none;
+      border-radius: var(--radius-pill);
       font-size: 1rem;
-      background: #0d0d0f;
+      background: transparent;
       color: var(--text);
+      box-shadow: none;
       -webkit-appearance: none;
-      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+      appearance: none;
+    }
+    .search-bar input::-webkit-search-cancel-button,
+    .search-bar input::-webkit-search-decoration {
+      -webkit-appearance: none;
+      appearance: none;
     }
     .search-bar input:focus {
       outline: none;
-      background: var(--field-selected-bg);
-      border-color: var(--field-selected-border);
-      box-shadow: var(--field-selected-ring);
-      color: var(--field-selected-text);
+      background: transparent;
     }
     .search-bar input::placeholder { color: #bac8d0; }
+    .search-clear {
+      position: absolute;
+      right: 10px;
+      width: 22px;
+      height: 22px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.78);
+      color: #3a3a3c;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      cursor: pointer;
+    }
+    .search-bar.has-query .search-clear { display: flex; }
+    .search-clear svg { display: block; }
+    .search-cancel {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      color: #f9fdff;
+      font-size: 1.02rem;
+      font-weight: 500;
+      padding: 8px 2px 8px 4px;
+      cursor: pointer;
+    }
+    #searchScrim {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 107;
+      background: rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(22px) saturate(140%);
+      -webkit-backdrop-filter: blur(22px) saturate(140%);
+    }
+    #searchScrim.show { display: block; }
+    #searchResults {
+      display: none;
+      position: fixed;
+      left: 16px;
+      right: 16px;
+      z-index: 108;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 18px;
+      background: rgba(22, 22, 24, 0.78);
+      backdrop-filter: blur(28px) saturate(160%) brightness(1.05);
+      -webkit-backdrop-filter: blur(28px) saturate(160%) brightness(1.05);
+      border: 0.5px solid rgba(255, 255, 255, 0.28);
+      box-shadow:
+        inset 0 0.5px 0 rgba(255, 255, 255, 0.38),
+        0 16px 40px rgba(0, 0, 0, 0.45);
+    }
+    #searchResults.show { display: block; }
+    #searchResults .list-item {
+      margin: 0;
+      border-radius: 0;
+      border: none;
+      border-bottom: 0.5px solid rgba(255, 255, 255, 0.12);
+      background: transparent;
+    }
+    #searchResults .list-item:last-child { border-bottom: none; }
+    #searchResults .search-empty {
+      padding: 18px 16px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
 
     /* Screens — fill viewport; extra bottom pad for dock + home indicator */
     .screen {
@@ -332,40 +445,50 @@
     }
 
     .btn-primary {
-      background: linear-gradient(180deg, var(--primary-top) 0%, var(--primary) 100%);
-      color: #fff;
+      background: #e8eef2;
+      color: #0d0d0f;
+      border: none;
       box-shadow:
-        0 2px 8px rgba(0, 0, 0, 0.35),
-        inset 0 1px 0 rgba(255, 255, 255, 0.28);
+        0 2px 10px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.85);
     }
 
     .btn-primary:active {
       transform: scale(0.98);
-      filter: brightness(0.92);
+      filter: brightness(0.94);
+      background: #d5dce2;
       box-shadow:
-        0 1px 4px rgba(0, 0, 0, 0.35),
-        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        0 1px 4px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.6);
     }
 
-    .btn-success { background: var(--success); color: #052e1a; }
+    .btn-success {
+      background: rgba(52, 211, 153, 0.12);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      color: var(--success);
+      border: 0.5px solid rgba(52, 211, 153, 0.35);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
+    }
     .btn-outline {
-      background: rgba(255, 255, 255, 0.06);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid var(--border);
+      background: rgba(42, 42, 46, 0.05);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      border: 0.5px solid rgba(255, 255, 255, 0.28);
       color: var(--text);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
     }
     .btn-outline:active {
-      background: rgba(255, 255, 255, 0.12);
+      background: rgba(42, 42, 46, 0.14);
     }
     .btn-row { display: flex; gap: 10px; margin: 16px; }
     .btn-row .btn { flex: 1; }
 
     .section-progress {
       display: flex; gap: 8px; padding: 12px 14px; overflow-x: auto;
-      background: #1a1a1b;
-      border-bottom: 1px solid var(--border);
+      background: #000000;
+      min-height: 52px;
+      border-bottom: none;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior-x: contain;
       position: fixed;
@@ -378,19 +501,28 @@
       backface-visibility: hidden;
       -webkit-backface-visibility: hidden;
     }
+    .section-progress::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: #000000;
+      z-index: -1;
+    }
     /* Room for fixed section bar while inspecting */
     #screenInspect.active {
       padding-top: var(--section-bar-h);
     }
     .section-dot {
       scroll-snap-align: center;
-
       flex-shrink: 0;
       padding: 7px 12px;
       border-radius: var(--radius-pill);
-      background: #0d0d0f;
+      background: rgba(42, 42, 46, 0.05);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
       color: var(--muted);
-      border: 1px solid rgba(249, 253, 255, 0.08);
+      border: 0.5px solid rgba(255, 255, 255, 0.28);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
       display: flex; align-items: center; justify-content: center;
       font-size: 0.7rem; font-weight: 600;
       white-space: nowrap;
@@ -401,9 +533,9 @@
       cursor: pointer;
     }
     .section-dot.done {
-      background: rgba(52, 211, 153, 0.15);
+      background: rgba(52, 211, 153, 0.12);
       color: var(--success);
-      border-color: rgba(52, 211, 153, 0.3);
+      border-color: rgba(52, 211, 153, 0.35);
     }
     .section-dot.current {
       background: var(--field-selected-bg);
@@ -415,15 +547,39 @@
 
     /* Item cards — glass */
     .item-card {
+      position: relative;
       background: #1a1a1b;
       margin: 10px 16px;
       border-radius: var(--radius);
       padding: 18px;
       border: 1px solid var(--border);
-      border-left: 2px solid var(--border-strong);
     }
-    .item-card.answered { border-left-color: var(--success); }
-    .item-card.finding { border-left-color: #ff453a; }
+    .item-card.answered,
+    .item-card.finding {
+      border-color: transparent;
+    }
+    .item-card.answered {
+      background:
+        linear-gradient(#1a1a1b, #1a1a1b) padding-box,
+        linear-gradient(
+          90deg,
+          #34d399 0,
+          #34d399 2px,
+          rgba(52, 211, 153, 0.35) 12px,
+          rgba(249, 253, 255, 0.12) 22px
+        ) border-box;
+    }
+    .item-card.finding {
+      background:
+        linear-gradient(#1a1a1b, #1a1a1b) padding-box,
+        linear-gradient(
+          90deg,
+          #ff453a 0,
+          #ff453a 2px,
+          rgba(255, 69, 58, 0.35) 12px,
+          rgba(249, 253, 255, 0.12) 22px
+        ) border-box;
+    }
     .item-title { font-weight: 600; font-size: 1rem; margin-bottom: 4px; letter-spacing: -0.01em; }
     .item-type {
       font-size: 0.7rem; color: #f9fdff; text-transform: uppercase;
@@ -435,27 +591,29 @@
     }
     .choice-btn {
       padding: 12px 8px;
-      border: 1px solid rgba(249, 253, 255, 0.14);
+      border: 0.5px solid rgba(255, 255, 255, 0.28);
       border-radius: var(--radius-sm);
-      background: rgba(255, 255, 255, 0.06);
-      backdrop-filter: blur(16px) saturate(1.4);
-      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      background: rgba(42, 42, 46, 0.05);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
       color: var(--text);
       font-size: 0.9rem; font-weight: 500; cursor: pointer;
       text-align: center; transition: all 0.15s;
-      box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.14),
-        0 1px 2px rgba(0, 0, 0, 0.25);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
     }
     .choice-btn:active { transform: scale(0.97); }
     .choice-btn.selected {
-      border-color: rgba(249, 253, 255, 0.28);
-      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.36);
+      background: rgba(42, 42, 46, 0.12);
       color: #f9fdff;
+    }
+    .choice-btn.good.selected {
+      border-color: rgba(52, 211, 153, 0.55);
+      background: rgba(52, 211, 153, 0.22);
+      color: #6ee7b7;
       box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.22),
-        0 0 0 1px rgba(249, 253, 255, 0.18),
-        0 4px 16px rgba(0, 0, 0, 0.35);
+        inset 0 1px 0 rgba(255, 255, 255, 0.18),
+        0 0 0 1px rgba(52, 211, 153, 0.28);
     }
     .choice-btn.bad.selected {
       border-color: rgba(255, 69, 58, 0.55);
@@ -484,10 +642,10 @@
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
     }
     .impact-tag.selected {
-      background: linear-gradient(180deg, var(--primary-top), var(--primary));
-      color: #fff;
-      border-color: transparent;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255,255,255,0.28);
+      background: var(--field-selected-bg);
+      color: var(--field-selected-text);
+      border-color: var(--field-selected-border);
+      box-shadow: var(--field-selected-ring);
     }
     .severity-select { margin-top: 8px; }
     .notes-input, .sev-select {
@@ -515,18 +673,19 @@
       text-align: center; color: var(--muted);
       background: rgba(0, 0, 0, 0.25);
     }
-    .photo-area.has-photo { border-style: solid; border-color: var(--success); }
+    .photo-area.has-photo { border-style: solid; border-color: var(--border); }
     .photo-preview {
       max-width: 100%; max-height: 180px; border-radius: 12px; margin-top: 8px;
     }
     .photo-btn {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 10px 18px;
-      background: linear-gradient(180deg, var(--primary-top), var(--primary));
-      color: #fff;
-      border: none; border-radius: var(--radius-pill); font-size: 0.9rem; margin-top: 10px;
+      background: #e8eef2;
+      color: #0d0d0f;
+      border: none;
+      border-radius: var(--radius-pill); font-size: 0.9rem; margin-top: 10px;
       font-weight: 600;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255,255,255,0.28);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.85);
     }
 
     /* Bottom nav — extends into home-indicator safe area (no gap) */
@@ -556,16 +715,16 @@
       min-width: 0;
     }
     .bottom-bar .btn-outline {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid var(--border);
+      background: rgba(42, 42, 46, 0.05);
+      border: 0.5px solid rgba(255, 255, 255, 0.28);
       color: var(--text);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
     }
     .bottom-bar .btn-primary {
-      background: linear-gradient(180deg, var(--primary-top), var(--primary));
-      color: #fff;
+      background: #e8eef2;
+      color: #0d0d0f;
       border: none;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255,255,255,0.28);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.85);
     }
     #btnNextSection { margin-left: 0; }
 
@@ -585,9 +744,11 @@
     .hero h2 {
       font-size: 1.35rem; margin-bottom: 6px; font-weight: 650;
       letter-spacing: -0.03em;
+      visibility: hidden;
     }
     .hero p {
       color: var(--muted); font-size: 0.9rem; opacity: 1;
+      visibility: hidden;
     }
     .stat-row {
       display: flex; gap: 12px; margin: 16px;
@@ -608,10 +769,36 @@
 
     .list-item {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 16px 18px;
-      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+      margin: 10px 12px;
       gap: 12px;
-      background: transparent;
+      background: #1a1a1b;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+    }
+    .list-item.list-complete {
+      border-color: transparent;
+      background:
+        linear-gradient(#1a1a1b, #1a1a1b) padding-box,
+        linear-gradient(
+          90deg,
+          #34d399 0,
+          #34d399 2px,
+          rgba(52, 211, 153, 0.35) 12px,
+          rgba(249, 253, 255, 0.12) 22px
+        ) border-box;
+    }
+    .list-item.list-findings {
+      border-color: transparent;
+      background:
+        linear-gradient(#1a1a1b, #1a1a1b) padding-box,
+        linear-gradient(
+          90deg,
+          #ff453a 0,
+          #ff453a 2px,
+          rgba(255, 69, 58, 0.35) 12px,
+          rgba(249, 253, 255, 0.12) 22px
+        ) border-box;
     }
     .list-item .list-item-main {
       flex: 1; min-width: 0; cursor: pointer;
@@ -703,22 +890,72 @@
       box-sizing: border-box;
     }
     .badge-draft {
-      background: rgba(255, 255, 255, 0.08);
+      background: rgba(42, 42, 46, 0.05);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
       color: var(--muted);
-      border: 1px solid var(--border);
+      border: 0.5px solid rgba(255, 255, 255, 0.28);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
     }
     .badge-complete {
-      background: rgba(52, 211, 153, 0.14);
+      background: rgba(52, 211, 153, 0.12);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
       color: var(--success);
-      border: 1px solid rgba(52, 211, 153, 0.25);
+      border: 0.5px solid rgba(52, 211, 153, 0.35);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
     }
     .badge-findings {
-      background: var(--brand-red-soft);
-      color: #fca5a5;
-      border: 1px solid rgba(212, 34, 59, 0.4);
+      background: rgba(255, 69, 58, 0.16);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      color: #ff6b63;
+      border: 0.5px solid rgba(255, 69, 58, 0.42);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.28);
     }
 
     /* Summary */
+    .review-meta {
+      padding: 16px 18px;
+    }
+    .review-meta .review-customer {
+      font-size: 1.15rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+    }
+    .review-meta .review-line {
+      font-size: 0.88rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .review-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin: 8px 16px 16px;
+    }
+    .review-actions-row {
+      display: flex;
+      gap: 10px;
+    }
+    .review-actions-row .btn { flex: 1; margin: 0; }
+    .finding-summary-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .finding-summary-card .finding-name { font-weight: 600; letter-spacing: -0.01em; }
+    .finding-summary-card .finding-section {
+      font-size: 0.82rem; color: var(--muted); margin-top: 3px;
+    }
+    .finding-summary-card .finding-meta {
+      font-size: 0.82rem; color: var(--muted); margin-top: 8px;
+    }
+    .finding-summary-card .finding-notes {
+      font-size: 0.9rem; margin-top: 8px; line-height: 1.4;
+    }
     .summary-section { margin: 12px 16px; }
     .summary-section h3 {
       font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
@@ -729,7 +966,25 @@
       border-radius: var(--radius); padding: 16px;
       margin-bottom: 10px;
       border: 1px solid var(--border);
-      border-left: 2px solid var(--danger);
+    }
+    .finding-summary-card.sev-high {
+      border-color: transparent;
+      background:
+        linear-gradient(#1a1a1b, #1a1a1b) padding-box,
+        linear-gradient(
+          90deg,
+          #ff453a 0,
+          #ff453a 2px,
+          rgba(255, 69, 58, 0.35) 12px,
+          rgba(249, 253, 255, 0.12) 22px
+        ) border-box;
+    }
+    .badge.badge-sev {
+      white-space: normal;
+      text-align: center;
+      max-width: 48%;
+      line-height: 1.2;
+      padding: 6px 10px;
     }
     .finding-summary-card .sev {
       font-size: 0.8rem; font-weight: 600; color: var(--danger);
@@ -833,7 +1088,28 @@
     .empty-state {
       text-align: center; padding: 48px 24px; color: var(--muted);
     }
-    .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; opacity: 0.4; }
+    .empty-state .icon {
+      width: 44px; height: 44px; margin: 0 auto 14px;
+      color: var(--muted); opacity: 0.7;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .empty-state .icon svg { width: 40px; height: 40px; }
+    .ico {
+      width: 18px; height: 18px;
+      display: inline-block; vertical-align: -3px;
+      margin-right: 8px;
+    }
+    .ico svg { width: 100%; height: 100%; display: block; }
+    .finding-heading {
+      font-weight: 600; margin-bottom: 8px; color: var(--danger);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .finding-heading .ico { margin-right: 0; color: var(--danger); }
+    .photo-needed {
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px; color: var(--muted); margin-bottom: 4px;
+    }
+    .photo-needed .ico { margin-right: 0; }
   </style>
 </head>
 <body>
@@ -857,15 +1133,29 @@
     </div>
   </header>
   <div class="search-bar" id="searchBar">
-    <input type="search" id="inpSearch" placeholder="Search customer, serial, tech, PO..." autocomplete="off" />
+    <div class="search-field">
+      <svg class="search-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="11" cy="11" r="6.2" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+      <input type="search" id="inpSearch" placeholder="Search" autocomplete="off" enterkeyhint="search" />
+      <button type="button" class="search-clear" id="btnSearchClear" aria-label="Clear search">
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <button type="button" class="search-cancel" id="btnSearchCancel">Cancel</button>
   </div>
+  <div id="searchScrim" hidden></div>
+  <div id="searchResults" hidden></div>
 
   <!-- HOME SCREEN -->
   <div class="screen active" id="screenHome">
     <div id="homeAmbientGlow" aria-hidden="true"></div>
-    <div class="hero">
-      <h2 id="headerTitleHome">LX-8 Inspection App</h2>
-      <p>Baking equipment inspections made simple</p>
+    <div class="hero" aria-hidden="true">
+      <h2 id="headerTitleHome">LeMatic Inspection App</h2>
+      <p>Automation for bakery</p>
     </div>
     <div class="stat-row">
       <div class="stat-card">
@@ -884,7 +1174,7 @@
       <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Recent Inspections</div>
       <div id="recentList">
         <div class="empty-state">
-          <div class="icon">📋</div>
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="3.2" width="8" height="3.6" rx="1" stroke="currentColor" stroke-width="1.8"/><rect x="5.2" y="5.2" width="13.6" height="15.6" rx="2.4" stroke="currentColor" stroke-width="1.8"/><path d="M9 12h6M9 16h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
           <p>No inspections yet.<br>Tap “New Inspection” to begin.</p>
         </div>
       </div>
@@ -945,9 +1235,8 @@
 
   <!-- SUMMARY / REVIEW SCREEN -->
   <div class="screen" id="screenSummary">
-    <div class="card">
-      <h2 style="margin-bottom:8px">Inspection Summary</h2>
-      <div id="summaryMeta" style="font-size:0.9rem;color:var(--muted);line-height:1.5"></div>
+    <div class="card review-meta">
+      <div id="summaryMeta"></div>
     </div>
     <div class="stat-row">
       <div class="stat-card">
@@ -978,11 +1267,11 @@
         <textarea id="summaryNotes" placeholder="Overall observations, recommendations..."></textarea>
       </div>
     </div>
-    <div class="btn-row" style="flex-direction:column;gap:10px">
-      <button class="btn btn-primary" id="btnGeneratePDF">📄 Generate PDF Report</button>
-      <div style="display:flex;gap:10px;width:100%">
-        <button class="btn btn-outline" id="btnBackToInspect" style="flex:1">Back</button>
-        <button class="btn btn-success" id="btnComplete" style="flex:1">Complete Inspection</button>
+    <div class="review-actions">
+      <button class="btn btn-success" id="btnComplete">Complete Inspection</button>
+      <div class="review-actions-row">
+        <button class="btn btn-outline" id="btnBackToInspect">Back</button>
+        <button class="btn btn-primary" id="btnGeneratePDF"><span class="ico"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.4h7.2L19.6 9v11.2c0 .8-.7 1.4-1.5 1.4H7c-.8 0-1.5-.6-1.5-1.4V4.8c0-.8.7-1.4 1.5-1.4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14.2 3.5V9h5.3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.6 13h6.8M8.6 16.4h4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>PDF</button>
       </div>
     </div>
   </div>
@@ -1008,8 +1297,17 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <script>window.EMBEDDED_DATA = {"sections": [{"section_id": 1, "section": "Spread Conveyor", "display_order": 1}, {"section_id": 2, "section": "Accumulating Conveyor", "display_order": 2}, {"section_id": 3, "section": "Grouper Section", "display_order": 3}, {"section_id": 4, "section": "Slicing Conveyor", "display_order": 4}, {"section_id": 5, "section": "Band Slicer", "display_order": 5}, {"section_id": 6, "section": "Hinge Slicer", "display_order": 6}, {"section_id": 7, "section": "Bottom Slicer", "display_order": 7}, {"section_id": 8, "section": "Top Slicer", "display_order": 8}, {"section_id": 9, "section": "Cross-Over Conveyor", "display_order": 9}, {"section_id": 10, "section": "Bagger", "display_order": 10}, {"section_id": 11, "section": "Over Head Paddle Conveyor", "display_order": 11}, {"section_id": 12, "section": "Tying Conveyor", "display_order": 12}], "items": [{"item_id": 1, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 1, "inspection_item": "Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Sprockets"}, {"item_id": 2, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 2, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 3, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 3, "inspection_item": "Conveyor belting and guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor belting and guides"}, {"item_id": 4, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 4, "inspection_item": "Operation and Functionality", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Operation and Functionality"}, {"item_id": 5, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 5, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 6, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 1, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 7, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 2, "inspection_item": "Conveyor Belt", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt"}, {"item_id": 8, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 3, "inspection_item": "Conveyor Belt Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt Sprockets"}, {"item_id": 9, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 4, "inspection_item": "Return Rollers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Return Rollers"}, {"item_id": 10, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 5, "inspection_item": "Check Nose-Bars/Transitions", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Nose Bars Transitions"}, {"item_id": 11, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 6, "inspection_item": "Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Guides"}, {"item_id": 12, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 7, "inspection_item": "Operation and Functionality", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Operation and Functionality"}, {"item_id": 13, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 1, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 14, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 2, "inspection_item": "Conveyor Belt", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt"}, {"item_id": 15, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 3, "inspection_item": "Conveyor Belt Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt Sprockets"}, {"item_id": 16, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 4, "inspection_item": "Return Rollers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Return Rollers"}, {"item_id": 17, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 5, "inspection_item": "Check Nose-Bars/Transitions", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Nose Bars Transitions"}, {"item_id": 18, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 6, "inspection_item": "Lane Guides and Movement", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lane Guides and Movement"}, {"item_id": 19, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 7, "inspection_item": "Lane Guide Motors/Circuit Breakers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lane Guide Motors Circuit Breakers"}, {"item_id": 20, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 8, "inspection_item": "Lane Sensors", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lane Sensors"}, {"item_id": 21, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 9, "inspection_item": "Hold-Down Lock and Rack", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Lock and Rack"}, {"item_id": 22, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 10, "inspection_item": "Hold-Down Pad Wear", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Pad Wear"}, {"item_id": 23, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 11, "inspection_item": "Hold-Down Pivot Points", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Pivot Points"}, {"item_id": 24, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 12, "inspection_item": "Hold-Down Air Cylinder Pivot Points", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Air Cylinder Pivot Points"}, {"item_id": 25, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 13, "inspection_item": "Grouper Stop-Gate", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Grouper Stop Gate"}, {"item_id": 26, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 14, "inspection_item": "Stop-Gate Air Cylinder", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stop Gate Air Cylinder"}, {"item_id": 27, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 15, "inspection_item": "Stop-Gate Shaft and Coupling", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stop Gate Shaft and Coupling"}, {"item_id": 28, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 16, "inspection_item": "Air Lines Valves and Regulators", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Air Lines Valves and Regulators"}, {"item_id": 29, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 17, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 30, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 18, "inspection_item": "Verify Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Safeties"}, {"item_id": 31, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 1, "inspection_item": "Grip Top Belting and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Grip Top Belting and Sprockets"}, {"item_id": 32, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 2, "inspection_item": "Return Rollers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Return Rollers"}, {"item_id": 33, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 3, "inspection_item": "Check Nose-Bars and Transitions", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Nose Bars and Transitions"}, {"item_id": 34, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 4, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 35, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 5, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 36, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 6, "inspection_item": "Verify Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Safeties"}, {"item_id": 37, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 1, "inspection_item": "Verify all Safties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Safties"}, {"item_id": 38, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 2, "inspection_item": "Verify all Sensors", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Sensors"}, {"item_id": 39, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 3, "inspection_item": "Band Slicer Lift Motor and Clutch", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Band Slicer Lift Motor and Clutch"}, {"item_id": 40, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 4, "inspection_item": "Top Conveyor Belts and Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Conveyor Belts and Guides"}, {"item_id": 41, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 5, "inspection_item": "Top Conveyor Drive Chain and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Conveyor Drive Chain and Sprockets"}, {"item_id": 42, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 6, "inspection_item": "FTC Assemblies if Applicable", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "FTC Assemblies if Applicable"}, {"item_id": 43, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 7, "inspection_item": "Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shafts and Bearings"}, {"item_id": 44, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 8, "inspection_item": "Blade Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Guides"}, {"item_id": 45, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 9, "inspection_item": "Back Up Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Back Up Bearings"}, {"item_id": 46, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 10, "inspection_item": "Blade Pulleys for Wear", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Pulleys for Wear"}, {"item_id": 47, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 11, "inspection_item": "Blade Pulley Bearing Hubs", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Pulley Bearing Hubs"}, {"item_id": 48, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 12, "inspection_item": "Verify Blade is Level to Tabletop", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Blade is Level to Tabletop"}, {"item_id": 49, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 13, "inspection_item": "Condition of Blades", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Blades"}, {"item_id": 50, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 14, "inspection_item": "Excessive Noise/Vibration", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Excessive Noise Vibration"}, {"item_id": 51, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 15, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 52, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 1, "inspection_item": "Verify all Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Safeties"}, {"item_id": 53, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 2, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 54, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 3, "inspection_item": "Top Conveyor Belts And Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Conveyor Belts And Guides"}, {"item_id": 55, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 4, "inspection_item": "Top Conveyor Drive Chain and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Conveyor Drive Chain and Sprockets"}, {"item_id": 56, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 5, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 57, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 6, "inspection_item": "Drive Belt and Tensioner", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Drive Belt and Tensioner"}, {"item_id": 58, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 7, "inspection_item": "Idler Pulleys and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Idler Pulleys and Bearings"}, {"item_id": 59, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 8, "inspection_item": "Blade Spindle Shafts Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Spindle Shafts Bearings"}, {"item_id": 60, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 9, "inspection_item": "Lock-Caps", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lock Caps"}, {"item_id": 61, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 10, "inspection_item": "Spinner Splitter Assemblies", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Spinner Splitter Assemblies"}, {"item_id": 62, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 11, "inspection_item": "Condition of Blades", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Blades"}, {"item_id": 63, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 12, "inspection_item": "Excessive Noise/Vibration", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Excessive Noise Vibration"}, {"item_id": 64, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 13, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 65, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 1, "inspection_item": "Verify Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Safeties"}, {"item_id": 66, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 2, "inspection_item": "Verify In-Position Prox", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify In Position Prox"}, {"item_id": 67, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 3, "inspection_item": "Check In-Position Linkage and Pivot Points", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check In Position Linkage and Pivot Points"}, {"item_id": 68, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 4, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 69, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 5, "inspection_item": "Drive Belts and Pulleys", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belts and Pulleys"}, {"item_id": 70, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 6, "inspection_item": "Blade Spindle Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Spindle Shafts and Bearings"}, {"item_id": 71, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 7, "inspection_item": "Blade Lock Caps", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Lock Caps"}, {"item_id": 72, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 8, "inspection_item": "Check for Excessive Noise/Vibration", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Check for Excessive Noise Vibration"}, {"item_id": 73, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 9, "inspection_item": "Condition of Blades", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Blades"}, {"item_id": 74, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 10, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 75, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 1, "inspection_item": "Verify Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Safeties"}, {"item_id": 76, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 2, "inspection_item": "Check all Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check all Shafts and Bearings"}, {"item_id": 77, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 3, "inspection_item": "Drive Belt and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belt and Sprockets"}, {"item_id": 78, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 4, "inspection_item": "Condition of Blades", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Blades"}, {"item_id": 79, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 5, "inspection_item": "Check for Excessive Noise/Vibration", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Check for Excessive Noise Vibration"}, {"item_id": 80, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 6, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 81, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 1, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 82, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 2, "inspection_item": "Conveyor Belting and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belting and Sprockets"}, {"item_id": 83, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 3, "inspection_item": "Conveyor Belt Track", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt Track"}, {"item_id": 84, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 4, "inspection_item": "Drive Belt and Pulleys", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belt and Pulleys"}, {"item_id": 85, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 5, "inspection_item": "Tensioner Air Cylinders and Air Lines", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Tensioner Air Cylinders and Air Lines"}, {"item_id": 86, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 6, "inspection_item": "Tensioner Air Regulator 5-15 Psi.", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Tensioner Air Regulator 5 15 Psi"}, {"item_id": 87, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 7, "inspection_item": "Excessive Crumb Build Up", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Excessive Crumb Build Up"}, {"item_id": 88, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 8, "inspection_item": "Check Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Condition of Guards"}, {"item_id": 89, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 9, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 90, "section_id": 10, "section": "Bagger", "item_order_in_section": 1, "inspection_item": "Verify all Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Safeties"}, {"item_id": 91, "section_id": 10, "section": "Bagger", "item_order_in_section": 2, "inspection_item": "Verify all Sensors/Reflectors", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Sensors Reflectors"}, {"item_id": 92, "section_id": 10, "section": "Bagger", "item_order_in_section": 3, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 93, "section_id": 10, "section": "Bagger", "item_order_in_section": 4, "inspection_item": "Airlines Valves and Regulators", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Airlines Valves and Regulators"}, {"item_id": 94, "section_id": 10, "section": "Bagger", "item_order_in_section": 5, "inspection_item": "Verify Scoops Solenoid is Open Center", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Scoops Solenoid is Open Center"}, {"item_id": 95, "section_id": 10, "section": "Bagger", "item_order_in_section": 6, "inspection_item": "Top Cover Air Cylinder And Operation", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Cover Air Cylinder And Operation"}, {"item_id": 96, "section_id": 10, "section": "Bagger", "item_order_in_section": 7, "inspection_item": "Bagger Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Bagger Guides"}, {"item_id": 97, "section_id": 10, "section": "Bagger", "item_order_in_section": 8, "inspection_item": "Stacker Transfer Grate", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stacker Transfer Grate"}, {"item_id": 98, "section_id": 10, "section": "Bagger", "item_order_in_section": 9, "inspection_item": "Stacker Fingers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stacker Fingers"}, {"item_id": 99, "section_id": 10, "section": "Bagger", "item_order_in_section": 10, "inspection_item": "Stacker Lift Belts and Pulleys", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stacker Lift Belts and Pulleys"}, {"item_id": 100, "section_id": 10, "section": "Bagger", "item_order_in_section": 11, "inspection_item": "Lift Screws", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lift Screws"}, {"item_id": 101, "section_id": 10, "section": "Bagger", "item_order_in_section": 12, "inspection_item": "Verify Stacker Lift Movement", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Stacker Lift Movement"}, {"item_id": 102, "section_id": 10, "section": "Bagger", "item_order_in_section": 13, "inspection_item": "All shafts and Bushings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All shafts and Bushings"}, {"item_id": 103, "section_id": 10, "section": "Bagger", "item_order_in_section": 14, "inspection_item": "Dead plate", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Dead plate"}, {"item_id": 104, "section_id": 10, "section": "Bagger", "item_order_in_section": 15, "inspection_item": "Scoop Assemblies", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Scoop Assemblies"}, {"item_id": 105, "section_id": 10, "section": "Bagger", "item_order_in_section": 16, "inspection_item": "Scoop Linear Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Scoop Linear Bearings"}, {"item_id": 106, "section_id": 10, "section": "Bagger", "item_order_in_section": 17, "inspection_item": "Hold Down Fingers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Fingers"}, {"item_id": 107, "section_id": 10, "section": "Bagger", "item_order_in_section": 18, "inspection_item": "Lin-Mot motor and Shaft", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lin Mot motor and Shaft"}, {"item_id": 108, "section_id": 10, "section": "Bagger", "item_order_in_section": 19, "inspection_item": "Cam Follower Wheels and Track", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Cam Follower Wheels and Track"}, {"item_id": 109, "section_id": 10, "section": "Bagger", "item_order_in_section": 20, "inspection_item": "Guide Motor Drive Belt And Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Guide Motor Drive Belt And Sprockets"}, {"item_id": 110, "section_id": 10, "section": "Bagger", "item_order_in_section": 21, "inspection_item": "Verify Drive Belt Cover and Safety", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Drive Belt Cover and Safety"}, {"item_id": 111, "section_id": 10, "section": "Bagger", "item_order_in_section": 22, "inspection_item": "Drive Belt and Pulleys", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belt and Pulleys"}, {"item_id": 112, "section_id": 10, "section": "Bagger", "item_order_in_section": 23, "inspection_item": "Check Lift Screws Bushings and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Lift Screws Bushings and Bearings"}, {"item_id": 113, "section_id": 10, "section": "Bagger", "item_order_in_section": 24, "inspection_item": "Grounding Tabs on Discharge", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Grounding Tabs on Discharge"}, {"item_id": 114, "section_id": 10, "section": "Bagger", "item_order_in_section": 25, "inspection_item": "Bag Tables Bumpers and Wicket Block", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Bag Tables Bumpers and Wicket Block"}, {"item_id": 115, "section_id": 10, "section": "Bagger", "item_order_in_section": 26, "inspection_item": "Bag Table Height Setup", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Bag Table Height Setup"}, {"item_id": 116, "section_id": 10, "section": "Bagger", "item_order_in_section": 27, "inspection_item": "Check Lin-Mot and Shafts", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Lin Mot and Shafts"}, {"item_id": 117, "section_id": 10, "section": "Bagger", "item_order_in_section": 28, "inspection_item": "Shuttle In-Position Sensor", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shuttle In Position Sensor"}, {"item_id": 118, "section_id": 10, "section": "Bagger", "item_order_in_section": 29, "inspection_item": "Check Shuttle Motor Cable for Snags", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Shuttle Motor Cable for Snags"}, {"item_id": 119, "section_id": 10, "section": "Bagger", "item_order_in_section": 30, "inspection_item": "Shuttle Door Lock", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shuttle Door Lock"}, {"item_id": 120, "section_id": 10, "section": "Bagger", "item_order_in_section": 31, "inspection_item": "Shuttle Door Strut and Bracket", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shuttle Door Strut and Bracket"}, {"item_id": 121, "section_id": 10, "section": "Bagger", "item_order_in_section": 32, "inspection_item": "Belt and Belt Tracking", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Belt and Belt Tracking"}, {"item_id": 122, "section_id": 10, "section": "Bagger", "item_order_in_section": 33, "inspection_item": "Shaft Brushes and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shaft Brushes and Bearings"}, {"item_id": 123, "section_id": 10, "section": "Bagger", "item_order_in_section": 34, "inspection_item": "Take Away Brush Coupler", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Take Away Brush Coupler"}, {"item_id": 124, "section_id": 10, "section": "Bagger", "item_order_in_section": 35, "inspection_item": "Rack and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Rack and Sprockets"}, {"item_id": 125, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 1, "inspection_item": "Paddles", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Paddles"}, {"item_id": 126, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 2, "inspection_item": "Paddle Arms and Shafts", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Paddle Arms and Shafts"}, {"item_id": 127, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 3, "inspection_item": "Car Assemblies", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Car Assemblies"}, {"item_id": 128, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 4, "inspection_item": "Drive Belt Tension", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Drive Belt Tension"}, {"item_id": 129, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 5, "inspection_item": "Drive Belt for Cracks or Tears", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belt for Cracks or Tears"}, {"item_id": 130, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 1, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 131, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 2, "inspection_item": "Chains and Tensioners", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Chains and Tensioners"}, {"item_id": 132, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 3, "inspection_item": "Clutch and Prox", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Clutch and Prox"}, {"item_id": 133, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 4, "inspection_item": "Take-Away Brush and Flap", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Take Away Brush and Flap"}, {"item_id": 134, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 5, "inspection_item": "Condition of Flights", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Flights"}, {"item_id": 135, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 6, "inspection_item": "Check Timing", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Check Timing"}, {"item_id": 136, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 7, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}], "lists": {"condition": ["Good", "Adjustment", "Wear", "Damaged", "N/A"], "functional": ["Pass", "Fail", "N/A"], "measurement": ["Within Spec", "Out of Spec", "N/A"], "severity": ["1 - Monitor", "2 - Adjustment", "3 - Maintenance Required", "4 - Critical"], "impact": ["Downtime", "Performance", "Safety"], "inspection_status": ["Draft", "Complete", "Reviewed"]}};</script>
+  <script>window.EMBEDDED_DATA = {"sections": [{"section_id": 1, "section": "Spread Conveyor", "display_order": 1}, {"section_id": 2, "section": "Accumulating Conveyor", "display_order": 2}, {"section_id": 3, "section": "Grouper Section", "display_order": 3}, {"section_id": 4, "section": "Slicing Conveyor", "display_order": 4}, {"section_id": 5, "section": "Band Slicer", "display_order": 5}, {"section_id": 6, "section": "Hinge Slicer", "display_order": 6}, {"section_id": 7, "section": "Bottom Slicer", "display_order": 7}, {"section_id": 8, "section": "Top Slicer", "display_order": 8}, {"section_id": 9, "section": "Cross-Over Conveyor", "display_order": 9}, {"section_id": 10, "section": "Bagger", "display_order": 10}, {"section_id": 11, "section": "Over Head Paddle Conveyor", "display_order": 11}, {"section_id": 12, "section": "Tying Conveyor", "display_order": 12}], "items": [{"item_id": 1, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 1, "inspection_item": "Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Sprockets"}, {"item_id": 2, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 2, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 3, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 3, "inspection_item": "Conveyor belting and guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor belting and guides"}, {"item_id": 4, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 4, "inspection_item": "Operation and Functionality", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Operation and Functionality"}, {"item_id": 5, "section_id": 1, "section": "Spread Conveyor", "item_order_in_section": 5, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 6, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 1, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 7, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 2, "inspection_item": "Conveyor Belt", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt"}, {"item_id": 8, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 3, "inspection_item": "Conveyor Belt Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt Sprockets"}, {"item_id": 9, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 4, "inspection_item": "Return Rollers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Return Rollers"}, {"item_id": 10, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 5, "inspection_item": "Check Nose-Bars/Transitions", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Nose Bars Transitions"}, {"item_id": 11, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 6, "inspection_item": "Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Guides"}, {"item_id": 12, "section_id": 2, "section": "Accumulating Conveyor", "item_order_in_section": 7, "inspection_item": "Operation and Functionality", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Operation and Functionality"}, {"item_id": 13, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 1, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 14, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 2, "inspection_item": "Conveyor Belt", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt"}, {"item_id": 15, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 3, "inspection_item": "Conveyor Belt Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt Sprockets"}, {"item_id": 16, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 4, "inspection_item": "Return Rollers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Return Rollers"}, {"item_id": 17, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 5, "inspection_item": "Check Nose-Bars/Transitions", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Nose Bars Transitions"}, {"item_id": 18, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 6, "inspection_item": "Lane Guides and Movement", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lane Guides and Movement"}, {"item_id": 19, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 7, "inspection_item": "Lane Guide Motors/Circuit Breakers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lane Guide Motors Circuit Breakers"}, {"item_id": 20, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 8, "inspection_item": "Lane Sensors", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lane Sensors"}, {"item_id": 21, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 9, "inspection_item": "Hold-Down Lock and Rack", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Lock and Rack"}, {"item_id": 22, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 10, "inspection_item": "Hold-Down Pad Wear", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Pad Wear"}, {"item_id": 23, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 11, "inspection_item": "Hold-Down Pivot Points", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Pivot Points"}, {"item_id": 24, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 12, "inspection_item": "Hold-Down Air Cylinder Pivot Points", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Air Cylinder Pivot Points"}, {"item_id": 25, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 13, "inspection_item": "Grouper Stop-Gate", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Grouper Stop Gate"}, {"item_id": 26, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 14, "inspection_item": "Stop-Gate Air Cylinder", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stop Gate Air Cylinder"}, {"item_id": 27, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 15, "inspection_item": "Stop-Gate Shaft and Coupling", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stop Gate Shaft and Coupling"}, {"item_id": 28, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 16, "inspection_item": "Air Lines Valves and Regulators", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Air Lines Valves and Regulators"}, {"item_id": 29, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 17, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 30, "section_id": 3, "section": "Grouper Section", "item_order_in_section": 18, "inspection_item": "Verify Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Safeties"}, {"item_id": 31, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 1, "inspection_item": "Grip Top Belting and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Grip Top Belting and Sprockets"}, {"item_id": 32, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 2, "inspection_item": "Return Rollers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Return Rollers"}, {"item_id": 33, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 3, "inspection_item": "Check Nose-Bars and Transitions", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Nose Bars and Transitions"}, {"item_id": 34, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 4, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 35, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 5, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 36, "section_id": 4, "section": "Slicing Conveyor", "item_order_in_section": 6, "inspection_item": "Verify Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Safeties"}, {"item_id": 37, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 1, "inspection_item": "Verify all Safties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Safties"}, {"item_id": 38, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 2, "inspection_item": "Verify all Sensors", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Sensors"}, {"item_id": 39, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 3, "inspection_item": "Band Slicer Lift Motor and Clutch", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Band Slicer Lift Motor and Clutch"}, {"item_id": 40, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 4, "inspection_item": "Top Conveyor Belts and Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Conveyor Belts and Guides"}, {"item_id": 41, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 5, "inspection_item": "Top Conveyor Drive Chain and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Conveyor Drive Chain and Sprockets"}, {"item_id": 42, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 6, "inspection_item": "FTC Assemblies if Applicable", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "FTC Assemblies if Applicable"}, {"item_id": 43, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 7, "inspection_item": "Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shafts and Bearings"}, {"item_id": 44, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 8, "inspection_item": "Blade Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Guides"}, {"item_id": 45, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 9, "inspection_item": "Back Up Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Back Up Bearings"}, {"item_id": 46, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 10, "inspection_item": "Blade Pulleys for Wear", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Pulleys for Wear"}, {"item_id": 47, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 11, "inspection_item": "Blade Pulley Bearing Hubs", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Pulley Bearing Hubs"}, {"item_id": 48, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 12, "inspection_item": "Verify Blade is Level to Tabletop", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Blade is Level to Tabletop"}, {"item_id": 49, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 13, "inspection_item": "Condition of Blades", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Blades"}, {"item_id": 50, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 14, "inspection_item": "Excessive Noise/Vibration", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Excessive Noise Vibration"}, {"item_id": 51, "section_id": 5, "section": "Band Slicer", "item_order_in_section": 15, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 52, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 1, "inspection_item": "Verify all Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Safeties"}, {"item_id": 53, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 2, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 54, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 3, "inspection_item": "Top Conveyor Belts And Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Conveyor Belts And Guides"}, {"item_id": 55, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 4, "inspection_item": "Top Conveyor Drive Chain and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Conveyor Drive Chain and Sprockets"}, {"item_id": 56, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 5, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 57, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 6, "inspection_item": "Drive Belt and Tensioner", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Drive Belt and Tensioner"}, {"item_id": 58, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 7, "inspection_item": "Idler Pulleys and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Idler Pulleys and Bearings"}, {"item_id": 59, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 8, "inspection_item": "Blade Spindle Shafts Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Spindle Shafts Bearings"}, {"item_id": 60, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 9, "inspection_item": "Lock-Caps", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lock Caps"}, {"item_id": 61, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 10, "inspection_item": "Spinner Splitter Assemblies", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Spinner Splitter Assemblies"}, {"item_id": 62, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 11, "inspection_item": "Condition of Blades", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Blades"}, {"item_id": 63, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 12, "inspection_item": "Excessive Noise/Vibration", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Excessive Noise Vibration"}, {"item_id": 64, "section_id": 6, "section": "Hinge Slicer", "item_order_in_section": 13, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 65, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 1, "inspection_item": "Verify Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Safeties"}, {"item_id": 66, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 2, "inspection_item": "Verify In-Position Prox", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify In Position Prox"}, {"item_id": 67, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 3, "inspection_item": "Check In-Position Linkage and Pivot Points", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check In Position Linkage and Pivot Points"}, {"item_id": 68, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 4, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 69, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 5, "inspection_item": "Drive Belts and Pulleys", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belts and Pulleys"}, {"item_id": 70, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 6, "inspection_item": "Blade Spindle Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Spindle Shafts and Bearings"}, {"item_id": 71, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 7, "inspection_item": "Blade Lock Caps", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Blade Lock Caps"}, {"item_id": 72, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 8, "inspection_item": "Check for Excessive Noise/Vibration", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Check for Excessive Noise Vibration"}, {"item_id": 73, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 9, "inspection_item": "Condition of Blades", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Blades"}, {"item_id": 74, "section_id": 7, "section": "Bottom Slicer", "item_order_in_section": 10, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 75, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 1, "inspection_item": "Verify Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Safeties"}, {"item_id": 76, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 2, "inspection_item": "Check all Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check all Shafts and Bearings"}, {"item_id": 77, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 3, "inspection_item": "Drive Belt and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belt and Sprockets"}, {"item_id": 78, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 4, "inspection_item": "Condition of Blades", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Blades"}, {"item_id": 79, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 5, "inspection_item": "Check for Excessive Noise/Vibration", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Check for Excessive Noise Vibration"}, {"item_id": 80, "section_id": 8, "section": "Top Slicer", "item_order_in_section": 6, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 81, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 1, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 82, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 2, "inspection_item": "Conveyor Belting and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belting and Sprockets"}, {"item_id": 83, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 3, "inspection_item": "Conveyor Belt Track", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Conveyor Belt Track"}, {"item_id": 84, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 4, "inspection_item": "Drive Belt and Pulleys", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belt and Pulleys"}, {"item_id": 85, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 5, "inspection_item": "Tensioner Air Cylinders and Air Lines", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Tensioner Air Cylinders and Air Lines"}, {"item_id": 86, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 6, "inspection_item": "Tensioner Air Regulator 5-15 Psi.", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Tensioner Air Regulator 5 15 Psi"}, {"item_id": 87, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 7, "inspection_item": "Excessive Crumb Build Up", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Excessive Crumb Build Up"}, {"item_id": 88, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 8, "inspection_item": "Check Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Condition of Guards"}, {"item_id": 89, "section_id": 9, "section": "Cross-Over Conveyor", "item_order_in_section": 9, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}, {"item_id": 90, "section_id": 10, "section": "Bagger", "item_order_in_section": 1, "inspection_item": "Verify all Safeties", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Safeties"}, {"item_id": 91, "section_id": 10, "section": "Bagger", "item_order_in_section": 2, "inspection_item": "Verify all Sensors/Reflectors", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify all Sensors Reflectors"}, {"item_id": 92, "section_id": 10, "section": "Bagger", "item_order_in_section": 3, "inspection_item": "Condition of Guards", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Guards"}, {"item_id": 93, "section_id": 10, "section": "Bagger", "item_order_in_section": 4, "inspection_item": "Airlines Valves and Regulators", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Airlines Valves and Regulators"}, {"item_id": 94, "section_id": 10, "section": "Bagger", "item_order_in_section": 5, "inspection_item": "Verify Scoops Solenoid is Open Center", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Scoops Solenoid is Open Center"}, {"item_id": 95, "section_id": 10, "section": "Bagger", "item_order_in_section": 6, "inspection_item": "Top Cover Air Cylinder And Operation", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Top Cover Air Cylinder And Operation"}, {"item_id": 96, "section_id": 10, "section": "Bagger", "item_order_in_section": 7, "inspection_item": "Bagger Guides", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Bagger Guides"}, {"item_id": 97, "section_id": 10, "section": "Bagger", "item_order_in_section": 8, "inspection_item": "Stacker Transfer Grate", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stacker Transfer Grate"}, {"item_id": 98, "section_id": 10, "section": "Bagger", "item_order_in_section": 9, "inspection_item": "Stacker Fingers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stacker Fingers"}, {"item_id": 99, "section_id": 10, "section": "Bagger", "item_order_in_section": 10, "inspection_item": "Stacker Lift Belts and Pulleys", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Stacker Lift Belts and Pulleys"}, {"item_id": 100, "section_id": 10, "section": "Bagger", "item_order_in_section": 11, "inspection_item": "Lift Screws", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lift Screws"}, {"item_id": 101, "section_id": 10, "section": "Bagger", "item_order_in_section": 12, "inspection_item": "Verify Stacker Lift Movement", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Stacker Lift Movement"}, {"item_id": 102, "section_id": 10, "section": "Bagger", "item_order_in_section": 13, "inspection_item": "All shafts and Bushings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All shafts and Bushings"}, {"item_id": 103, "section_id": 10, "section": "Bagger", "item_order_in_section": 14, "inspection_item": "Dead plate", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Dead plate"}, {"item_id": 104, "section_id": 10, "section": "Bagger", "item_order_in_section": 15, "inspection_item": "Scoop Assemblies", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Scoop Assemblies"}, {"item_id": 105, "section_id": 10, "section": "Bagger", "item_order_in_section": 16, "inspection_item": "Scoop Linear Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Scoop Linear Bearings"}, {"item_id": 106, "section_id": 10, "section": "Bagger", "item_order_in_section": 17, "inspection_item": "Hold Down Fingers", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Hold Down Fingers"}, {"item_id": 107, "section_id": 10, "section": "Bagger", "item_order_in_section": 18, "inspection_item": "Lin-Mot motor and Shaft", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Lin Mot motor and Shaft"}, {"item_id": 108, "section_id": 10, "section": "Bagger", "item_order_in_section": 19, "inspection_item": "Cam Follower Wheels and Track", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Cam Follower Wheels and Track"}, {"item_id": 109, "section_id": 10, "section": "Bagger", "item_order_in_section": 20, "inspection_item": "Guide Motor Drive Belt And Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Guide Motor Drive Belt And Sprockets"}, {"item_id": 110, "section_id": 10, "section": "Bagger", "item_order_in_section": 21, "inspection_item": "Verify Drive Belt Cover and Safety", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Verify Drive Belt Cover and Safety"}, {"item_id": 111, "section_id": 10, "section": "Bagger", "item_order_in_section": 22, "inspection_item": "Drive Belt and Pulleys", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belt and Pulleys"}, {"item_id": 112, "section_id": 10, "section": "Bagger", "item_order_in_section": 23, "inspection_item": "Check Lift Screws Bushings and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Lift Screws Bushings and Bearings"}, {"item_id": 113, "section_id": 10, "section": "Bagger", "item_order_in_section": 24, "inspection_item": "Grounding Tabs on Discharge", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Grounding Tabs on Discharge"}, {"item_id": 114, "section_id": 10, "section": "Bagger", "item_order_in_section": 25, "inspection_item": "Bag Tables Bumpers and Wicket Block", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Bag Tables Bumpers and Wicket Block"}, {"item_id": 115, "section_id": 10, "section": "Bagger", "item_order_in_section": 26, "inspection_item": "Bag Table Height Setup", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Bag Table Height Setup"}, {"item_id": 116, "section_id": 10, "section": "Bagger", "item_order_in_section": 27, "inspection_item": "Check Lin-Mot and Shafts", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Lin Mot and Shafts"}, {"item_id": 117, "section_id": 10, "section": "Bagger", "item_order_in_section": 28, "inspection_item": "Shuttle In-Position Sensor", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shuttle In Position Sensor"}, {"item_id": 118, "section_id": 10, "section": "Bagger", "item_order_in_section": 29, "inspection_item": "Check Shuttle Motor Cable for Snags", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Check Shuttle Motor Cable for Snags"}, {"item_id": 119, "section_id": 10, "section": "Bagger", "item_order_in_section": 30, "inspection_item": "Shuttle Door Lock", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shuttle Door Lock"}, {"item_id": 120, "section_id": 10, "section": "Bagger", "item_order_in_section": 31, "inspection_item": "Shuttle Door Strut and Bracket", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shuttle Door Strut and Bracket"}, {"item_id": 121, "section_id": 10, "section": "Bagger", "item_order_in_section": 32, "inspection_item": "Belt and Belt Tracking", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Belt and Belt Tracking"}, {"item_id": 122, "section_id": 10, "section": "Bagger", "item_order_in_section": 33, "inspection_item": "Shaft Brushes and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Shaft Brushes and Bearings"}, {"item_id": 123, "section_id": 10, "section": "Bagger", "item_order_in_section": 34, "inspection_item": "Take Away Brush Coupler", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Take Away Brush Coupler"}, {"item_id": 124, "section_id": 10, "section": "Bagger", "item_order_in_section": 35, "inspection_item": "Rack and Sprockets", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Rack and Sprockets"}, {"item_id": 125, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 1, "inspection_item": "Paddles", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Paddles"}, {"item_id": 126, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 2, "inspection_item": "Paddle Arms and Shafts", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Paddle Arms and Shafts"}, {"item_id": 127, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 3, "inspection_item": "Car Assemblies", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Car Assemblies"}, {"item_id": 128, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 4, "inspection_item": "Drive Belt Tension", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Drive Belt Tension"}, {"item_id": 129, "section_id": 11, "section": "Over Head Paddle Conveyor", "item_order_in_section": 5, "inspection_item": "Drive Belt for Cracks or Tears", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Drive Belt for Cracks or Tears"}, {"item_id": 130, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 1, "inspection_item": "All Shafts and Bearings", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "All Shafts and Bearings"}, {"item_id": 131, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 2, "inspection_item": "Chains and Tensioners", "inspection_type": "Measurement", "choices": "Within Spec|Out of Spec|N/A", "photo_required_if": "Out of Spec", "severity_default": 2, "ai_finding_category": "Chains and Tensioners"}, {"item_id": 132, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 3, "inspection_item": "Clutch and Prox", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Clutch and Prox"}, {"item_id": 133, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 4, "inspection_item": "Take-Away Brush and Flap", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Take Away Brush and Flap"}, {"item_id": 134, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 5, "inspection_item": "Condition of Flights", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Condition of Flights"}, {"item_id": 135, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 6, "inspection_item": "Check Timing", "inspection_type": "Functional", "choices": "Pass|Fail|N/A", "photo_required_if": "Fail", "severity_default": 2, "ai_finding_category": "Check Timing"}, {"item_id": 136, "section_id": 12, "section": "Tying Conveyor", "item_order_in_section": 7, "inspection_item": "Other:", "inspection_type": "Condition", "choices": "Good|Adjustment|Wear|Damaged|N/A", "photo_required_if": "Damaged", "severity_default": 2, "ai_finding_category": "Other"}], "lists": {"condition": ["Good", "Adjustment", "Wear", "Damaged", "N/A"], "functional": ["Pass", "Fail", "N/A"], "measurement": ["Within Spec", "Out of Spec", "N/A"], "severity": ["1 - Monitor", "2 - Repair", "3 - Critical"], "impact": ["Downtime", "Performance", "Safety"], "inspection_status": ["Draft", "Complete", "Reviewed"]}};</script>
 <script>
+    const ICO = {
+      clip: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="3.2" width="8" height="3.6" rx="1" stroke="currentColor" stroke-width="1.8"/><rect x="5.2" y="5.2" width="13.6" height="15.6" rx="2.4" stroke="currentColor" stroke-width="1.8"/><path d="M9 12h6M9 16h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+      search: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.2" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+      warn: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.2L21.2 20.2H2.8L12 4.2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10.2v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1" fill="currentColor"/></svg>',
+      cam: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.2 8.4h3l1.4-2.2h6.8l1.4 2.2h3c.9 0 1.6.7 1.6 1.6v8.2c0 .9-.7 1.6-1.6 1.6H4.2c-.9 0-1.6-.7-1.6-1.6V10c0-.9.7-1.6 1.6-1.6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.4" r="3.1" stroke="currentColor" stroke-width="1.8"/></svg>',
+      doc: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.4h7.2L19.6 9v11.2c0 .8-.7 1.4-1.5 1.4H7c-.8 0-1.5-.6-1.5-1.4V4.8c0-.8.7-1.4 1.5-1.4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14.2 3.5V9h5.3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.6 13h6.8M8.6 16.4h4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+      check: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.2" stroke="currentColor" stroke-width="1.8"/><path d="M8.2 12.2l2.6 2.6 5-5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    };
+
     // ========== DATA ==========
     let APP_DATA = null;
     let currentInspection = null;
@@ -1111,6 +1409,7 @@
       }
       // Header red glow only on home
       document.body.classList.toggle('on-home', id === 'screenHome');
+      if (id !== 'screenHome') closeSearch();
       // Always reveal chrome when switching screens
       window.scrollTo(0, 0);
       resetChrome();
@@ -1138,39 +1437,25 @@
       });
       document.getElementById('statFindings').textContent = openFindings;
 
-      // Apply search filter
-      const q = (searchQuery || '').trim().toLowerCase();
-      if (q) {
-        list = list.filter(ins => {
-          const hay = [
-            ins.customer, ins.serial, ins.technician, ins.model,
-            ins.po, ins.date, ins.status
-          ].map(x => (x || '').toLowerCase()).join(' ');
-          return hay.includes(q);
-        });
-      }
-
       const container = document.getElementById('recentList');
-      if (loadInspections().length === 0) {
-        container.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>No inspections yet.<br>Tap “New Inspection” to begin.</p></div>`;
-        return;
-      }
       if (list.length === 0) {
-        container.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><p>No inspections match your search.</p></div>`;
+        container.innerHTML = `<div class="empty-state"><div class="icon">${ICO.clip}</div><p>No inspections yet.<br>Tap “New Inspection” to begin.</p></div>`;
         return;
       }
       container.innerHTML = list.slice(0, 30).map(ins => {
         const findCount = (ins.findings || []).length;
         const statusClass = ins.status === 'Complete' ? 'badge-complete' : 'badge-draft';
+        const statusLabel = ins.status === 'Complete' ? 'Complete' : 'Draft';
+        const rowTone = ins.status === 'Complete' ? 'list-complete' : '';
         return `
-          <div class="list-item" data-id="${ins.id}">
+          <div class="list-item ${rowTone}" data-id="${ins.id}">
             <div class="list-item-main" data-action="open">
               <div class="title">${ins.customer || 'Unknown'} – ${ins.serial || 'No S/N'}</div>
               <div class="sub">${ins.technician || ''} · ${ins.date || ''} · ${findCount} finding${findCount !== 1 ? 's' : ''}</div>
             </div>
             <div class="list-item-actions">
               <button class="btn-edit" data-action="edit" type="button">Edit</button>
-              <span class="badge ${statusClass}">${ins.status || 'Draft'}</span>
+              <span class="badge ${statusClass}">${statusLabel}</span>
             </div>
           </div>`;
       }).join('');
@@ -1246,7 +1531,7 @@
       closeDeleteModal();
       toast('Inspection deleted');
       showScreen('screenHome');
-      setHeader('LX-8 Inspection');
+      setHeader('LeMatic Inspection');
       refreshHome();
     }
 
@@ -1283,6 +1568,7 @@
     });
 
     function openInspection(id) {
+      closeSearch();
       const list = loadInspections();
       const ins = list.find(i => i.id === id);
       if (!ins) return;
@@ -1301,6 +1587,7 @@
     }
 
     function editInspectionMeta(id) {
+      closeSearch();
       const list = loadInspections();
       const ins = list.find(i => i.id === id);
       if (!ins) return;
@@ -1340,6 +1627,7 @@
     }
 
     document.getElementById('btnNewInspection').addEventListener('click', () => {
+      closeSearch();
       currentInspection = null;
       editingInspectionId = null;
       results = {};
@@ -1357,7 +1645,7 @@
       document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
       document.getElementById('btnDeleteInspection').classList.add('hidden');
       showScreen('screenHome');
-      setHeader('LX-8 Inspection');
+      setHeader('LeMatic Inspection');
       refreshHome();
     });
 
@@ -1395,7 +1683,7 @@
         document.getElementById('btnDeleteInspection').classList.add('hidden');
         toast('Inspection details updated');
         showScreen('screenHome');
-        setHeader('LX-8 Inspection');
+        setHeader('LeMatic Inspection');
         refreshHome();
         return;
       }
@@ -1521,7 +1809,7 @@
         const choiceHtml = choices.map(c => {
           const bad = isBadResult(item, c);
           const sel = res.condition === c ? 'selected' : '';
-          return `<button class="choice-btn ${bad ? 'bad' : ''} ${sel}" data-item="${item.item_id}" data-value="${c}">${c}</button>`;
+          return `<button class="choice-btn ${bad ? 'bad' : 'good'} ${sel}" data-item="${item.item_id}" data-value="${c}">${c}</button>`;
         }).join('');
 
         let findingHtml = '';
@@ -1531,16 +1819,18 @@
             const sel = impacts.includes(imp) ? 'selected' : '';
             return `<span class="impact-tag ${sel}" data-item="${item.item_id}" data-impact="${imp}">${imp}</span>`;
           }).join('');
-          const sevs = APP_DATA.lists.severity || ['1 - Monitor','2 - Adjustment','3 - Maintenance Required','4 - Critical'];
+          const sevs = APP_DATA.lists.severity || ['1 - Monitor','2 - Repair','3 - Critical'];
+          let curSev = parseInt(res.severity || item.severity_default || 2, 10);
+          if (curSev > 3) curSev = 3;
           const sevOpts = sevs.map(s => {
             const val = s.charAt(0);
-            const selected = (res.severity || item.severity_default || 2) == val ? 'selected' : '';
+            const selected = curSev == val ? 'selected' : '';
             return `<option value="${val}" ${selected}>${s}</option>`;
           }).join('');
 
           findingHtml = `
             <div class="finding-panel show">
-              <div style="font-weight:600;margin-bottom:6px;color:var(--danger)">⚠️ Finding Details</div>
+              <div class="finding-heading"><span class="ico">${ICO.warn}</span>Finding Details</div>
               <div class="form-group" style="margin-bottom:8px">
                 <label>Impact</label>
                 <div class="impact-tags">${impactBtns}</div>
@@ -1550,13 +1840,13 @@
                 <select class="sev-select" data-item="${item.item_id}">${sevOpts}</select>
               </div>
               <div class="form-group">
-                <label>Technician Notes</label>
+                <label>Notes</label>
                 <textarea class="notes-input" data-item="${item.item_id}" placeholder="Describe the issue...">${res.notes || ''}</textarea>
               </div>
               <div class="photo-area ${res.photoDataUrl ? 'has-photo' : ''}" data-item="${item.item_id}">
                 ${res.photoDataUrl
                   ? `<img class="photo-preview" src="${res.photoDataUrl}" alt="Photo" /><br><button class="photo-btn" data-item="${item.item_id}">Change Photo</button>`
-                  : `<div>📷 Photo required</div><button class="photo-btn" data-item="${item.item_id}">Take / Choose Photo</button>`
+                  : `<div class="photo-needed"><span class="ico">${ICO.cam}</span>Photo required</div><button class="photo-btn" data-item="${item.item_id}"><span class="ico">${ICO.cam}</span>Take / Choose Photo</button>`
                 }
                 <input type="file" accept="image/*" class="photo-input hidden" data-item="${item.item_id}" />
               </div>
@@ -1701,7 +1991,7 @@
             section: item.section,
             item_name: item.inspection_item,
             condition: r.condition,
-            severity: r.severity || item.severity_default || 2,
+            severity: Math.min(parseInt(r.severity || item.severity_default || 2, 10) || 2, 3),
             impacts: r.impacts || [],
             notes: r.notes || '',
             photoDataUrl: r.photoDataUrl || null,
@@ -1748,28 +2038,41 @@
       document.getElementById('sumFindings').textContent = findings.length;
 
       document.getElementById('summaryMeta').innerHTML = `
-        <strong>${currentInspection.customer}</strong><br>
-        ${currentInspection.model} · S/N ${currentInspection.serial}<br>
-        Tech: ${currentInspection.technician} · ${currentInspection.date}
-        ${currentInspection.po ? ' · PO ' + currentInspection.po : ''}
+        <div class="review-customer">${currentInspection.customer || 'Inspection'}</div>
+        <div class="review-line">${currentInspection.model || ''} · S/N ${currentInspection.serial || ''}</div>
+        <div class="review-line">${currentInspection.technician || ''} · ${currentInspection.date || ''}${currentInspection.po ? ' · PO ' + currentInspection.po : ''}</div>
       `;
 
       const listEl = document.getElementById('findingsList');
       if (findings.length === 0) {
-        listEl.innerHTML = `<div class="empty-state" style="padding:20px"><p>No findings – all items passed 🎉</p></div>`;
+        listEl.innerHTML = `<div class="empty-state" style="padding:20px"><div class="icon">${ICO.check}</div><p>No findings.<br>All items passed.</p></div>`;
       } else {
+        const sevNames = {
+          1: 'Monitor',
+          2: 'Repair',
+          3: 'Critical'
+        };
         listEl.innerHTML = findings
           .sort((a, b) => b.severity - a.severity)
-          .map(f => `
-            <div class="finding-summary-card">
-              <div style="font-weight:600">${f.item_name}</div>
-              <div style="font-size:0.85rem;color:var(--muted)">${f.section}</div>
-              <div class="sev">Severity ${f.severity} · ${f.condition}</div>
-              ${f.impacts.length ? `<div style="font-size:0.8rem;margin-top:4px">Impact: ${f.impacts.join(', ')}</div>` : ''}
-              ${f.notes ? `<div style="font-size:0.9rem;margin-top:6px">${f.notes}</div>` : ''}
+          .map(f => {
+            let sev = parseInt(f.severity, 10) || 2;
+            if (sev > 3) sev = 3;
+            const high = sev >= 3;
+            const sevLabel = sevNames[sev] || ('Severity ' + sev);
+            return `
+            <div class="finding-summary-card${high ? ' sev-high' : ''}">
+              <div class="finding-summary-top">
+                <div>
+                  <div class="finding-name">${f.item_name}</div>
+                  <div class="finding-section">${f.section}</div>
+                </div>
+                <span class="badge badge-sev ${high ? 'badge-findings' : 'badge-draft'}">${sevLabel}</span>
+              </div>
+              <div class="finding-meta">${f.condition}${f.impacts.length ? ' · ' + f.impacts.join(', ') : ''}</div>
+              ${f.notes ? `<div class="finding-notes">${f.notes}</div>` : ''}
               ${f.photoDataUrl ? `<img src="${f.photoDataUrl}" class="photo-preview" style="margin-top:8px" />` : ''}
-            </div>
-          `).join('');
+            </div>`;
+          }).join('');
       }
 
       showScreen('screenSummary');
@@ -1790,10 +2093,10 @@
       currentInspection.findings = findings;
       currentInspection.results = results;
       saveCurrentDraft();
-      toast('Inspection completed ✓');
+      toast('Inspection completed');
       setTimeout(() => {
         showScreen('screenHome');
-        setHeader('LX-8 Inspection');
+        setHeader('LeMatic Inspection');
         refreshHome();
       }, 800);
     });
@@ -1821,7 +2124,7 @@
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(16);
       doc.setFont('helvetica', 'bold');
-      doc.text('LeMatic LX-8 Inspection Report', margin, 14);
+      doc.text('LeMatic Inspection Report', margin, 14);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
       doc.text('Baking Equipment Inspection  •  Automation for Bakery', margin, 21);
@@ -1953,7 +2256,7 @@
         doc.setPage(i);
         doc.setFontSize(7);
         doc.setTextColor(160, 174, 192);
-        doc.text(`LeMatic LX-8 Inspection Report  •  Page ${i} of ${pageCount}`, margin, 272);
+        doc.text(`LeMatic Inspection Report  •  Page ${i} of ${pageCount}`, margin, 272);
         doc.text(currentInspection.serial || '', pageWidth - margin - 30, 272);
       }
 
@@ -1961,7 +2264,7 @@
       const safeName = (currentInspection.customer || 'Inspection')
         .replace(/[^a-z0-9]/gi, '_')
         .substring(0, 30);
-      const filename = `LX8_Inspection_${safeName}_${currentInspection.date || 'report'}.pdf`;
+      const filename = `LeMatic_Inspection_${safeName}_${currentInspection.date || 'report'}.pdf`;
 
       doc.save(filename);
       toast('PDF report downloaded');
@@ -1974,12 +2277,9 @@
       if (currentInspection && currentInspection.status !== 'Complete') {
         saveCurrentDraft();
       }
-      // Close + clear search when going home
-      document.getElementById('searchBar').classList.remove('show');
-      searchQuery = '';
-      document.getElementById('inpSearch').value = '';
+      closeSearch();
       showScreen('screenHome');
-      setHeader('LX-8 Inspection');
+      setHeader('LeMatic Inspection');
       refreshHome();
     });
 
@@ -1993,34 +2293,135 @@
             saveCurrentDraft();
           }
           showScreen('screenHome');
-          setHeader('LX-8 Inspection');
+          setHeader('LeMatic Inspection');
         }
         const inp = document.getElementById('inpSearch');
         inp.focus();
+        renderSearchResults();
       } else {
-        // Clear search as soon as the banner is closed
-        searchQuery = '';
-        document.getElementById('inpSearch').value = '';
-        refreshHome();
+        closeSearch();
       }
     });
 
-    document.getElementById('inpSearch').addEventListener('input', (e) => {
-      searchQuery = e.target.value;
-      refreshHome();
-    });
-
-    // Close search when tapping anywhere outside the search bar / search button
-    document.addEventListener('pointerdown', (e) => {
+    function syncSearchClear() {
       const bar = document.getElementById('searchBar');
-      if (!bar || !bar.classList.contains('show')) return;
-      const btn = document.getElementById('btnSearch');
-      if (bar.contains(e.target) || (btn && btn.contains(e.target))) return;
-      bar.classList.remove('show');
+      const inp = document.getElementById('inpSearch');
+      bar.classList.toggle('has-query', !!(inp.value || '').trim());
+    }
+
+    function hideSearchResults() {
+      const panel = document.getElementById('searchResults');
+      const scrim = document.getElementById('searchScrim');
+      panel.classList.remove('show');
+      panel.hidden = true;
+      panel.innerHTML = '';
+      if (scrim) {
+        scrim.classList.remove('show');
+        scrim.hidden = true;
+      }
+    }
+
+    function positionSearchResults() {
+      const bar = document.getElementById('searchBar');
+      const panel = document.getElementById('searchResults');
+      if (!bar.classList.contains('show') || !panel.classList.contains('show')) return;
+      const rect = bar.getBoundingClientRect();
+      const vv = window.visualViewport;
+      const viewBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
+      panel.style.top = Math.round(rect.bottom + 8) + 'px';
+      panel.style.maxHeight = Math.max(120, Math.round(viewBottom - rect.bottom - 16)) + 'px';
+    }
+
+    function renderSearchResults() {
+      const panel = document.getElementById('searchResults');
+      const bar = document.getElementById('searchBar');
+      const q = (searchQuery || '').trim().toLowerCase();
+      if (!bar.classList.contains('show') || !q) {
+        hideSearchResults();
+        return;
+      }
+      const matches = loadInspections().filter(ins => {
+        const hay = [
+          ins.customer, ins.serial, ins.technician, ins.model,
+          ins.po, ins.date, ins.status
+        ].map(x => (x || '').toLowerCase()).join(' ');
+        return hay.includes(q);
+      }).slice(0, 30);
+
+      if (matches.length === 0) {
+        panel.innerHTML = `<div class="search-empty">No inspections match</div>`;
+      } else {
+        panel.innerHTML = matches.map(ins => {
+          const findCount = (ins.findings || []).length;
+          const statusClass = ins.status === 'Complete' ? 'badge-complete' : 'badge-draft';
+          const statusLabel = ins.status === 'Complete' ? 'Complete' : 'Draft';
+          return `
+            <div class="list-item" data-id="${ins.id}">
+              <div class="list-item-main" data-action="open">
+                <div class="title">${ins.customer || 'Unknown'} – ${ins.serial || 'No S/N'}</div>
+                <div class="sub">${ins.technician || ''} · ${ins.date || ''} · ${findCount} finding${findCount !== 1 ? 's' : ''}</div>
+              </div>
+              <div class="list-item-actions">
+                <button class="btn-edit" data-action="edit" type="button">Edit</button>
+                <span class="badge ${statusClass}">${statusLabel}</span>
+              </div>
+            </div>`;
+        }).join('');
+        panel.querySelectorAll('.list-item').forEach(el => {
+          const id = el.dataset.id;
+          el.querySelector('[data-action="open"]').addEventListener('click', () => openInspection(id));
+          el.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            editInspectionMeta(id);
+          });
+        });
+      }
+      panel.hidden = false;
+      panel.classList.add('show');
+      const scrim = document.getElementById('searchScrim');
+      if (scrim) {
+        scrim.hidden = false;
+        scrim.classList.add('show');
+      }
+      positionSearchResults();
+    }
+
+    function closeSearch() {
+      const bar = document.getElementById('searchBar');
+      bar.classList.remove('show', 'has-query');
       searchQuery = '';
       document.getElementById('inpSearch').value = '';
+      hideSearchResults();
       refreshHome();
+    }
+
+    document.getElementById('inpSearch').addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      syncSearchClear();
+      renderSearchResults();
     });
+
+    document.getElementById('btnSearchClear').addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const inp = document.getElementById('inpSearch');
+      inp.value = '';
+      searchQuery = '';
+      syncSearchClear();
+      inp.focus();
+      hideSearchResults();
+    });
+
+    document.getElementById('btnSearchCancel').addEventListener('click', (e) => {
+      e.preventDefault();
+      closeSearch();
+    });
+
+    window.addEventListener('resize', positionSearchResults);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', positionSearchResults);
+      window.visualViewport.addEventListener('scroll', positionSearchResults);
+    }
 
     // ========== NATIVE iOS-STYLE SCROLL CHROME ==========
     // Let the browser own scrolling. JavaScript only changes chrome state.
@@ -2037,14 +2438,20 @@
       const header = document.getElementById('appHeader');
       const search = document.getElementById('searchBar');
       const dots = document.getElementById('sectionDots');
-      const headerHeight = header ? header.offsetHeight : 64;
-      const offset = hidden ? -headerHeight : 0;
+      const headerHeight = header ? header.offsetHeight : 96;
+      const dotsHeight = dots && dots.offsetHeight ? dots.offsetHeight : 52;
+      const searchHeight = search && search.offsetHeight ? search.offsetHeight : 56;
+      // Extra clears the Dynamic Island after the bar reaches y = 0
+      const extra = 20;
+      const headerOffset = hidden ? -(headerHeight + extra) : 0;
+      const dotsOffset = hidden ? -(headerHeight + dotsHeight + extra) : 0;
+      const searchOffset = hidden ? -(headerHeight + searchHeight + extra) : 0;
 
-      if (header) header.style.transform = `translate3d(0, ${offset}px, 0)`;
+      if (header) header.style.transform = `translate3d(0, ${headerOffset}px, 0)`;
       if (search && search.classList.contains('show')) {
-        search.style.transform = `translate3d(0, ${offset}px, 0)`;
+        search.style.transform = `translate3d(0, ${searchOffset}px, 0)`;
       }
-      if (dots) dots.style.transform = `translate3d(0, ${offset}px, 0)`;
+      if (dots) dots.style.transform = `translate3d(0, ${dotsOffset}px, 0)`;
     }
 
     function handleScroll() {
@@ -2106,7 +2513,7 @@
       }
       // Same path as tapping Home — avoids first-paint jumble
       showScreen('screenHome');
-      setHeader('LX-8 Inspection');
+      setHeader('LeMatic Inspection');
       refreshHome();
       measureHeaderHeight();
       requestAnimationFrame(() => {
