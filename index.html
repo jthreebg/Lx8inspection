@@ -151,7 +151,9 @@
       position: fixed;
       top: 61px;
       left: 50%;
-      transform: translateX(-50%);
+      --glow-shift: 0px;
+      transform: translateX(-50%) translateY(var(--glow-shift));
+      transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
       width: 180%;
       height: 389px;
       pointer-events: none;
@@ -2037,14 +2039,22 @@
       const header = document.getElementById('appHeader');
       const search = document.getElementById('searchBar');
       const dots = document.getElementById('sectionDots');
-      const headerHeight = header ? header.offsetHeight : 64;
-      const offset = hidden ? -headerHeight : 0;
+      const headerHeight = header ? header.offsetHeight : 96;
+      const dotsHeight = dots && dots.offsetHeight ? dots.offsetHeight : 52;
+      const searchHeight = search && search.offsetHeight ? search.offsetHeight : 56;
+      // Extra clears the Dynamic Island after the bar reaches y = 0
+      const extra = 20;
+      const headerOffset = hidden ? -(headerHeight + extra) : 0;
+      const dotsOffset = hidden ? -(headerHeight + dotsHeight + extra) : 0;
+      const searchOffset = hidden ? -(headerHeight + searchHeight + extra) : 0;
 
-      if (header) header.style.transform = `translate3d(0, ${offset}px, 0)`;
+      if (header) header.style.transform = `translate3d(0, ${headerOffset}px, 0)`;
       if (search && search.classList.contains('show')) {
-        search.style.transform = `translate3d(0, ${offset}px, 0)`;
+        search.style.transform = `translate3d(0, ${searchOffset}px, 0)`;
       }
-      if (dots) dots.style.transform = `translate3d(0, ${offset}px, 0)`;
+      if (dots) dots.style.transform = `translate3d(0, ${dotsOffset}px, 0)`;
+      const glow = document.getElementById('homeAmbientGlow');
+      if (glow) glow.style.setProperty('--glow-shift', `${headerOffset}px`);
     }
 
     function handleScroll() {
@@ -2095,6 +2105,8 @@
       if (header) header.style.transform = 'translate3d(0, 0, 0)';
       if (search) search.style.transform = '';
       if (dots) dots.style.transform = 'translate3d(0, 0, 0)';
+      const glow = document.getElementById('homeAmbientGlow');
+      if (glow) glow.style.setProperty('--glow-shift', '0px');
     }
 
     // ========== INIT ==========
