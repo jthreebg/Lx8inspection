@@ -1,57 +1,73 @@
-# LeMatic LX-8 Inspection (PWA)
+# LX-8 Inspect PWA
 
-Progressive Web App for baking equipment inspections on LeMatic LX-8 machines.
+Standalone Progressive Web App for LeMatic LX-8 bakery equipment inspections.
 
-Works offline after first load, installable on phone/desktop, and can be hosted on **GitHub Pages**.
+Works as a home-screen app on iPhone (Safari → **Add to Home Screen**). Inspection data stays in the device’s `localStorage`. PDF reports use jsPDF from a CDN (needs network the first time a report is generated).
 
-## Features
+## Repo layout
 
-- Mobile-first inspection workflow
-- Draft / complete inspections (saved in browser storage)
-- Findings, photos, severity, PDF export
-- Liquid Glass–style dark UI
-- Installable PWA with offline cache
+```
+lx8-inspect-pwa/
+  index.html                 # full app
+  manifest.webmanifest       # install metadata
+  sw.js                      # offline cache
+  icons/
+    icon-180.png             # Apple touch icon
+    icon-192.png
+    icon-512.png
+    icon-maskable-512.png
+  .nojekyll                  # required for GitHub Pages
+```
 
-## Host on GitHub Pages
+## Publish on GitHub Pages
 
-1. Create a new GitHub repository (public or private).
-2. Upload everything in this folder to the **root** of the repo (or a `/docs` folder).
-3. In the repo: **Settings → Pages**
+1. Create a new GitHub repo (example name: `lx8-inspect`).
+2. Upload this folder to the repo root (or `git push` it).
+3. Repo **Settings → Pages**:
    - Source: **Deploy from a branch**
-   - Branch: `main` (or `master`)
-   - Folder: `/ (root)` — or `/docs` if you put files there
-4. Save. After a minute, open:
+   - Branch: `main` (or `master`), folder: `/ (root)`
+4. Open:
 
-   `https://YOUR_USERNAME.github.io/YOUR_REPO_NAME/`
+   `https://<your-user>.github.io/lx8-inspect/`
 
-### Important for PWA
+   HTTPS is required for the service worker and “Add to Home Screen”.
 
-- Must be served over **HTTPS** (GitHub Pages does this automatically).
-- Open the site in Chrome / Safari / Edge, then use **Install app** / **Add to Home Screen**.
-- Service worker path is relative (`./sw.js`), so hosting in a subpath also works.
+### If the repo is a user site
+
+Repo named `<user>.github.io` publishes at `https://<user>.github.io/`.  
+Put these files in that repo’s root.
+
+## Install on iPhone
+
+1. Open the Pages URL in **Safari** (not Chrome).
+2. Share → **Add to Home Screen**.
+3. Launch from the LX-8 Inspect icon. It runs fullscreen (standalone).
+
+Android: Chrome → menu → **Install app**.
+
+## Update the live app
+
+1. Edit `index.html` (or replace it with a new export).
+2. Bump the cache name in `sw.js`:
+
+   ```js
+   const CACHE = 'lx8-inspect-v2';
+   ```
+
+3. Commit and push. Hard-refresh once, or close and reopen the home-screen app.
 
 ## Local test
 
+GitHub Pages is the intended host. To test locally you still need a static server (service workers do not run from `file://`):
+
 ```bash
-# From this folder — any static server works
 npx serve .
-# or
-python3 -m http.server 8080
 ```
 
-Then open `http://localhost:8080` and check Application → Manifest / Service Workers in DevTools.
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `index.html` | App UI + logic |
-| `manifest.webmanifest` | PWA name, icons, display mode |
-| `sw.js` | Offline cache |
-| `icons/` | App icons (192, 512, Apple touch) |
+Then visit the printed localhost URL.
 
 ## Notes
 
-- Inspection data stays in the device’s **localStorage** (not on a server).
-- PDF export needs network the first time to load jsPDF from CDN; after that it can work from cache.
-- To force an update after you change the app, bump `CACHE_NAME` in `sw.js` (e.g. `lx8-inspection-v2`).
+- Do not rename `index.html` — Pages and the service worker both expect it.
+- Paths are relative (`./`) so the app works at a project URL like `/lx8-inspect/`.
+- Inspection records are per-browser / per-device. They are not synced to GitHub.

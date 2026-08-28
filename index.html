@@ -11,44 +11,44 @@
   <meta name="apple-mobile-web-app-title" content="LX-8 Inspect" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="application-name" content="LX-8 Inspect" />
-  <!-- Manifest + icons: root apple-touch-icon.png is what Safari prefers -->
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" href="./favicon.png" type="image/png" sizes="32x32" />
-  <link rel="icon" href="./icon.png" type="image/png" sizes="192x192" />
-  <link rel="icon" href="./icons/icon-512.png" type="image/png" sizes="512x512" />
-  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
-  <link rel="apple-touch-icon" sizes="120x120" href="./icons/icon-120.png" />
-  <link rel="apple-touch-icon" sizes="152x152" href="./icons/icon-152.png" />
-  <link rel="apple-touch-icon" sizes="167x167" href="./icons/icon-167.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <title>LeMatic LX-8 Inspection</title>
   <!-- jsPDF for report generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
     :root {
-      /* Apple system blue */
-      --primary: #0a84ff;
-      --primary-light: #64b5ff;
-      --primary-soft: rgba(10, 132, 255, 0.22);
-      --primary-top: #409cff;
+      /* Primary actions still blue; surfaces match reference UI */
+      /* Option 2 — Industrial steel + LeMatic red accent */
+      --primary: #475569;
+      --primary-light: #94A3B8;
+      --primary-soft: rgba(71, 85, 105, 0.28);
+      --primary-top: #64748B;
+      --brand-red: #D4223B;
+      --brand-red-soft: rgba(212, 34, 59, 0.22);
       --accent: #f59e0b;
       --success: #34d399;
       --danger: #f87171;
       --warning: #fbbf24;
-      /* Liquid Glass base */
-      --bg: #07070a;
-      --surface: rgba(28, 28, 35, 0.55);
-      --card: rgba(255, 255, 255, 0.06);
-      --elevated: rgba(255, 255, 255, 0.09);
-      --glass: rgba(255, 255, 255, 0.08);
-      --glass-strong: rgba(255, 255, 255, 0.12);
-      --text: #f5f5f7;
-      --muted: #98989f;
-      --border: rgba(255, 255, 255, 0.12);
-      --border-strong: rgba(255, 255, 255, 0.18);
-      --border-shine: rgba(255, 255, 255, 0.28);
-      --input-bg: rgba(0, 0, 0, 0.35);
+      --bg: #000000;
+      --surface: #1a1a1b;
+      --card: #1a1a1b;
+      --elevated: #1a1a1b;
+      --glass: #1a1a1b;
+      --glass-strong: #2a3036;
+      --text: #e8eef2;
+      --muted: #bac8d0;
+      --border: rgba(249, 253, 255, 0.12);
+      --border-strong: rgba(249, 253, 255, 0.22);
+      --border-shine: rgba(249, 253, 255, 0.08);
+      --input-bg: #0d0d0f;
+      --field-selected-bg: #2a3036;
+      --field-selected-text: #e8eef2;
+      --field-selected-border: #f9fdff;
+      --field-selected-ring: 0 0 0 1px #f9fdff;
       --safe-top: env(safe-area-inset-top);
       --safe-bottom: env(safe-area-inset-bottom);
       --radius: 20px;
@@ -62,11 +62,15 @@
       height: 100%;
       height: -webkit-fill-available;
     }
+    html {
+      overflow-x: clip;
+    }
     html, body {
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       background: #000000;
       color: var(--text);
       overflow-x: hidden;
+      max-width: 100%;
       -webkit-font-smoothing: antialiased;
       color-scheme: dark;
       letter-spacing: -0.01em;
@@ -81,34 +85,118 @@
       padding-bottom: 0;
       padding-left: env(safe-area-inset-left);
       padding-right: env(safe-area-inset-right);
-      background:
-        radial-gradient(ellipse 80% 50% at 20% -10%, rgba(10, 132, 255, 0.18), transparent 50%),
-        radial-gradient(ellipse 60% 40% at 90% 10%, rgba(10, 132, 255, 0.1), transparent 45%),
-        radial-gradient(ellipse 50% 30% at 50% 100%, rgba(10, 132, 255, 0.06), transparent 40%),
-        #000000;
-      background-attachment: fixed;
+      background: #000000;background-attachment: fixed;
     }
 
     /* Shared glass material */
     .glass {
-      background: var(--glass);
-      backdrop-filter: blur(var(--blur)) saturate(1.4);
-      -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4);
+      background: #1a1a1b;
       border: 1px solid var(--border);
-      box-shadow:
-        inset 0 1px 0 0 var(--border-shine),
-        0 8px 32px rgba(0, 0, 0, 0.28);
     }
 
-    /* Header — pure black, lower outline only */
+    /* Header — fixed chrome with compositor-friendly motion */
+    :root {
+      --header-h: calc(96px + env(safe-area-inset-top, 0px));
+      --section-bar-h: 52px;
+    }
+    /* Native iOS-style compositor behavior */
+    .app-header,
+    .section-progress,
+    .search-bar {
+      will-change: transform;
+      transform: translate3d(0, 0, 0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      contain: paint;
+      transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
     .app-header {
-      position: relative;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 110;
+      min-height: var(--header-h);
       background: #000000;
       color: var(--text);
       padding: 12px 16px;
       display: flex; align-items: center; justify-content: space-between;
-      border-bottom: 1px solid var(--border);
+      border-bottom: none;
       box-shadow: none;
+      will-change: transform;
+      transform: translate3d(0,0,0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      /* sit below iOS notch / status bar */
+      padding-top: max(12px, env(safe-area-inset-top));
+      overflow: hidden;
+    }
+    /* Home: transparent header so shared ambient glow shows through */
+    body.on-home .app-header {
+      background: transparent;
+    }
+    body.on-home .app-header > * {
+      position: relative;
+      z-index: 1;
+    }
+    /* Solid black header on non-home screens */
+    body:not(.on-home) .app-header {
+      background: #000000;
+    }
+    /* Ambient red glow — fixed to the viewport so it cannot
+       fight the header height measurement and jumble on load. */
+    #homeAmbientGlow {
+      display: none;
+      position: fixed;
+      top: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 180%;
+      height: 360px;
+      pointer-events: none;
+      z-index: 0;
+      background:
+        radial-gradient(
+          ellipse 72% 58% at 50% 8%,
+          rgba(255, 55, 80, 0.48) 0%,
+          rgba(212, 34, 59, 0.26) 34%,
+          rgba(130, 12, 32, 0.10) 58%,
+          transparent 76%
+        ),
+        radial-gradient(
+          ellipse 100% 72% at 50% -8%,
+          rgba(170, 18, 42, 0.30) 0%,
+          rgba(70, 6, 18, 0.12) 42%,
+          transparent 70%
+        );
+      filter: blur(28px);
+    }
+    body.on-home #homeAmbientGlow {
+      display: block;
+    }
+    #screenHome {
+      position: relative;
+      overflow: visible;
+      padding-top: 12px;
+    }
+    body.on-home .section-progress {
+      display: none !important;
+    }
+    #screenHome > #homeAmbientGlow {
+      position: fixed;
+      z-index: 0;
+      pointer-events: none;
+    }
+    #screenHome > .hero,
+    #screenHome > .stat-row,
+    #screenHome > .card {
+      position: relative;
+      z-index: 1;
+    }
+    /* Push page content below fixed header */
+    body {
+      padding-top: var(--header-h) !important;
     }
     .app-header h1 { font-size: 1.05rem; font-weight: 600; letter-spacing: -0.02em; }
     .header-logo {
@@ -146,31 +234,36 @@
     }
     .search-bar {
       display: none;
-      background: rgba(18, 18, 24, 0.5);
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
+      background: #1a1a1b;
       padding: 12px 16px;
       border-bottom: 1px solid var(--border);
+      position: fixed;
+      top: var(--header-h);
+      left: 0;
+      right: 0;
+      z-index: 109;
+      will-change: transform;
     }
     .search-bar.show { display: block; }
     .search-bar input {
       width: 100%;
       padding: 12px 14px;
-      border: 1px solid var(--border);
+      border: 1px solid rgba(249, 253, 255, 0.08);
       border-radius: var(--radius-sm);
       font-size: 1rem;
-      background: rgba(0, 0, 0, 0.3);
+      background: #0d0d0f;
       color: var(--text);
       -webkit-appearance: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
     }
     .search-bar input:focus {
       outline: none;
-      border-color: var(--primary-light);
-      box-shadow: 0 0 0 3px var(--primary-soft), inset 0 1px 0 rgba(255,255,255,0.08);
+      background: var(--field-selected-bg);
+      border-color: var(--field-selected-border);
+      box-shadow: var(--field-selected-ring);
+      color: var(--field-selected-text);
     }
-    .search-bar input::placeholder { color: var(--muted); }
+    .search-bar input::placeholder { color: #bac8d0; }
 
     /* Screens — fill viewport; extra bottom pad for dock + home indicator */
     .screen {
@@ -187,40 +280,36 @@
 
     /* Cards — Liquid Glass panels */
     .card {
-      background: rgba(255, 255, 255, 0.07);
-      backdrop-filter: blur(var(--blur)) saturate(1.35);
-      -webkit-backdrop-filter: blur(var(--blur)) saturate(1.35);
+      background: #1a1a1b;
       border-radius: var(--radius);
       margin: 12px 16px;
       padding: 18px;
       border: 1px solid var(--border);
-      box-shadow:
-        inset 0 1px 0 0 var(--border-shine),
-        0 8px 28px rgba(0, 0, 0, 0.25);
     }
     .form-group { margin-bottom: 16px; }
     .form-group label {
       display: block; font-size: 0.75rem; font-weight: 600;
-      color: var(--muted); margin-bottom: 8px;
+      color: #f9fdff; margin-bottom: 8px;
       text-transform: uppercase; letter-spacing: 0.06em;
     }
     .form-group input, .form-group select, .form-group textarea {
       width: 100%; padding: 14px 14px;
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      border: 1px solid rgba(249, 253, 255, 0.08); border-radius: var(--radius-sm);
       font-size: 1rem;
-      background: rgba(0, 0, 0, 0.32);
+      background: #0d0d0f;
       color: var(--text);
       -webkit-appearance: none; appearance: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
     }
     .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
       outline: none;
-      border-color: var(--primary-light);
-      box-shadow: 0 0 0 3px var(--primary-soft), inset 0 1px 0 rgba(255,255,255,0.08);
+      background: var(--field-selected-bg);
+      border-color: var(--field-selected-border);
+      box-shadow: var(--field-selected-ring);
+      color: var(--field-selected-text);
     }
     .form-group input::placeholder, .form-group textarea::placeholder {
-      color: #71717a;
+      color: #bac8d0;
     }
     .form-group textarea { min-height: 90px; resize: vertical; }
 
@@ -234,14 +323,30 @@
       transition: transform 0.12s, opacity 0.12s, box-shadow 0.15s;
     }
     .btn:active { transform: scale(0.98); opacity: 0.92; }
+
+    .btn:focus-visible {
+      outline: none;
+      box-shadow:
+        0 0 0 2px #000,
+        0 0 0 4px #f9fdff;
+    }
+
     .btn-primary {
       background: linear-gradient(180deg, var(--primary-top) 0%, var(--primary) 100%);
       color: #fff;
       box-shadow:
-        0 2px 8px rgba(10, 132, 255, 0.28),
+        0 2px 8px rgba(0, 0, 0, 0.35),
         inset 0 1px 0 rgba(255, 255, 255, 0.28);
     }
-    .btn-accent { background: var(--accent); color: #111; }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+      filter: brightness(0.92);
+      box-shadow:
+        0 1px 4px rgba(0, 0, 0, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    }
+
     .btn-success { background: var(--success); color: #052e1a; }
     .btn-outline {
       background: rgba(255, 255, 255, 0.06);
@@ -251,35 +356,41 @@
       color: var(--text);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
     }
-    .btn-outline:active { background: rgba(255, 255, 255, 0.1); }
+    .btn-outline:active {
+      background: rgba(255, 255, 255, 0.12);
+    }
     .btn-row { display: flex; gap: 10px; margin: 16px; }
     .btn-row .btn { flex: 1; }
 
-    /* Progress */
-    .progress-bar-container {
-      background: rgba(255,255,255,0.08); height: 4px;
-      border-radius: 2px; margin-top: 10px; overflow: hidden;
-    }
-    .progress-bar {
-      height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-light));
-      transition: width 0.3s ease;
-      border-radius: 2px;
-    }
     .section-progress {
       display: flex; gap: 8px; padding: 12px 14px; overflow-x: auto;
-      background: rgba(18, 18, 24, 0.45);
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
+      background: #1a1a1b;
       border-bottom: 1px solid var(--border);
       -webkit-overflow-scrolling: touch;
+      overscroll-behavior-x: contain;
+      position: fixed;
+      top: var(--header-h);
+      left: 0;
+      right: 0;
+      z-index: 105;
+      will-change: transform;
+      transform: translate3d(0,0,0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+    /* Room for fixed section bar while inspecting */
+    #screenInspect.active {
+      padding-top: var(--section-bar-h);
     }
     .section-dot {
+      scroll-snap-align: center;
+
       flex-shrink: 0;
       padding: 7px 12px;
       border-radius: var(--radius-pill);
-      background: rgba(255, 255, 255, 0.06);
+      background: #0d0d0f;
       color: var(--muted);
-      border: 1px solid var(--border);
+      border: 1px solid rgba(249, 253, 255, 0.08);
       display: flex; align-items: center; justify-content: center;
       font-size: 0.7rem; font-weight: 600;
       white-space: nowrap;
@@ -287,7 +398,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
       letter-spacing: 0.01em;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+      cursor: pointer;
     }
     .section-dot.done {
       background: rgba(52, 211, 153, 0.15);
@@ -295,32 +406,27 @@
       border-color: rgba(52, 211, 153, 0.3);
     }
     .section-dot.current {
-      background: linear-gradient(180deg, var(--primary-top), var(--primary));
-      color: #fff;
-      border-color: transparent;
-      box-shadow: 0 2px 8px rgba(10, 132, 255, 0.3), inset 0 1px 0 rgba(255,255,255,0.28);
+      background: var(--field-selected-bg);
+      color: var(--field-selected-text);
+      border-color: var(--field-selected-border);
+      box-shadow: var(--field-selected-ring);
     }
-    .section-dot.has-findings { box-shadow: 0 0 0 2px var(--danger); }
+    .section-dot.has-findings { /* findings marker disabled */ }
 
     /* Item cards — glass */
     .item-card {
-      background: rgba(255, 255, 255, 0.06);
-      backdrop-filter: blur(20px) saturate(1.3);
-      -webkit-backdrop-filter: blur(20px) saturate(1.3);
+      background: #1a1a1b;
       margin: 10px 16px;
       border-radius: var(--radius);
       padding: 18px;
       border: 1px solid var(--border);
-      border-left: 3px solid var(--border-strong);
-      box-shadow:
-        inset 0 1px 0 0 var(--border-shine),
-        0 6px 24px rgba(0, 0, 0, 0.2);
+      border-left: 2px solid var(--border-strong);
     }
     .item-card.answered { border-left-color: var(--success); }
-    .item-card.finding { border-left-color: var(--danger); }
+    .item-card.finding { border-left-color: #ff453a; }
     .item-title { font-weight: 600; font-size: 1rem; margin-bottom: 4px; letter-spacing: -0.01em; }
     .item-type {
-      font-size: 0.7rem; color: var(--muted); text-transform: uppercase;
+      font-size: 0.7rem; color: #f9fdff; text-transform: uppercase;
       letter-spacing: 0.06em; margin-bottom: 14px;
     }
     .choice-grid {
@@ -329,27 +435,36 @@
     }
     .choice-btn {
       padding: 12px 8px;
-      border: 1px solid var(--border);
+      border: 1px solid rgba(249, 253, 255, 0.14);
       border-radius: var(--radius-sm);
-      background: rgba(0, 0, 0, 0.28);
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
       color: var(--text);
       font-size: 0.9rem; font-weight: 500; cursor: pointer;
       text-align: center; transition: all 0.15s;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
-    }
-    .choice-btn.selected {
-      border-color: transparent;
-      background: linear-gradient(180deg, var(--primary-top), var(--primary));
-      color: #fff;
-      box-shadow: 0 2px 8px rgba(10, 132, 255, 0.28), inset 0 1px 0 rgba(255,255,255,0.28);
-    }
-    .choice-btn.bad.selected {
-      border-color: transparent;
-      background: linear-gradient(180deg, #fb9a9a, var(--danger));
-      color: #1a0505;
-      box-shadow: 0 2px 12px rgba(248, 113, 113, 0.3), inset 0 1px 0 rgba(255,255,255,0.2);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        0 1px 2px rgba(0, 0, 0, 0.25);
     }
     .choice-btn:active { transform: scale(0.97); }
+    .choice-btn.selected {
+      border-color: rgba(249, 253, 255, 0.28);
+      background: rgba(255, 255, 255, 0.14);
+      color: #f9fdff;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        0 0 0 1px rgba(249, 253, 255, 0.18),
+        0 4px 16px rgba(0, 0, 0, 0.35);
+    }
+    .choice-btn.bad.selected {
+      border-color: rgba(255, 69, 58, 0.55);
+      background: rgba(255, 69, 58, 0.22);
+      color: #ff6b63;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.18),
+        0 0 0 1px rgba(255, 69, 58, 0.28);
+    }
 
     /* Finding panel */
     .finding-panel {
@@ -372,24 +487,25 @@
       background: linear-gradient(180deg, var(--primary-top), var(--primary));
       color: #fff;
       border-color: transparent;
-      box-shadow: 0 2px 8px rgba(10, 132, 255, 0.26), inset 0 1px 0 rgba(255,255,255,0.28);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255,255,255,0.28);
     }
     .severity-select { margin-top: 8px; }
     .notes-input, .sev-select {
       width: 100%; padding: 12px 14px;
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      border: 1px solid rgba(249, 253, 255, 0.08); border-radius: var(--radius-sm);
       font-size: 0.95rem;
-      background: rgba(0, 0, 0, 0.3);
+      background: #0d0d0f;
       color: var(--text);
       -webkit-appearance: none; appearance: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
     }
     .notes-input { min-height: 80px; resize: vertical; }
     .notes-input:focus, .sev-select:focus {
       outline: none;
-      border-color: var(--primary-light);
-      box-shadow: 0 0 0 3px var(--primary-soft), inset 0 1px 0 rgba(255,255,255,0.08);
+      background: var(--field-selected-bg);
+      border-color: var(--field-selected-border);
+      box-shadow: var(--field-selected-ring);
+      color: var(--field-selected-text);
     }
 
     /* Photo */
@@ -410,7 +526,7 @@
       color: #fff;
       border: none; border-radius: var(--radius-pill); font-size: 0.9rem; margin-top: 10px;
       font-weight: 600;
-      box-shadow: 0 2px 8px rgba(10, 132, 255, 0.26), inset 0 1px 0 rgba(255,255,255,0.28);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255,255,255,0.28);
     }
 
     /* Bottom nav — extends into home-indicator safe area (no gap) */
@@ -449,41 +565,39 @@
       background: linear-gradient(180deg, var(--primary-top), var(--primary));
       color: #fff;
       border: none;
-      box-shadow: 0 2px 10px rgba(10, 132, 255, 0.3), inset 0 1px 0 rgba(255,255,255,0.28);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255,255,255,0.28);
     }
     #btnNextSection { margin-left: 0; }
 
     /* Home / List screens */
     .hero {
-      background: rgba(255, 255, 255, 0.04);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      position: relative;
+      background: transparent;
       color: var(--text);
-      padding: 24px 20px 18px;
-      border-radius: 0 0 var(--radius) var(--radius);
+      padding: 16px 20px 14px;
       text-align: center;
-      border-bottom: 1px solid var(--border);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+      border: none;
+      border-radius: 0;
+      overflow: visible;
+      box-shadow: none;
+      z-index: 1;
     }
     .hero h2 {
       font-size: 1.35rem; margin-bottom: 6px; font-weight: 650;
       letter-spacing: -0.03em;
     }
-    .hero p { color: var(--muted); font-size: 0.9rem; opacity: 1; }
+    .hero p {
+      color: var(--muted); font-size: 0.9rem; opacity: 1;
+    }
     .stat-row {
       display: flex; gap: 12px; margin: 16px;
     }
     .stat-card {
       flex: 1;
-      background: rgba(255, 255, 255, 0.07);
-      backdrop-filter: blur(var(--blur)) saturate(1.3);
-      -webkit-backdrop-filter: blur(var(--blur)) saturate(1.3);
+      background: #1a1a1b;
       border-radius: var(--radius); padding: 16px;
       text-align: center;
       border: 1px solid var(--border);
-      box-shadow:
-        inset 0 1px 0 var(--border-shine),
-        0 6px 20px rgba(0,0,0,0.2);
     }
     .stat-card .num {
       font-size: 1.65rem; font-weight: 700;
@@ -511,17 +625,82 @@
     .btn-edit {
       background: rgba(10, 132, 255, 0.12);
       border: 1px solid rgba(10, 132, 255, 0.32);
-      color: var(--primary-light);
+      color: #64b5ff;
       padding: 6px 12px;
       border-radius: var(--radius-pill);
       font-size: 0.78rem;
       font-weight: 600;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      min-height: 28px;
+      box-sizing: border-box;
+      transition: background 0.15s, border-color 0.15s;
     }
-    .btn-edit:active { background: var(--primary-soft); }
+    .btn-edit:active {
+      background: rgba(10, 132, 255, 0.22);
+    }
+    .btn-delete {
+      background: rgba(255, 69, 58, 0.16);
+      border: 1px solid rgba(255, 69, 58, 0.42);
+      color: #ff6b63;
+      padding: 6px 12px;
+      border-radius: var(--radius-pill);
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      min-height: 28px;
+      box-sizing: border-box;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-delete:active {
+      background: rgba(255, 69, 58, 0.28);
+    }
+    .btn.btn-delete {
+      width: auto;
+      flex: 1;
+      padding: 15px 18px;
+      min-height: 0;
+      font-size: 1rem;
+      border-radius: var(--radius-pill);
+    }
+    #screenStart .card-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    #screenStart .card-label-row label {
+      margin-bottom: 0;
+    }
+    #btnDeleteInspection {
+      padding: 4px 9px;
+      font-size: 0.68rem;
+      min-height: 22px;
+      flex-shrink: 0;
+      position: relative;
+      top: -6px;
+      left: 3px;
+    }
     .badge {
-      display: inline-block; padding: 4px 10px; border-radius: var(--radius-pill);
-      font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 12px;
+      border-radius: var(--radius-pill);
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      line-height: 1;
+      min-height: 28px;
+      box-sizing: border-box;
     }
     .badge-draft {
       background: rgba(255, 255, 255, 0.08);
@@ -534,56 +713,114 @@
       border: 1px solid rgba(52, 211, 153, 0.25);
     }
     .badge-findings {
-      background: rgba(248, 113, 113, 0.14);
-      color: var(--danger);
-      border: 1px solid rgba(248, 113, 113, 0.25);
+      background: var(--brand-red-soft);
+      color: #fca5a5;
+      border: 1px solid rgba(212, 34, 59, 0.4);
     }
 
     /* Summary */
     .summary-section { margin: 12px 16px; }
     .summary-section h3 {
       font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
-      color: var(--muted); margin-bottom: 10px; font-weight: 600;
+      color: #f9fdff; margin-bottom: 10px; font-weight: 600;
     }
     .finding-summary-card {
-      background: rgba(255, 255, 255, 0.06);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      background: #1a1a1b;
       border-radius: var(--radius); padding: 16px;
       margin-bottom: 10px;
       border: 1px solid var(--border);
-      border-left: 3px solid var(--danger);
-      box-shadow:
-        inset 0 1px 0 var(--border-shine),
-        0 6px 20px rgba(0,0,0,0.2);
+      border-left: 2px solid var(--danger);
     }
     .finding-summary-card .sev {
       font-size: 0.8rem; font-weight: 600; color: var(--danger);
     }
 
-    /* Toast — glass pill */
+    /* Toast — Grok-style Liquid Glass */
     .toast {
       position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%);
-      background: rgba(28, 28, 36, 0.75);
-      backdrop-filter: blur(var(--blur-strong)) saturate(1.4);
-      -webkit-backdrop-filter: blur(var(--blur-strong)) saturate(1.4);
-      color: var(--text); padding: 12px 22px;
-      border-radius: var(--radius-pill); font-size: 0.9rem; z-index: 200;
-      opacity: 0; transition: opacity 0.3s; pointer-events: none;
-      max-width: 90%; text-align: center;
-      border: 1px solid var(--border);
+      background: rgba(28, 28, 30, 0.05);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      color: rgba(255,255,255,0.92);
+      padding: 12px 22px;
+      border-radius: 999px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      z-index: 200;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      pointer-events: none;
+      max-width: 90%;
+      text-align: center;
+      border: 0.5px solid rgba(255, 255, 255, 0.22);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.12),
-        0 12px 40px rgba(0,0,0,0.45);
+        inset 0 0.5px 0 rgba(255,255,255,0.28),
+        0 8px 32px rgba(0,0,0,0.22);
     }
     .toast.show { opacity: 1; }
+
+    /* Modal — liquid glass only inside the sheet.
+       Parent must have NO backdrop-filter (even "none" isolates
+       the child's frost on iOS so the card looks solid). */
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 400;
+      background: transparent;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .modal-backdrop.show {
+      display: flex;
+    }
+    .modal-sheet {
+      width: 100%;
+      max-width: 340px;
+      background: rgba(42, 42, 46, 0.05);
+      -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      backdrop-filter: blur(12px) saturate(160%) brightness(1.12);
+      border: 0.5px solid rgba(255, 255, 255, 0.28);
+      border-radius: 28px;
+      padding: 22px 20px 18px;
+      /* 100vmax shadow dims OUTSIDE the rounded card without
+         putting a layer under the glass (so frost samples the page). */
+      box-shadow:
+        inset 0 0.5px 0 rgba(255, 255, 255, 0.38),
+        inset 0 -0.5px 0 rgba(255, 255, 255, 0.08),
+        0 20px 60px rgba(0, 0, 0, 0.38),
+        0 2px 12px rgba(255, 255, 255, 0.05),
+        0 0 0 100vmax rgba(0, 0, 0, 0.18);
+      color: rgba(255,255,255,0.97);
+      isolation: isolate;
+    }
+    .modal-sheet .modal-title {
+      font-size: 1.1rem;
+      font-weight: 650;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+    .modal-sheet .modal-body {
+      font-size: 0.92rem;
+      color: var(--muted);
+      margin-bottom: 18px;
+      line-height: 1.45;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .modal-actions .btn {
+      flex: 1;
+      margin: 0;
+    }
 
     /* Loading */
     .loading-overlay {
       position: fixed; inset: 0;
-      background: rgba(7, 7, 10, 0.75);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      background: rgba(7, 7, 10, 0.32);
+      backdrop-filter: blur(24px) saturate(150%);
+      -webkit-backdrop-filter: blur(24px) saturate(150%);
       display: flex; align-items: center; justify-content: center;
       z-index: 300; font-size: 1.05rem; color: var(--primary-light);
     }
@@ -625,6 +862,7 @@
 
   <!-- HOME SCREEN -->
   <div class="screen active" id="screenHome">
+    <div id="homeAmbientGlow" aria-hidden="true"></div>
     <div class="hero">
       <h2 id="headerTitleHome">LX-8 Inspection App</h2>
       <p>Baking equipment inspections made simple</p>
@@ -657,7 +895,10 @@
   <div class="screen" id="screenStart">
     <div class="card">
       <div class="form-group">
-        <label>Customer / Plant</label>
+        <div class="card-label-row">
+          <label for="inpCustomer">Customer</label>
+          <button class="btn-delete hidden" id="btnDeleteInspection" type="button">Delete</button>
+        </div>
         <input type="text" id="inpCustomer" placeholder="e.g. ABC Bakery – Plant 2" list="customerList" />
         <datalist id="customerList"></datalist>
       </div>
@@ -738,10 +979,22 @@
       </div>
     </div>
     <div class="btn-row" style="flex-direction:column;gap:10px">
-      <button class="btn btn-accent" id="btnGeneratePDF">📄 Generate PDF Report</button>
+      <button class="btn btn-primary" id="btnGeneratePDF">📄 Generate PDF Report</button>
       <div style="display:flex;gap:10px;width:100%">
         <button class="btn btn-outline" id="btnBackToInspect" style="flex:1">Back</button>
         <button class="btn btn-success" id="btnComplete" style="flex:1">Complete Inspection</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete confirm modal — Liquid Glass -->
+  <div id="deleteModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+      <div class="modal-title" id="deleteModalTitle">Delete inspection?</div>
+      <div class="modal-body" id="deleteModalLabel">This cannot be undone.</div>
+      <div class="modal-actions">
+        <button type="button" id="deleteModalCancel" class="btn btn-outline">Cancel</button>
+        <button type="button" id="deleteModalConfirm" class="btn btn-delete">Yes, delete</button>
       </div>
     </div>
   </div>
@@ -783,12 +1036,55 @@
 
     // ========== STORAGE ==========
     function saveInspections(list) {
-      localStorage.setItem('lx8_inspections', JSON.stringify(list));
+      try {
+        localStorage.setItem('lx8_inspections', JSON.stringify(list));
+        return true;
+      } catch (e) {
+        console.warn('saveInspections failed', e);
+        try {
+          const slim = list.map(ins => {
+            const copy = Object.assign({}, ins);
+            if (copy.results) {
+              const r2 = {};
+              Object.keys(copy.results).forEach(k => {
+                r2[k] = Object.assign({}, copy.results[k]);
+                if (r2[k].photoDataUrl && String(r2[k].photoDataUrl).length > 40000) {
+                  r2[k].photoDataUrl = null;
+                  r2[k].photoOmitted = true;
+                }
+              });
+              copy.results = r2;
+            }
+            if (copy.findings) {
+              copy.findings = copy.findings.map(f => {
+                const ff = Object.assign({}, f);
+                if (ff.photoDataUrl && String(ff.photoDataUrl).length > 40000) {
+                  ff.photoDataUrl = null;
+                  ff.photoOmitted = true;
+                }
+                return ff;
+              });
+            }
+            return copy;
+          });
+          localStorage.setItem('lx8_inspections', JSON.stringify(slim));
+          toast('Storage almost full — some photos not saved');
+          return true;
+        } catch (e2) {
+          toast('Could not save — storage full');
+          return false;
+        }
+      }
     }
     function loadInspections() {
       try {
-        return JSON.parse(localStorage.getItem('lx8_inspections') || '[]');
-      } catch { return []; }
+        const raw = localStorage.getItem('lx8_inspections');
+        if (!raw) return [];
+        const list = JSON.parse(raw);
+        return Array.isArray(list) ? list : [];
+      } catch {
+        return [];
+      }
     }
     function saveCurrentDraft() {
       if (!currentInspection) return;
@@ -813,7 +1109,12 @@
       } else {
         bottom.classList.add('hidden');
       }
+      // Header red glow only on home
+      document.body.classList.toggle('on-home', id === 'screenHome');
+      // Always reveal chrome when switching screens
       window.scrollTo(0, 0);
+      resetChrome();
+      requestAnimationFrame(measureHeaderHeight);
     }
     function toast(msg, ms = 2200) {
       const t = document.getElementById('toast');
@@ -883,6 +1184,104 @@
       });
     }
 
+    let pendingDeleteId = null;
+
+    function openDeleteModal(id) {
+      const list = loadInspections();
+      const ins = list.find(i => i.id === id);
+      if (!ins) {
+        toast('Inspection not found');
+        return;
+      }
+      pendingDeleteId = id;
+      const label = (ins.customer || 'Unknown') + (ins.serial ? ' – ' + ins.serial : '');
+      const modal = document.getElementById('deleteModal');
+      document.getElementById('deleteModalLabel').textContent =
+        'Delete “' + label + '”? This cannot be undone.';
+      modal.classList.remove('hidden');
+      modal.classList.add('show');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDeleteModal() {
+      pendingDeleteId = null;
+      const modal = document.getElementById('deleteModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('show');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
+    function performDeleteInspection(id) {
+      if (!id) {
+        toast('No inspection to delete');
+        return;
+      }
+      const list = loadInspections();
+      const before = list.length;
+      const next = list.filter(i => i.id !== id);
+      if (next.length === before) {
+        toast('Inspection not found');
+        closeDeleteModal();
+        return;
+      }
+      saveInspections(next);
+
+      // Verify write stuck
+      const check = loadInspections();
+      if (check.some(i => i.id === id)) {
+        toast('Delete failed — storage error');
+        return;
+      }
+
+      if (currentInspection && currentInspection.id === id) {
+        currentInspection = null;
+        results = {};
+        findings = [];
+      }
+      editingInspectionId = null;
+      document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
+      const delBtn = document.getElementById('btnDeleteInspection');
+      if (delBtn) delBtn.classList.add('hidden');
+
+      closeDeleteModal();
+      toast('Inspection deleted');
+      showScreen('screenHome');
+      setHeader('LX-8 Inspection');
+      refreshHome();
+    }
+
+    document.getElementById('btnDeleteInspection').addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = editingInspectionId || (currentInspection && currentInspection.id);
+      if (!id) {
+        toast('No inspection to delete');
+        return;
+      }
+      openDeleteModal(id);
+    });
+
+    document.getElementById('deleteModalCancel').addEventListener('click', (e) => {
+      e.preventDefault();
+      closeDeleteModal();
+    });
+
+    document.getElementById('deleteModalConfirm').addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = pendingDeleteId;
+      if (!id) {
+        closeDeleteModal();
+        return;
+      }
+      performDeleteInspection(id);
+    });
+
+    // Tap backdrop to cancel
+    document.getElementById('deleteModal').addEventListener('click', (e) => {
+      if (e.target.id === 'deleteModal') closeDeleteModal();
+    });
+
     function openInspection(id) {
       const list = loadInspections();
       const ins = list.find(i => i.id === id);
@@ -890,7 +1289,8 @@
       currentInspection = ins;
       results = ins.results || {};
       findings = ins.findings || [];
-      currentSectionIndex = ins.currentSectionIndex || 0;
+      currentSectionIndex = Math.max(0, ins.currentSectionIndex || 0);
+      editingInspectionId = null;
       if (ins.status === 'Complete') {
         showSummary();
       } else {
@@ -916,9 +1316,10 @@
       // Autocomplete customers
       const customers = [...new Set(list.map(i => i.customer).filter(Boolean))];
       document.getElementById('customerList').innerHTML = customers.map(c => `<option value="${c}">`).join('');
-      // Update button label
+      // Update button label + show delete
       const btn = document.getElementById('btnBeginInspection');
       btn.textContent = 'Save Changes';
+      document.getElementById('btnDeleteInspection').classList.remove('hidden');
       showScreen('screenStart');
       setHeader('Edit Inspection');
     }
@@ -946,6 +1347,7 @@
       currentSectionIndex = 0;
       initStartForm();
       document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
+      document.getElementById('btnDeleteInspection').classList.add('hidden');
       showScreen('screenStart');
       setHeader('New Inspection');
     });
@@ -953,6 +1355,7 @@
     document.getElementById('btnCancelStart').addEventListener('click', () => {
       editingInspectionId = null;
       document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
+      document.getElementById('btnDeleteInspection').classList.add('hidden');
       showScreen('screenHome');
       setHeader('LX-8 Inspection');
       refreshHome();
@@ -989,6 +1392,7 @@
         currentInspection = list[idx];
         editingInspectionId = null;
         document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
+        document.getElementById('btnDeleteInspection').classList.add('hidden');
         toast('Inspection details updated');
         showScreen('screenHome');
         setHeader('LX-8 Inspection');
@@ -1086,8 +1490,16 @@
     }
 
     function renderSection(isSectionChange) {
-      if (!APP_DATA) return;
+      if (!APP_DATA || !APP_DATA.sections || !APP_DATA.sections.length) {
+        toast('Inspection data not loaded');
+        return;
+      }
+      if (currentSectionIndex < 0) currentSectionIndex = 0;
+      if (currentSectionIndex >= APP_DATA.sections.length) {
+        currentSectionIndex = APP_DATA.sections.length - 1;
+      }
       const section = APP_DATA.sections[currentSectionIndex];
+      if (!section) return;
       document.getElementById('sectionCounter').textContent = `Section ${currentSectionIndex + 1} of ${APP_DATA.sections.length}`;
       document.getElementById('sectionName').textContent = section.section;
       renderSectionDots(!!isSectionChange);
@@ -1143,12 +1555,9 @@
               </div>
               <div class="photo-area ${res.photoDataUrl ? 'has-photo' : ''}" data-item="${item.item_id}">
                 ${res.photoDataUrl
-                  ? `<img class="photo-preview" src="${res.photoDataUrl}" alt="Photo" /><br>
-                     <button type="button" class="photo-btn" data-item="${item.item_id}">Change Photo</button>`
-                  : `<div>📷 Photo</div>
-                     <button type="button" class="photo-btn" data-item="${item.item_id}">Take Photo or Choose from Library</button>`
+                  ? `<img class="photo-preview" src="${res.photoDataUrl}" alt="Photo" /><br><button class="photo-btn" data-item="${item.item_id}">Change Photo</button>`
+                  : `<div>📷 Photo required</div><button class="photo-btn" data-item="${item.item_id}">Take / Choose Photo</button>`
                 }
-                <!-- No capture= attribute so iOS/Android offer Camera AND Photo Library -->
                 <input type="file" accept="image/*" class="photo-input hidden" data-item="${item.item_id}" />
               </div>
             </div>`;
@@ -1199,8 +1608,9 @@
       // Bind impact tags
       container.querySelectorAll('.impact-tag').forEach(tag => {
         tag.addEventListener('click', () => {
-          const itemId = parseInt(tag.dataset.item);
+          const itemId = parseInt(tag.dataset.item, 10);
           const impact = tag.dataset.impact;
+          if (!results[itemId]) results[itemId] = {};
           if (!results[itemId].impacts) results[itemId].impacts = [];
           const idx = results[itemId].impacts.indexOf(impact);
           if (idx >= 0) results[itemId].impacts.splice(idx, 1);
@@ -1214,8 +1624,9 @@
       // Bind severity
       container.querySelectorAll('.sev-select').forEach(sel => {
         sel.addEventListener('change', () => {
-          const itemId = parseInt(sel.dataset.item);
-          results[itemId].severity = parseInt(sel.value);
+          const itemId = parseInt(sel.dataset.item, 10);
+          if (!results[itemId]) results[itemId] = {};
+          results[itemId].severity = parseInt(sel.value, 10);
           updateFindings();
           saveCurrentDraft();
         });
@@ -1224,7 +1635,8 @@
       // Bind notes
       container.querySelectorAll('.notes-input').forEach(ta => {
         ta.addEventListener('input', () => {
-          const itemId = parseInt(ta.dataset.item);
+          const itemId = parseInt(ta.dataset.item, 10);
+          if (!results[itemId]) results[itemId] = {};
           results[itemId].notes = ta.value;
           updateFindings();
           saveCurrentDraft();
@@ -1241,10 +1653,16 @@
       });
       container.querySelectorAll('.photo-input').forEach(inp => {
         inp.addEventListener('change', (e) => {
-          const file = e.target.files[0];
+          const file = e.target.files && e.target.files[0];
           if (!file) return;
-          const itemId = parseInt(inp.dataset.item);
+          if (!file.type || !file.type.startsWith('image/')) {
+            toast('Please choose an image');
+            return;
+          }
+          const itemId = parseInt(inp.dataset.item, 10);
+          if (!results[itemId]) results[itemId] = {};
           const reader = new FileReader();
+          reader.onerror = () => toast('Could not read photo');
           reader.onload = (ev) => {
             results[itemId].photoDataUrl = ev.target.result;
             updateFindings();
@@ -1270,11 +1688,13 @@
 
     function updateFindings() {
       findings = [];
+      if (!APP_DATA || !APP_DATA.items) return;
       Object.keys(results).forEach(idStr => {
-        const itemId = parseInt(idStr);
+        const itemId = parseInt(idStr, 10);
         const item = APP_DATA.items.find(i => i.item_id === itemId);
         if (!item) return;
         const r = results[itemId];
+        if (!r) return;
         if (isBadResult(item, r.condition)) {
           findings.push({
             item_id: itemId,
@@ -1293,6 +1713,7 @@
     }
 
     document.getElementById('btnNextSection').addEventListener('click', () => {
+      if (!APP_DATA || !APP_DATA.sections) return;
       if (currentSectionIndex < APP_DATA.sections.length - 1) {
         currentSectionIndex++;
         saveCurrentDraft();
@@ -1316,6 +1737,11 @@
 
     // ========== SUMMARY ==========
     function showSummary() {
+      if (!currentInspection) {
+        toast('No active inspection');
+        showScreen('screenHome');
+        return;
+      }
       updateFindings();
       const totalAnswered = Object.keys(results).length;
       document.getElementById('sumTotalItems').textContent = totalAnswered;
@@ -1405,7 +1831,7 @@
 
       // Meta info
       const meta = [
-        ['Customer / Plant', currentInspection.customer || '—'],
+        ['Customer', currentInspection.customer || '—'],
         ['Machine Model', currentInspection.model || 'LX-8'],
         ['Serial Number', currentInspection.serial || '—'],
         ['Technician', currentInspection.technician || '—'],
@@ -1548,8 +1974,10 @@
       if (currentInspection && currentInspection.status !== 'Complete') {
         saveCurrentDraft();
       }
-      // Close search when going home
+      // Close + clear search when going home
       document.getElementById('searchBar').classList.remove('show');
+      searchQuery = '';
+      document.getElementById('inpSearch').value = '';
       showScreen('screenHome');
       setHeader('LX-8 Inspection');
       refreshHome();
@@ -1569,15 +1997,11 @@
         }
         const inp = document.getElementById('inpSearch');
         inp.focus();
-        // Move cursor to end
-        const v = inp.value;
-        inp.value = '';
-        inp.value = v;
       } else {
-        // Optional: clear filter when closing
-        // searchQuery = '';
-        // document.getElementById('inpSearch').value = '';
-        // refreshHome();
+        // Clear search as soon as the banner is closed
+        searchQuery = '';
+        document.getElementById('inpSearch').value = '';
+        refreshHome();
       }
     });
 
@@ -1586,11 +2010,110 @@
       refreshHome();
     });
 
+    // Close search when tapping anywhere outside the search bar / search button
+    document.addEventListener('pointerdown', (e) => {
+      const bar = document.getElementById('searchBar');
+      if (!bar || !bar.classList.contains('show')) return;
+      const btn = document.getElementById('btnSearch');
+      if (bar.contains(e.target) || (btn && btn.contains(e.target))) return;
+      bar.classList.remove('show');
+      searchQuery = '';
+      document.getElementById('inpSearch').value = '';
+      refreshHome();
+    });
+
+    // ========== NATIVE iOS-STYLE SCROLL CHROME ==========
+    // Let the browser own scrolling. JavaScript only changes chrome state.
+    let lastY = window.scrollY || 0;
+    let chromeHidden = false;
+    let chromeTicking = false;
+
+    function setChrome(hidden) {
+      if (chromeHidden === hidden) return;
+      chromeHidden = hidden;
+
+      document.body.classList.toggle('chrome-hidden', hidden);
+
+      const header = document.getElementById('appHeader');
+      const search = document.getElementById('searchBar');
+      const dots = document.getElementById('sectionDots');
+      const headerHeight = header ? header.offsetHeight : 64;
+      const offset = hidden ? -headerHeight : 0;
+
+      if (header) header.style.transform = `translate3d(0, ${offset}px, 0)`;
+      if (search && search.classList.contains('show')) {
+        search.style.transform = `translate3d(0, ${offset}px, 0)`;
+      }
+      if (dots) dots.style.transform = `translate3d(0, ${offset}px, 0)`;
+    }
+
+    function handleScroll() {
+      const y = window.scrollY || document.documentElement.scrollTop || 0;
+      const delta = y - lastY;
+
+      if (y <= 8) {
+        setChrome(false);
+      } else if (delta > 8) {
+        setChrome(true);
+      } else if (delta < -8) {
+        setChrome(false);
+      }
+
+      lastY = y;
+      chromeTicking = false;
+    }
+
+    window.addEventListener('scroll', () => {
+      if (!chromeTicking) {
+        chromeTicking = true;
+        requestAnimationFrame(handleScroll);
+      }
+    }, { passive: true });
+
+    function measureHeaderHeight() {
+      const header = document.getElementById('appHeader');
+      if (header) {
+        const h = Math.max(header.offsetHeight || 0, 96);
+        document.documentElement.style.setProperty('--header-h', h + 'px');
+      }
+      const dots = document.getElementById('sectionDots');
+      if (dots && dots.offsetHeight) {
+        document.documentElement.style.setProperty('--section-bar-h', dots.offsetHeight + 'px');
+      }
+    }
+
+    function resetChrome() {
+      lastY = window.scrollY || 0;
+      chromeHidden = false;
+      chromeTicking = false;
+      document.body.classList.remove('chrome-hidden');
+
+      const header = document.getElementById('appHeader');
+      const search = document.getElementById('searchBar');
+      const dots = document.getElementById('sectionDots');
+
+      if (header) header.style.transform = 'translate3d(0, 0, 0)';
+      if (search) search.style.transform = '';
+      if (dots) dots.style.transform = 'translate3d(0, 0, 0)';
+    }
+
     // ========== INIT ==========
     function initApp() {
-      refreshHome();
-      // Prevent zoom on double-tap etc.
       document.addEventListener('gesturestart', e => e.preventDefault());
+      window.addEventListener('resize', measureHeaderHeight);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', measureHeaderHeight);
+      }
+      // Same path as tapping Home — avoids first-paint jumble
+      showScreen('screenHome');
+      setHeader('LX-8 Inspection');
+      refreshHome();
+      measureHeaderHeight();
+      requestAnimationFrame(() => {
+        measureHeaderHeight();
+        window.scrollTo(0, 0);
+        resetChrome();
+      });
     }
 
     // Start
