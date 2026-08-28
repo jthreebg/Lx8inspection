@@ -51,7 +51,7 @@ Android: Chrome → menu → **Install app**.
 2. Bump the cache name in `sw.js`:
 
    ```js
-   const CACHE = 'lematic-inspect-v5';
+   const CACHE = 'lematic-inspect-v6';
    ```
 
 3. Commit and push. Hard-refresh once, or close and reopen the home-screen app.
