@@ -63,7 +63,8 @@
       height: -webkit-fill-available;
     }
     html {
-      overflow-x: clip;
+      overflow-x: hidden;
+      overflow-y: visible;
     }
     html, body {
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -74,6 +75,8 @@
       -webkit-font-smoothing: antialiased;
       color-scheme: dark;
       letter-spacing: -0.01em;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
     }
     /* Fill iPhone screen (dvh + safe areas) — no bottom gap */
     body {
@@ -138,6 +141,8 @@
     /* Home: transparent header so shared ambient glow shows through */
     body.on-home .app-header {
       background: transparent;
+      overflow: visible;
+      contain: none;
     }
     body.on-home .app-header > * {
       position: relative;
@@ -157,28 +162,28 @@
     #homeAmbientGlow {
       display: none;
       position: absolute;
-      top: calc(70px - var(--header-h));
+      top: calc(0px - var(--header-h));
       left: 50%;
       transform: translateX(-50%);
-      width: 180%;
-      height: 390px;
+      width: 220%;
+      height: 480px;
       pointer-events: none;
       z-index: 0;
       background:
         radial-gradient(
-          ellipse 72% 58% at 50% 18%,
+          ellipse 70% 55% at 50% 29%,
           rgba(255, 55, 80, 0.48) 0%,
-          rgba(212, 34, 59, 0.26) 34%,
+          rgba(212, 34, 59, 0.26) 36%,
           rgba(130, 12, 32, 0.10) 58%,
-          transparent 76%
+          transparent 78%
         ),
         radial-gradient(
-          ellipse 100% 72% at 50% 4%,
-          rgba(170, 18, 42, 0.30) 0%,
-          rgba(70, 6, 18, 0.12) 42%,
-          transparent 70%
+          ellipse 100% 70% at 50% 18%,
+          rgba(170, 18, 42, 0.28) 0%,
+          rgba(70, 6, 18, 0.10) 44%,
+          transparent 72%
         );
-      filter: blur(28px);
+      filter: blur(36px);
     }
     body.on-home #homeAmbientGlow {
       display: block;
@@ -774,7 +779,7 @@
       background: #000000;
       border-top: 1px solid var(--border);
       padding: 12px 16px;
-      padding-bottom: max(12px, var(--safe-bottom));
+      padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
       display: flex; gap: 10px; z-index: 90;
@@ -782,9 +787,9 @@
       justify-content: stretch;
       align-items: center;
       box-sizing: border-box;
-      height: calc(72px + var(--safe-bottom));
-      min-height: calc(72px + var(--safe-bottom));
-      max-height: calc(72px + var(--safe-bottom));
+      height: calc(72px + env(safe-area-inset-bottom, 0px));
+      min-height: calc(72px + env(safe-area-inset-bottom, 0px));
+      max-height: calc(72px + env(safe-area-inset-bottom, 0px));
     }
     .bottom-bar .btn {
       margin: 0;
@@ -793,9 +798,12 @@
       min-height: 48px;
       max-height: 48px;
       padding: 0 16px;
-      font-size: 1rem;
+      font-size: 16px;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
       font-weight: 600;
-      line-height: 1;
+      line-height: 48px;
+      white-space: nowrap;
       border-radius: var(--radius-pill);
       border-width: 0.5px;
       border-style: solid;
