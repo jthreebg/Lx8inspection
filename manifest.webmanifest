@@ -2,7 +2,7 @@
   "id": "./",
   "name": "LeMatic Inspection",
   "short_name": "LeMatic Inspect",
-  "description": "LeMatic bakery equipment inspection app.",
+  "description": "LeMatic bakery equipment inspection and field service reports.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

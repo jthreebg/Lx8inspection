@@ -1,7 +1,6 @@
-/* LX-8 Inspect — service worker
-   Caches the app shell so the PWA opens offline after first visit.
+/* LeMatic Inspect — service worker
    Bump CACHE when you ship a new build. */
-const CACHE = 'lematic-inspect-v6';
+const CACHE = 'lematic-inspect-v7';
 
 const SHELL = [
   './',
@@ -32,10 +31,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
-
   const url = new URL(req.url);
-
-  // App shell: cache-first
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.match(req).then((cached) => {
@@ -49,8 +45,6 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-
-  // jsPDF CDN: network-first, fall back to cache
   event.respondWith(
     fetch(req).then((res) => {
       const copy = res.clone();
