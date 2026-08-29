@@ -2108,6 +2108,11 @@
         currentSectionIndex: 1,
         createdAt: new Date().toISOString(),
         overallCondition: 'Needs Attention',
+        coverCards: [
+          { tag: 'Safety', title: 'Missing elevator drive belt cover', body: 'Lower drive-belt cover is off. Put it on before Monday.' },
+          { tag: 'Uptime', title: 'Hinge tensioners', body: 'All three lines. Line 2 is worst. Order the full assembly.' },
+          { tag: 'Slice', title: 'Bottom-slicer linkage', body: 'Worn on all three. Order LH sleeves and clevises.' }
+        ],
         summaryNotes: "The baggers are in much better condition now than they were a year ago. The bottom slicer linkage and the hinge slicer drive chain tensioners should be the immediate focus for improvement as both of those items can lead to a loss in efficiency and an increase in downtime.\n\nThe horizontal blades in the hinge slicer are the double notch design. They should be swapped for single notch blades as it is very easy to install blades incorrectly, this will lead to a poor slice and/or damage to the machine.\n\nBlade scrapers for the band slicers could increase the life of the blades and decrease down time due to blades coming off."
       };
       results = exampleResults;
@@ -2870,7 +2875,7 @@
         doc.setTextColor(255, 255, 255);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8);
-        doc.text('LeMatic  ·  Inspection Report', 8, 6.6);
+        doc.text('LeMatic  ·  Field Service Report', 8, 6.6);
         doc.setFont('helvetica', 'normal');
         doc.text((customer + (serial ? '  ·  ' + serial : '')).substring(0, 48), W - 8, 6.6, { align: 'right' });
       }
@@ -2881,7 +2886,7 @@
         doc.setTextColor(92, 101, 112);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
-        doc.text('Inspection  ·  Customer copy', 8, H - 5);
+        doc.text('Inspection checklist  ·  Customer copy', 8, H - 5);
         doc.text('Page ' + page, W - 8, H - 5, { align: 'right' });
       }
       function paintChrome() {
@@ -3150,49 +3155,95 @@
         });
       }
 
-      // Checklist appendix
+      // Checklist appendix — match customer example
       newPage();
       doc.setTextColor(212, 34, 59);
+      doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text('APPENDIX  ·  CHECKLIST', L, y);
+      doc.text('APPENDIX  ·  LINE CHECKLIST', L, y);
       y += 6;
       doc.setTextColor(20, 20, 24);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
-      doc.text((model || 'Machine') + (serial ? '  ·  ' + serial : ''), L, y);
-      y += 8;
+      doc.text((model || 'Machine') + (serial ? '  ·  S/N ' + serial : ''), L, y);
+      y += 7;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(92, 101, 112);
+      const intro = wrap('Point-by-point record. Result pills: Good, Fair, Poor, N/A.', usable, 8);
+      intro.forEach(line => { doc.text(line, L, y); y += 4; });
+      y += 3;
+
+      function resultStyle(raw) {
+        const v = String(raw || '').trim().toLowerCase();
+        if (v === 'good' || v === 'pass' || v === 'within spec') {
+          return { label: v === 'pass' ? 'PASS' : (v === 'within spec' ? 'IN SPEC' : 'GOOD'), bg: [229, 246, 238], fg: [27, 122, 74] };
+        }
+        if (v === 'fair') return { label: 'FAIR', bg: [255, 246, 217], fg: [184, 134, 11] };
+        if (v === 'poor' || v === 'fail' || v === 'out of spec' || v === 'damaged') {
+          return { label: v === 'fail' ? 'FAIL' : (v === 'out of spec' ? 'OUT' : 'POOR'), bg: [253, 236, 234], fg: [198, 40, 40] };
+        }
+        if (v === 'n/a' || v === 'na') return { label: 'N/A', bg: [244, 245, 247], fg: [113, 128, 150] };
+        if (!v || v === '—') return { label: '—', bg: [255, 255, 255], fg: [160, 174, 192] };
+        return { label: String(raw).toUpperCase().substring(0, 10), bg: [244, 245, 247], fg: [20, 20, 24] };
+      }
 
       const sections = (APP_DATA && APP_DATA.sections) || [];
       sections.forEach(sec => {
-        const secItems = items.filter(i => i.section_id === sec.section_id);
+        const secItems = items.filter(i => {
+          if (i.section_id !== sec.section_id) return false;
+          const r = results[i.item_id] || {};
+          const name = String(i.inspection_item || '');
+          if (/^other:?$/i.test(name.trim()) && !r.condition && !r.notes) return false;
+          return true;
+        });
         if (!secItems.length) return;
-        need(16);
+        need(22);
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
+        doc.setFontSize(11);
         doc.setTextColor(20, 20, 24);
-        doc.text(sec.section, L, y);
+        doc.text(sec.section.replace(/ Section$/,'') , L, y);
         y += 3;
         const body = secItems.map(it => {
           const r = results[it.item_id] || {};
-          return [it.inspection_item, r.condition || '—', r.notes || '—'];
+          return [it.inspection_item, r.condition || '', r.notes || '—'];
         });
         doc.autoTable({
           startY: y,
           margin: { left: L, right: 14, bottom: 16 },
           head: [['Item', 'Result', 'Notes']],
           body,
-          styles: { fontSize: 7.5, cellPadding: 1.6, valign: 'top', textColor: [20, 20, 24] },
-          headStyles: { fillColor: [244, 245, 247], textColor: [20, 20, 24], fontStyle: 'bold', fontSize: 7.5 },
-          columnStyles: { 0: { cellWidth: 62 }, 1: { cellWidth: 24 }, 2: { cellWidth: 'auto' } },
+          theme: 'plain',
+          styles: {
+            fontSize: 8,
+            cellPadding: { top: 2.2, bottom: 2.2, left: 2.4, right: 2.4 },
+            valign: 'middle',
+            textColor: [20, 20, 24],
+            lineColor: [228, 230, 234],
+            lineWidth: 0.15
+          },
+          headStyles: {
+            fillColor: [244, 245, 247],
+            textColor: [92, 101, 112],
+            fontStyle: 'bold',
+            fontSize: 7.5
+          },
+          columnStyles: {
+            0: { cellWidth: 70 },
+            1: { cellWidth: 22, halign: 'center', fontStyle: 'bold', fontSize: 7 },
+            2: { cellWidth: 'auto' }
+          },
           didParseCell: function(data) {
             if (data.section !== 'body' || data.column.index !== 1) return;
-            const v = String(data.cell.raw || '').toLowerCase();
-            if (v === 'poor' || v === 'fail' || v === 'out of spec') data.cell.styles.textColor = [198, 40, 40];
-            else if (v === 'fair') data.cell.styles.textColor = [184, 134, 11];
-            else if (v === 'good' || v === 'pass' || v === 'within spec') data.cell.styles.textColor = [27, 122, 74];
+            const st = resultStyle(data.cell.raw);
+            data.cell.styles.fillColor = st.bg;
+            data.cell.styles.textColor = st.fg;
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.halign = 'center';
+            data.cell.text = [st.label];
           }
         });
-        y = doc.lastAutoTable.finalY + 6;
+        y = doc.lastAutoTable.finalY + 8;
       });
 
       const pageCount = doc.internal.getNumberOfPages();
