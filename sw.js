@@ -1,6 +1,6 @@
 /* LeMatic Inspect — service worker
    Bump CACHE when you ship a new build. */
-const CACHE = 'lematic-inspect-v7';
+const CACHE = 'lematic-inspect-v9';
 
 const SHELL = [
   './',

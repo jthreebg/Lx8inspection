@@ -107,7 +107,7 @@
       transform: translate3d(0, 0, 0);
       backface-visibility: hidden;
       -webkit-backface-visibility: hidden;
-      transition: transform 0.8s cubic-bezier(0.32, 0.72, 0, 1);
+      transition: transform 0.56s cubic-bezier(0.32, 0.72, 0, 1);
     }
     .app-header,
     .section-progress {
@@ -202,8 +202,8 @@
       position: relative;
       z-index: 1;
     }
-    #screenHome > .stat-row {
-      margin-top: 126px;
+    #screenHome > #homeAmbientGlow + .card {
+      margin-top: 271px;
     }
     /* Push page content below fixed header */
     body {
@@ -781,28 +781,41 @@
       box-shadow: 0 -8px 24px rgba(0,0,0,0.4);
       justify-content: stretch;
       align-items: center;
-      min-height: 0;
+      box-sizing: border-box;
+      height: calc(72px + var(--safe-bottom));
+      min-height: calc(72px + var(--safe-bottom));
+      max-height: calc(72px + var(--safe-bottom));
     }
     .bottom-bar .btn {
       margin: 0;
-      padding: 15px;
+      box-sizing: border-box;
+      height: 48px;
+      min-height: 48px;
+      max-height: 48px;
+      padding: 0 16px;
       font-size: 1rem;
       font-weight: 600;
+      line-height: 1;
       border-radius: var(--radius-pill);
+      border-width: 0.5px;
+      border-style: solid;
       flex: 1;
       width: auto;
       min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .bottom-bar .btn-outline {
       background: rgba(255, 255, 255, 0.1);
-      border: 0.5px solid rgba(255, 255, 255, 0.28);
+      border-color: rgba(255, 255, 255, 0.28);
       color: var(--text);
       box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
     }
     .bottom-bar .btn-primary {
       background: #e8eef2;
       color: #0d0d0f;
-      border: none;
+      border-color: #e8eef2;
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.85);
     }
     #btnNextSection { margin-left: 0; }
@@ -925,6 +938,31 @@
       letter-spacing: -0.03em;
     }
     .stat-card .label { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+    .nav-tile {
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-height: 88px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(22px) saturate(160%) brightness(1.12);
+      -webkit-backdrop-filter: blur(22px) saturate(160%) brightness(1.12);
+      border: 0.5px solid rgba(255, 255, 255, 0.28);
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.38);
+    }
+    .nav-tile .kicker {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .nav-tile:active { background: rgba(255, 255, 255, 0.10); }
 
     .list-item {
       display: flex; align-items: center; justify-content: space-between;
@@ -1351,38 +1389,23 @@
   <!-- HOME SCREEN -->
   <div class="screen active" id="screenHome">
     <div id="homeAmbientGlow" aria-hidden="true"></div>
-    <div class="hero">
-      <h2 id="headerTitleHome">LeMatic Inspection</h2>
-      <p>Automation for bakery</p>
-    </div>
-    <div class="stat-row">
-      <div class="stat-card">
-        <div class="num" id="statInspections">0</div>
-        <div class="label">Inspections</div>
-      </div>
-      <div class="stat-card">
-        <div class="num" id="statFindings">0</div>
-        <div class="label">Open Findings</div>
-      </div>
-    </div>
     <div class="card">
-      <button class="btn btn-primary" id="btnNewInspection">+ New Inspection</button>
-      <button class="btn btn-outline" id="btnNewVisit" style="margin-top:10px">+ Trip Report</button>
-      <button class="btn btn-outline" id="btnLoadExampleInspection" style="margin-top:10px">Load example inspection</button>
-    </div>
-    <div class="card" style="padding:0">
-      <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Recent Trip Reports</div>
-      <div id="recentReports">
-        <div class="empty-state" style="padding:20px"><p>No trip reports yet.</p></div>
-      </div>
+      <button class="btn btn-primary" id="btnNewInspection">+ Inspection</button>
+      <button class="btn btn-primary" id="btnNewVisit" style="margin-top:10px">+ Trip Report</button>
     </div>
     <div class="card" style="padding:0">
       <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Recent Inspections</div>
       <div id="recentList">
         <div class="empty-state">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="3.2" width="8" height="3.6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="5.2" y="5.2" width="13.6" height="15.6" rx="2.4" stroke="currentColor" stroke-width="1.2"/><path d="M9 12h6M9 16h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></div>
-          <p>No inspections yet.<br>Tap “New Inspection” to begin.</p>
+          <p>No inspections yet.<br>Tap “+ Inspection” to begin.</p>
         </div>
+      </div>
+    </div>
+    <div class="card" style="padding:0">
+      <div style="padding:14px 16px;font-weight:600;border-bottom:1px solid var(--border)">Recent Trip Reports</div>
+      <div id="recentReports">
+        <div class="empty-state" style="padding:20px"><p>No trip reports yet.</p></div>
       </div>
     </div>
   </div>
@@ -1527,6 +1550,9 @@
         <input type="text" id="inpPO" placeholder="Purchase order #" />
       </div>
     </div>
+    <div class="card" id="exampleInspectCard">
+      <button class="btn btn-outline" id="btnLoadExampleInspection" type="button">Load example inspection</button>
+    </div>
     <div class="btn-row">
       <button class="btn btn-outline" id="btnCancelStart">Cancel</button>
       <button class="btn btn-primary" id="btnBeginInspection">Begin Inspection</button>
@@ -1615,7 +1641,7 @@
     </div>
     <div class="bar-notes hidden" id="barNotes">
       <button class="btn btn-outline" id="btnNotesBack">Back</button>
-      <button class="btn btn-primary" id="btnNotesNext">Next →</button>
+      <button class="btn btn-primary" id="btnNotesNext">Preview</button>
     </div>
     <div class="bar-preview hidden" id="barPreview">
       <button class="btn btn-outline" id="btnPreviewBack">Back</button>
@@ -1771,16 +1797,9 @@
 
     function refreshHome() {
       let list = loadInspections();
-      document.getElementById('statInspections').textContent = list.length;
-      let openFindings = 0;
-      list.forEach(ins => {
-        if (ins.findings) openFindings += ins.findings.filter(f => f.status !== 'Closed').length;
-      });
-      document.getElementById('statFindings').textContent = openFindings;
-
       const container = document.getElementById('recentList');
       if (list.length === 0) {
-        container.innerHTML = `<div class="empty-state"><div class="icon">${ICO.clip}</div><p>No inspections yet.<br>Tap “New Inspection” to begin.</p></div>`;
+        container.innerHTML = `<div class="empty-state"><div class="icon">${ICO.clip}</div><p>No inspections yet.<br>Tap “+ Inspection” to begin.</p></div>`;
         renderRecentReports();
         return;
       }
@@ -2036,6 +2055,7 @@
       const btn = document.getElementById('btnBeginInspection');
       btn.textContent = 'Save Changes';
       document.getElementById('btnDeleteInspection').classList.remove('hidden');
+      document.getElementById('exampleInspectCard').classList.add('hidden');
       showScreen('screenStart');
       setHeader('Edit Inspection');
     }
@@ -2181,6 +2201,7 @@
       initStartForm();
       document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
       document.getElementById('btnDeleteInspection').classList.add('hidden');
+      document.getElementById('exampleInspectCard').classList.remove('hidden');
       showScreen('screenStart');
       setHeader('New Inspection');
     });
@@ -3188,6 +3209,12 @@
       showScreen('screenHome');
       setHeader('LeMatic Inspection');
       refreshHome();
+      measureHeaderHeight();
+      requestAnimationFrame(() => {
+        measureHeaderHeight();
+        window.scrollTo(0, 0);
+        resetChrome();
+      });
     });
 
     document.getElementById('btnSearch').addEventListener('click', () => {
