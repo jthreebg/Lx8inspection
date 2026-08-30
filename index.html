@@ -19,7 +19,6 @@
   <!-- jsPDF for report generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-  <script src="https://unpkg.com/docx@8.5.1/build/index.umd.js"></script>
 <style>
     :root {
       /* Primary actions still blue; surfaces match reference UI */
@@ -950,6 +949,41 @@
     }
 
     /* Bottom nav — extends into home-indicator safe area (no gap) */
+    .save-sheet-btn { margin-left: auto; }
+    .save-sheet-scrim {
+      position: fixed; inset: 0; z-index: 140;
+      background: rgba(0,0,0,0.0);
+      transition: background 0.32s ease;
+    }
+    .save-sheet-scrim.show { background: rgba(0,0,0,0.46); }
+    .save-sheet {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      z-index: 141;
+      pointer-events: none;
+    }
+    .save-sheet-card {
+      margin: 0;
+      padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+      background: #1a1a1b;
+      border: none;
+      border-top: 1px solid var(--border);
+      border-radius: 18px 18px 0 0;
+      pointer-events: auto;
+      transform: translateY(110%);
+      transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .save-sheet.show .save-sheet-card { transform: translateY(0); }
+    .save-sheet-handle {
+      width: 36px; height: 5px; border-radius: 99px;
+      background: rgba(255,255,255,0.22);
+      margin: 2px auto 12px;
+    }
+    .save-sheet button {
+      margin-bottom: 8px;
+    }
+    .save-sheet .save-sheet-cancel {
+      margin-bottom: 0;
+    }
     .bottom-bar {
       position: fixed;
       bottom: 0; left: 0; right: 0;
@@ -1894,9 +1928,24 @@
     </div>
     <div class="bar-preview hidden" id="barPreview">
       <button class="btn btn-outline" id="btnPreviewBack">Back</button>
-      <button class="btn btn-outline" id="btnSaveInspectPdf">Save PDF</button>
-      <button class="btn btn-outline" id="btnSaveInspectDocx">Save Word</button>
+      <button class="header-btn save-sheet-btn" id="btnSaveInspect" title="Save" aria-label="Save">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 3v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M8 7l4-4 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
       <button class="btn btn-primary" id="btnCompleteInspect">Complete</button>
+    </div>
+  </div>
+
+  <div id="saveSheetScrim" class="save-sheet-scrim" hidden></div>
+  <div id="saveSheet" class="save-sheet" hidden>
+    <div class="save-sheet-card">
+      <div class="save-sheet-handle" aria-hidden="true"></div>
+      <button type="button" class="btn btn-primary" id="saveSheetPdf">Save PDF</button>
+      <button type="button" class="btn btn-primary" id="saveSheetDocx">Save Word</button>
+      <button type="button" class="btn btn-outline save-sheet-cancel" id="saveSheetCancel">Cancel</button>
     </div>
   </div>
 
@@ -3233,8 +3282,33 @@
       notesSource = 'inspection';
       showScreen('screenNotes');
     });
-    document.getElementById('btnSaveInspectPdf').addEventListener('click', generatePDFReport);
-    document.getElementById('btnSaveInspectDocx').addEventListener('click', generateWordReport);
+    function openSaveSheet() {
+      const scrim = document.getElementById('saveSheetScrim');
+      const sheet = document.getElementById('saveSheet');
+      scrim.hidden = false;
+      sheet.hidden = false;
+      requestAnimationFrame(() => {
+        scrim.classList.add('show');
+        sheet.classList.add('show');
+      });
+    }
+    function closeSaveSheet() {
+      const scrim = document.getElementById('saveSheetScrim');
+      const sheet = document.getElementById('saveSheet');
+      scrim.classList.remove('show');
+      sheet.classList.remove('show');
+      setTimeout(() => {
+        if (!sheet.classList.contains('show')) {
+          scrim.hidden = true;
+          sheet.hidden = true;
+        }
+      }, 380);
+    }
+    document.getElementById('btnSaveInspect').addEventListener('click', openSaveSheet);
+    document.getElementById('saveSheetScrim').addEventListener('click', closeSaveSheet);
+    document.getElementById('saveSheetCancel').addEventListener('click', closeSaveSheet);
+    document.getElementById('saveSheetPdf').addEventListener('click', () => { closeSaveSheet(); generatePDFReport(); });
+    document.getElementById('saveSheetDocx').addEventListener('click', () => { closeSaveSheet(); generateWordReport(); });
     document.getElementById('btnCompleteInspect').addEventListener('click', () => {
       if (!currentInspection) {
         toast('No active inspection');
@@ -3821,7 +3895,101 @@
 
     async function generateWordReport() {
       if (!currentInspection) { toast('No inspection data'); return; }
-      if (typeof docx === 'undefined') { toast('Word library still loading… try again'); return; }
+      updateFindings();
+      if (typeof docx !== 'undefined' && docx.Document && docx.Packer) {
+        try { await generateWordDocxNative(); return; } catch (err) { console.warn(err); }
+      }
+      generateWordHtmlDoc();
+    }
+
+    function generateWordHtmlDoc() {
+      if (!currentInspection) return;
+      const customer = currentInspection.customer || 'Customer';
+      const model = currentInspection.model || 'LX-8';
+      const serial = currentInspection.serial || '';
+      const tech = currentInspection.technician || '';
+      const date = currentInspection.date || '';
+      const notes = (typeof getNotesPlain === 'function' ? getNotesPlain() : '') || String(currentInspection.summaryNotes || '').replace(/<[^>]+>/g, ' ').trim();
+      const items = (APP_DATA && APP_DATA.items) || [];
+      const sections = (APP_DATA && APP_DATA.sections) || [];
+      function condOf(id) { return (results[id] && results[id].condition) || ''; }
+      function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+      function resultLabel(raw) {
+        const v = String(raw || '').trim().toLowerCase();
+        if (v === 'pass') return 'PASS';
+        if (v === 'within spec') return 'IN SPEC';
+        if (v === 'out of spec') return 'OUT OF SPEC';
+        if (v === 'good') return 'GOOD';
+        if (v === 'fair') return 'FAIR';
+        if (v === 'poor') return 'POOR';
+        if (v === 'fail') return 'FAIL';
+        if (v === 'n/a' || v === 'na') return 'N/A';
+        if (!v) return '—';
+        return String(raw).toUpperCase();
+      }
+      function resultClass(raw) {
+        const v = String(raw || '').trim().toLowerCase();
+        if (v === 'good' || v === 'pass' || v === 'within spec') return 'good';
+        if (v === 'fair') return 'fair';
+        if (v === 'poor' || v === 'fail' || v === 'out of spec') return 'poor';
+        return 'na';
+      }
+      let nGood = 0, nFair = 0, nPoor = 0, nAns = 0;
+      items.forEach(it => {
+        const c = String(condOf(it.item_id)).toLowerCase();
+        if (!c) return;
+        nAns++;
+        if (c === 'poor' || c === 'fail' || c === 'out of spec') nPoor++;
+        else if (c === 'fair') nFair++;
+        else if (c !== 'n/a' && c !== 'na') nGood++;
+      });
+      const impactCount = (name) => (findings || []).filter(f => (f.impacts || []).some(x => String(x).toLowerCase().includes(name))).length;
+      const ranked = (findings || []).filter(f => {
+        const c = String(f.condition || '').toLowerCase();
+        return c === 'poor' || c === 'fail' || c === 'out of spec';
+      });
+      let body = '';
+      body += '<p class="kicker">FIELD SERVICE INSPECTION</p>';
+      body += '<h1>' + esc(customer) + '</h1>';
+      body += '<p class="meta">' + esc([model, serial].filter(Boolean).join('  ·  ')) + '<br>' + esc([date, tech].filter(Boolean).join('  ·  ')) + '</p>';
+      body += '<p>Checked ' + nAns + ' &nbsp; Poor ' + nPoor + ' &nbsp; Fair ' + nFair + ' &nbsp; Good ' + nGood + '</p>';
+      body += '<p class="meta">Impact · Safety ' + impactCount('safety') + ' &nbsp; Downtime ' + (impactCount('downtime')+impactCount('down-time')) + ' &nbsp; Performance ' + impactCount('performance') + '</p>';
+      if (notes) {
+        body += '<h2>Summary notes</h2>';
+        notes.split(/\n+/).forEach(line => { body += '<p>' + esc(line) + '</p>'; });
+      }
+      body += '<h2>Primary findings</h2>';
+      if (!ranked.length) body += '<p>No Poor items on this inspection.</p>';
+      ranked.forEach(f => {
+        body += '<h3>' + esc(f.item_name || '') + '</h3>';
+        body += '<p class="meta">' + esc([f.section, (f.impacts||[]).join(' · '), resultLabel(f.condition)].filter(Boolean).join('  ·  ')) + '</p>';
+        body += '<p>' + esc(f.notes || 'No note recorded.') + '</p>';
+      });
+      body += '<h2>Point-by-point inspection</h2>';
+      sections.forEach(sec => {
+        const secItems = items.filter(it => it.section_id === sec.section_id);
+        if (!secItems.length) return;
+        body += '<h3>' + esc(sec.section) + '</h3>';
+        body += '<table><tr><th>Item</th><th>Result</th><th>Notes</th></tr>';
+        secItems.forEach(it => {
+          const r = results[it.item_id] || {};
+          body += '<tr><td>' + esc(it.inspection_item) + '</td><td class="' + resultClass(r.condition) + '">' + esc(resultLabel(r.condition)) + '</td><td>' + esc(r.notes || '') + '</td></tr>';
+        });
+        body += '</table>';
+      });
+      const html = '<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + esc(customer) + '</title><style>body{font-family:Calibri,Arial,sans-serif;color:#141418;margin:24px;}h1{font-size:26px;margin:0 0 6px;}h2{font-size:18px;margin:22px 0 8px;}h3{font-size:14px;margin:16px 0 6px;}.kicker{color:#D4223B;font-size:12px;letter-spacing:.08em;}.meta{color:#5C6570;}table{border-collapse:collapse;width:100%;margin:8px 0 16px;}th,td{border:1px solid #D0D4DA;padding:6px 8px;font-size:12px;vertical-align:top;}th{background:#F4F5F7;color:#5C6570;text-align:left;}td.good{background:#E5F6EE;color:#1B7A4A;font-weight:700;text-align:center;}td.fair{background:#FFF6D9;color:#B8860B;font-weight:700;text-align:center;}td.poor{background:#FDECEA;color:#C62828;font-weight:700;text-align:center;}td.na{background:#F4F5F7;color:#718096;text-align:center;}</style></head><body>' + body + '</body></html>';
+      const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+      const a = document.createElement('a');
+      const safe = (customer || 'Inspection').replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+      a.href = URL.createObjectURL(blob);
+      a.download = safe + '_' + (model || 'machine') + '_' + (date || 'report') + '.doc';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast('Word document downloaded');
+    }
+
+    async function generateWordDocxNative() {
       updateFindings();
       const {
         Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
