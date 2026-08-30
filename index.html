@@ -3896,12 +3896,68 @@
     async function generateWordReport() {
       if (!currentInspection) { toast('No inspection data'); return; }
       updateFindings();
-      if (typeof docx !== 'undefined' && docx.Document && docx.Packer) {
-        try { await generateWordDocxNative(); return; } catch (err) { console.warn(err); }
-      }
       generateWordHtmlDoc();
     }
 
+    function crc32Bytes(u8) {
+      let c = ~0;
+      for (let i = 0; i < u8.length; i++) {
+        c ^= u8[i];
+        for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1));
+      }
+      return (~c) >>> 0;
+    }
+    function zipStore(files) {
+      const enc = new TextEncoder();
+      const parts = [];
+      const central = [];
+      let offset = 0;
+      files.forEach(f => {
+        const name = enc.encode(f.name);
+        const data = (typeof f.data === 'string') ? enc.encode(f.data) : f.data;
+        const crc = crc32Bytes(data);
+        const local = new Uint8Array(30 + name.length);
+        const lv = new DataView(local.buffer);
+        lv.setUint32(0, 0x04034b50, true);
+        lv.setUint16(4, 20, true);
+        lv.setUint32(14, crc, true);
+        lv.setUint32(18, data.length, true);
+        lv.setUint32(22, data.length, true);
+        lv.setUint16(26, name.length, true);
+        local.set(name, 30);
+        parts.push(local, data);
+        const cen = new Uint8Array(46 + name.length);
+        const cv = new DataView(cen.buffer);
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 20, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, data.length, true);
+        cv.setUint32(24, data.length, true);
+        cv.setUint16(28, name.length, true);
+        cv.setUint32(42, offset, true);
+        cen.set(name, 46);
+        central.push(cen);
+        offset += local.length + data.length;
+      });
+      const cenStart = offset;
+      let cenSize = 0;
+      central.forEach(c => { parts.push(c); cenSize += c.length; });
+      const end = new Uint8Array(22);
+      const ev = new DataView(end.buffer);
+      ev.setUint32(0, 0x06054b50, true);
+      ev.setUint16(8, files.length, true);
+      ev.setUint16(10, files.length, true);
+      ev.setUint32(12, cenSize, true);
+      ev.setUint32(16, cenStart, true);
+      parts.push(end);
+      let total = 0;
+      parts.forEach(p => total += p.length);
+      const out = new Uint8Array(total);
+      let o = 0;
+      parts.forEach(p => { out.set(p, o); o += p.length; });
+      return out;
+    }
     function generateWordHtmlDoc() {
       if (!currentInspection) return;
       const customer = currentInspection.customer || 'Customer';
@@ -3913,7 +3969,7 @@
       const items = (APP_DATA && APP_DATA.items) || [];
       const sections = (APP_DATA && APP_DATA.sections) || [];
       function condOf(id) { return (results[id] && results[id].condition) || ''; }
-      function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+      function xml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
       function resultLabel(raw) {
         const v = String(raw || '').trim().toLowerCase();
         if (v === 'pass') return 'PASS';
@@ -3927,12 +3983,12 @@
         if (!v) return '—';
         return String(raw).toUpperCase();
       }
-      function resultClass(raw) {
+      function resultFill(raw) {
         const v = String(raw || '').trim().toLowerCase();
-        if (v === 'good' || v === 'pass' || v === 'within spec') return 'good';
-        if (v === 'fair') return 'fair';
-        if (v === 'poor' || v === 'fail' || v === 'out of spec') return 'poor';
-        return 'na';
+        if (v === 'good' || v === 'pass' || v === 'within spec') return 'E5F6EE';
+        if (v === 'fair') return 'FFF6D9';
+        if (v === 'poor' || v === 'fail' || v === 'out of spec') return 'FDECEA';
+        return 'F4F5F7';
       }
       let nGood = 0, nFair = 0, nPoor = 0, nAns = 0;
       items.forEach(it => {
@@ -3948,41 +4004,63 @@
         const c = String(f.condition || '').toLowerCase();
         return c === 'poor' || c === 'fail' || c === 'out of spec';
       });
+      const p = (text, opts) => {
+        opts = opts || {};
+        const sz = opts.size || 22;
+        const bold = opts.bold ? '<w:b/>' : '';
+        const color = opts.color ? '<w:color w:val="' + opts.color + '"/>' : '';
+        return '<w:p><w:pPr><w:spacing w:after="' + (opts.after || 120) + '"/>' + (opts.center ? '<w:jc w:val="center"/>' : '') + '</w:pPr><w:r><w:rPr>' + bold + '<w:sz w:val="' + sz + '"/><w:szCs w:val="' + sz + '"/>' + color + '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/></w:rPr><w:t xml:space="preserve">' + xml(text) + '</w:t></w:r></w:p>';
+      };
+      const cell = (text, width, fill, center) => {
+        return '<w:tc><w:tcPr><w:tcW w:w="' + width + '" w:type="dxa"/>' + (fill ? '<w:shd w:val="clear" w:fill="' + fill + '"/>' : '') + '<w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar></w:tcPr>' + p(text, { size: 18, center: !!center, after: 40, bold: !!center }) + '</w:tc>';
+      };
       let body = '';
-      body += '<p class="kicker">FIELD SERVICE INSPECTION</p>';
-      body += '<h1>' + esc(customer) + '</h1>';
-      body += '<p class="meta">' + esc([model, serial].filter(Boolean).join('  ·  ')) + '<br>' + esc([date, tech].filter(Boolean).join('  ·  ')) + '</p>';
-      body += '<p>Checked ' + nAns + ' &nbsp; Poor ' + nPoor + ' &nbsp; Fair ' + nFair + ' &nbsp; Good ' + nGood + '</p>';
-      body += '<p class="meta">Impact · Safety ' + impactCount('safety') + ' &nbsp; Downtime ' + (impactCount('downtime')+impactCount('down-time')) + ' &nbsp; Performance ' + impactCount('performance') + '</p>';
+      body += p('FIELD SERVICE INSPECTION', { size: 18, color: 'D4223B', after: 80 });
+      body += p(customer, { size: 36, bold: true, after: 60 });
+      body += p([model, serial].filter(Boolean).join('  ·  '), { size: 20, color: '5C6570', after: 40 });
+      body += p([date, tech].filter(Boolean).join('  ·  '), { size: 20, color: '5C6570', after: 200 });
+      body += p('Checked  ' + nAns + '    Poor  ' + nPoor + '    Fair  ' + nFair + '    Good  ' + nGood, { size: 22, after: 80 });
+      body += p('Impact  ·  Safety ' + impactCount('safety') + '   Downtime ' + (impactCount('downtime') + impactCount('down-time')) + '   Performance ' + impactCount('performance'), { size: 20, color: '5C6570', after: 240 });
       if (notes) {
-        body += '<h2>Summary notes</h2>';
-        notes.split(/\n+/).forEach(line => { body += '<p>' + esc(line) + '</p>'; });
+        body += p('Summary notes', { size: 26, bold: true, after: 80 });
+        notes.split(/\n+/).forEach(line => { body += p(line, { size: 22, after: 80 }); });
       }
-      body += '<h2>Primary findings</h2>';
-      if (!ranked.length) body += '<p>No Poor items on this inspection.</p>';
+      body += p('Primary findings', { size: 32, bold: true, after: 80 });
+      body += p('Poor and fail items.', { size: 20, color: '5C6570', after: 160 });
+      if (!ranked.length) body += p('No Poor items on this inspection.', { size: 22, color: '1B7A4A' });
       ranked.forEach(f => {
-        body += '<h3>' + esc(f.item_name || '') + '</h3>';
-        body += '<p class="meta">' + esc([f.section, (f.impacts||[]).join(' · '), resultLabel(f.condition)].filter(Boolean).join('  ·  ')) + '</p>';
-        body += '<p>' + esc(f.notes || 'No note recorded.') + '</p>';
+        body += p(f.item_name || '', { size: 24, bold: true, after: 40 });
+        body += p([f.section, (f.impacts || []).join(' · '), resultLabel(f.condition)].filter(Boolean).join('  ·  '), { size: 18, color: 'C62828', after: 40 });
+        body += p(f.notes || 'No note recorded.', { size: 22, after: 160 });
       });
-      body += '<h2>Point-by-point inspection</h2>';
+      body += p('Point-by-point inspection', { size: 32, bold: true, after: 80 });
       sections.forEach(sec => {
         const secItems = items.filter(it => it.section_id === sec.section_id);
         if (!secItems.length) return;
-        body += '<h3>' + esc(sec.section) + '</h3>';
-        body += '<table><tr><th>Item</th><th>Result</th><th>Notes</th></tr>';
+        body += p(sec.section, { size: 26, bold: true, after: 80 });
+        let tbl = '<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="D0D4DA"/><w:left w:val="single" w:sz="4" w:color="D0D4DA"/><w:bottom w:val="single" w:sz="4" w:color="D0D4DA"/><w:right w:val="single" w:sz="4" w:color="D0D4DA"/><w:insideH w:val="single" w:sz="4" w:color="D0D4DA"/><w:insideV w:val="single" w:sz="4" w:color="D0D4DA"/></w:tblBorders></w:tblPr>';
+        tbl += '<w:tr>' + cell('Item', 4200, 'F4F5F7') + cell('Result', 1800, 'F4F5F7', true) + cell('Notes', 3360, 'F4F5F7') + '</w:tr>';
         secItems.forEach(it => {
           const r = results[it.item_id] || {};
-          body += '<tr><td>' + esc(it.inspection_item) + '</td><td class="' + resultClass(r.condition) + '">' + esc(resultLabel(r.condition)) + '</td><td>' + esc(r.notes || '') + '</td></tr>';
+          tbl += '<w:tr>' + cell(it.inspection_item, 4200) + cell(resultLabel(r.condition), 1800, resultFill(r.condition), true) + cell(r.notes || '', 3360) + '</w:tr>';
         });
-        body += '</table>';
+        tbl += '</w:tbl>' + p('', { after: 200 });
+        body += tbl;
       });
-      const html = '<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + esc(customer) + '</title><style>body{font-family:Calibri,Arial,sans-serif;color:#141418;margin:24px;}h1{font-size:26px;margin:0 0 6px;}h2{font-size:18px;margin:22px 0 8px;}h3{font-size:14px;margin:16px 0 6px;}.kicker{color:#D4223B;font-size:12px;letter-spacing:.08em;}.meta{color:#5C6570;}table{border-collapse:collapse;width:100%;margin:8px 0 16px;}th,td{border:1px solid #D0D4DA;padding:6px 8px;font-size:12px;vertical-align:top;}th{background:#F4F5F7;color:#5C6570;text-align:left;}td.good{background:#E5F6EE;color:#1B7A4A;font-weight:700;text-align:center;}td.fair{background:#FFF6D9;color:#B8860B;font-weight:700;text-align:center;}td.poor{background:#FDECEA;color:#C62828;font-weight:700;text-align:center;}td.na{background:#F4F5F7;color:#718096;text-align:center;}</style></head><body>' + body + '</body></html>';
-      const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+      body += '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720"/></w:sectPr>';
+      const documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + body + '</w:body></w:document>';
+      const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>';
+      const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>';
+      const bytes = zipStore([
+        { name: '[Content_Types].xml', data: contentTypes },
+        { name: '_rels/.rels', data: rels },
+        { name: 'word/document.xml', data: documentXml }
+      ]);
+      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
       const a = document.createElement('a');
       const safe = (customer || 'Inspection').replace(/[^a-z0-9]/gi, '_').substring(0, 30);
       a.href = URL.createObjectURL(blob);
-      a.download = safe + '_' + (model || 'machine') + '_' + (date || 'report') + '.doc';
+      a.download = safe + '_' + (model || 'machine') + '_' + (date || 'report') + '.docx';
       document.body.appendChild(a);
       a.click();
       a.remove();
