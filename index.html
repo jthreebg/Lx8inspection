@@ -19,6 +19,7 @@
   <!-- jsPDF for report generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://unpkg.com/docx@8.5.1/build/index.umd.js"></script>
 <style>
     :root {
       /* Primary actions still blue; surfaces match reference UI */
@@ -787,15 +788,15 @@
       background: #1a1a1b;
       margin: 10px 16px;
       border-radius: var(--radius);
-      padding: 18px;
-      border: 1px solid var(--border);
+      padding: 12px 18px 18px;
+      border: none;
       color: #b8c3ca;
     }
     .item-card.answered,
     .item-card.finding,
     .item-card.fair,
     .item-card.na {
-      border-color: transparent;
+      border: 1px solid transparent;
     }
     .item-card.answered {
       background:
@@ -842,7 +843,15 @@
           rgba(249, 253, 255, 0.12) 22px
         ) border-box;
     }
-    .item-title { font-weight: 600; font-size: 1rem; margin-bottom: 12px; letter-spacing: -0.01em; color: #b8c3ca; }
+    .item-title {
+      font-weight: 600;
+      font-size: 1rem;
+      margin: 0;
+      padding: 0 0 18px;
+      line-height: 1.25;
+      letter-spacing: -0.01em;
+      color: #b8c3ca;
+    }
     .item-type { display: none; }
     .item-card .choice-btn { color: #b8c3ca; }
     .item-card .finding-panel,
@@ -1142,7 +1151,7 @@
 
     .list-item {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 14px 16px;
+      padding: 18px;
       margin: 10px 12px;
       gap: 12px;
       background: #1a1a1b;
@@ -1886,6 +1895,7 @@
     <div class="bar-preview hidden" id="barPreview">
       <button class="btn btn-outline" id="btnPreviewBack">Back</button>
       <button class="btn btn-outline" id="btnSaveInspectPdf">Save PDF</button>
+      <button class="btn btn-outline" id="btnSaveInspectDocx">Save Word</button>
       <button class="btn btn-primary" id="btnCompleteInspect">Complete</button>
     </div>
   </div>
@@ -3224,6 +3234,7 @@
       showScreen('screenNotes');
     });
     document.getElementById('btnSaveInspectPdf').addEventListener('click', generatePDFReport);
+    document.getElementById('btnSaveInspectDocx').addEventListener('click', generateWordReport);
     document.getElementById('btnCompleteInspect').addEventListener('click', () => {
       if (!currentInspection) {
         toast('No active inspection');
@@ -3430,6 +3441,58 @@
       });
       y += 22;
 
+      // Impact graphics
+      const impactCount = (name) => findings.filter(f =>
+        (f.impacts || []).some(x => String(x).toLowerCase().includes(name))
+      ).length;
+      const nSafety = impactCount('safety');
+      const nDown = impactCount('downtime') + impactCount('down-time');
+      const nPerf = impactCount('performance');
+      const impacts = [
+        { n: nSafety, label: 'SAFETY', color: [198, 40, 40], icon: 'safety' },
+        { n: nDown, label: 'DOWNTIME', color: [184, 134, 11], icon: 'down' },
+        { n: nPerf, label: 'PERFORMANCE', color: [37, 99, 180], icon: 'perf' }
+      ];
+      doc.setTextColor(92, 101, 112);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.text('IMPACT', L, y);
+      y += 3;
+      const iw = (usable - 6) / 3;
+      impacts.forEach((imp, i) => {
+        const x = L + i * (iw + 3);
+        doc.setFillColor(248, 249, 251);
+        doc.roundedRect(x, y, iw, 20, 1.2, 1.2, 'F');
+        const cx = x + 10;
+        const cy = y + 10;
+        doc.setFillColor(imp.color[0], imp.color[1], imp.color[2]);
+        if (imp.icon === 'safety') {
+          doc.triangle(cx, cy - 5, cx - 5, cy + 4.2, cx + 5, cy + 4.2, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7);
+          doc.text('!', cx, cy + 2.4, { align: 'center' });
+        } else if (imp.icon === 'down') {
+          doc.circle(cx, cy, 5.1, 'F');
+          doc.setFillColor(248, 249, 251);
+          doc.rect(cx - 1.8, cy - 2.6, 1.2, 5.2, 'F');
+          doc.rect(cx + 0.6, cy - 2.6, 1.2, 5.2, 'F');
+        } else {
+          doc.rect(cx - 4.2, cy + 1.6, 2.2, 3.2, 'F');
+          doc.rect(cx - 1.1, cy - 0.6, 2.2, 5.4, 'F');
+          doc.rect(cx + 2.0, cy - 3.4, 2.2, 8.2, 'F');
+        }
+        doc.setTextColor(20, 20, 24);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.text(String(imp.n), x + 20, y + 9);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.4);
+        doc.setTextColor(92, 101, 112);
+        doc.text(imp.label, x + 20, y + 15);
+      });
+      y += 24;
+
       // Featured photos
       const feat = photoFindings.slice(0, 2);
       if (feat.length) {
@@ -3484,7 +3547,7 @@
       doc.setTextColor(92, 101, 112);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text('Repair first, photos, and the full checklist start on the next page.', L, y);
+      doc.text('Primary findings, photos, and the full checklist start on the next page.', L, y);
 
       // On site / notes
       newPage();
@@ -3571,16 +3634,12 @@
         }
       }
 
-      // Repair first
+      // Primary findings
       newPage();
-      doc.setTextColor(212, 34, 59);
-      doc.setFontSize(8);
-      doc.text('PRIORITY FINDINGS', L, y);
-      y += 6;
       doc.setTextColor(20, 20, 24);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
-      doc.text('Repair first', L, y);
+      doc.text('Primary findings', L, y);
       y += 6;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
@@ -3652,20 +3711,17 @@
 
       // Checklist appendix — match customer example
       newPage();
-      doc.setTextColor(212, 34, 59);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text('APPENDIX  ·  LINE CHECKLIST', L, y);
-      y += 6;
       doc.setTextColor(20, 20, 24);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
-      doc.text((model || 'Machine') + (serial ? '  ·  S/N ' + serial : ''), L, y);
-      y += 7;
+      doc.text('Point-by-point inspection', L, y);
+      y += 6;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(92, 101, 112);
-      const intro = wrap('Point-by-point record. Result pills: Good, Fair, Poor, N/A.', usable, 8);
+      doc.text((model || 'Machine') + (serial ? '  ·  S/N ' + serial : ''), L, y);
+      y += 5;
+      const intro = wrap('Every checkpoint on this machine, with result and notes.', usable, 8);
       intro.forEach(line => { doc.text(line, L, y); y += 4; });
       y += 3;
 
@@ -3676,7 +3732,7 @@
         }
         if (v === 'fair') return { label: 'FAIR', bg: [255, 246, 217], fg: [184, 134, 11] };
         if (v === 'poor' || v === 'fail' || v === 'out of spec' || v === 'damaged') {
-          return { label: v === 'fail' ? 'FAIL' : (v === 'out of spec' ? 'OUT' : 'POOR'), bg: [253, 236, 234], fg: [198, 40, 40] };
+          return { label: v === 'fail' ? 'FAIL' : (v === 'out of spec' ? 'OUT OF SPEC' : 'POOR'), bg: [253, 236, 234], fg: [198, 40, 40] };
         }
         if (v === 'n/a' || v === 'na') return { label: 'N/A', bg: [244, 245, 247], fg: [113, 128, 150] };
         if (!v || v === '—') return { label: '—', bg: [255, 255, 255], fg: [160, 174, 192] };
@@ -3724,17 +3780,25 @@
             fontSize: 7.5
           },
           columnStyles: {
-            0: { cellWidth: 70 },
-            1: { cellWidth: 22, halign: 'center', fontStyle: 'bold', fontSize: 7 },
+            0: { cellWidth: 62 },
+            1: { cellWidth: 32, halign: 'center', valign: 'middle', fontStyle: 'bold', fontSize: 6.4, overflow: 'linebreak' },
             2: { cellWidth: 'auto' }
           },
           didParseCell: function(data) {
+            if (data.section === 'head' && data.column.index === 1) {
+              data.cell.styles.halign = 'center';
+              return;
+            }
             if (data.section !== 'body' || data.column.index !== 1) return;
             const st = resultStyle(data.cell.raw);
             data.cell.styles.fillColor = st.bg;
             data.cell.styles.textColor = st.fg;
             data.cell.styles.fontStyle = 'bold';
             data.cell.styles.halign = 'center';
+            data.cell.styles.valign = 'middle';
+            data.cell.styles.fontSize = st.label.length > 6 ? 6.2 : 7;
+            data.cell.styles.overflow = 'linebreak';
+            data.cell.styles.cellPadding = { top: 2.4, bottom: 2.4, left: 1.2, right: 1.2 };
             data.cell.text = [st.label];
           }
         });
@@ -3753,6 +3817,202 @@
     }
 
 
+
+
+    async function generateWordReport() {
+      if (!currentInspection) { toast('No inspection data'); return; }
+      if (typeof docx === 'undefined') { toast('Word library still loading… try again'); return; }
+      updateFindings();
+      const {
+        Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+        Header, Footer, AlignmentType, HeadingLevel, BorderStyle, WidthType,
+        ShadingType, VerticalAlign
+      } = docx;
+
+      const customer = currentInspection.customer || 'Customer';
+      const model = currentInspection.model || 'LX-8';
+      const serial = currentInspection.serial || '';
+      const tech = currentInspection.technician || '';
+      const date = currentInspection.date || '';
+      const notes = (typeof getNotesPlain === 'function' ? getNotesPlain() : '') || String(currentInspection.summaryNotes || '').replace(/<[^>]+>/g, ' ').trim();
+      const items = (APP_DATA && APP_DATA.items) || [];
+      const sections = (APP_DATA && APP_DATA.sections) || [];
+
+      function condOf(id) { return (results[id] && results[id].condition) || ''; }
+      let nGood = 0, nFair = 0, nPoor = 0, nAns = 0;
+      items.forEach(it => {
+        const c = String(condOf(it.item_id)).toLowerCase();
+        if (!c) return;
+        nAns++;
+        if (c === 'poor' || c === 'fail' || c === 'out of spec') nPoor++;
+        else if (c === 'fair') nFair++;
+        else if (c !== 'n/a' && c !== 'na') nGood++;
+      });
+      const impactCount = (name) => (findings || []).filter(f => (f.impacts || []).some(x => String(x).toLowerCase().includes(name))).length;
+
+      const thin = { style: BorderStyle.SINGLE, size: 4, color: 'E4E6EA' };
+      const borders = { top: thin, bottom: thin, left: thin, right: thin };
+      const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+      const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
+
+      function p(text, opts) {
+        opts = opts || {};
+        return new Paragraph({
+          spacing: { after: opts.after || 80, before: opts.before || 0 },
+          alignment: opts.align || AlignmentType.LEFT,
+          children: [new TextRun({
+            text: String(text || ''),
+            bold: !!opts.bold,
+            size: opts.size || 20,
+            font: 'Calibri',
+            color: opts.color || '141418'
+          })]
+        });
+      }
+      function resultLabel(raw) {
+        const v = String(raw || '').trim().toLowerCase();
+        if (v === 'pass') return 'PASS';
+        if (v === 'within spec') return 'IN SPEC';
+        if (v === 'out of spec') return 'OUT OF SPEC';
+        if (v === 'good') return 'GOOD';
+        if (v === 'fair') return 'FAIR';
+        if (v === 'poor') return 'POOR';
+        if (v === 'fail') return 'FAIL';
+        if (v === 'n/a' || v === 'na') return 'N/A';
+        if (!v) return '—';
+        return String(raw).toUpperCase();
+      }
+      function resultShade(raw) {
+        const v = String(raw || '').trim().toLowerCase();
+        if (v === 'good' || v === 'pass' || v === 'within spec') return { fill: 'E5F6EE', color: '1B7A4A' };
+        if (v === 'fair') return { fill: 'FFF6D9', color: 'B8860B' };
+        if (v === 'poor' || v === 'fail' || v === 'out of spec') return { fill: 'FDECEA', color: 'C62828' };
+        return { fill: 'F4F5F7', color: '718096' };
+      }
+      function cell(text, width, opts) {
+        opts = opts || {};
+        const sh = opts.shade;
+        return new TableCell({
+          width: { size: width, type: WidthType.DXA },
+          borders: opts.borders || borders,
+          shading: sh ? { type: ShadingType.CLEAR, fill: sh } : undefined,
+          verticalAlign: VerticalAlign.CENTER,
+          margins: { top: 60, bottom: 60, left: 80, right: 80 },
+          children: [new Paragraph({
+            alignment: opts.align || AlignmentType.LEFT,
+            children: [new TextRun({
+              text: String(text || ''),
+              bold: !!opts.bold,
+              size: opts.size || 18,
+              font: 'Calibri',
+              color: opts.color || '141418'
+            })]
+          })]
+        });
+      }
+
+      const children = [];
+      children.push(p('FIELD SERVICE INSPECTION', { size: 18, color: 'D4223B', after: 40 }));
+      children.push(p(customer, { bold: true, size: 36, after: 60 }));
+      children.push(p([model, serial].filter(Boolean).join('  ·  '), { size: 20, color: '5C6570', after: 20 }));
+      children.push(p([date, tech].filter(Boolean).join('  ·  '), { size: 20, color: '5C6570', after: 200 }));
+      children.push(p('Checked  ' + nAns + '    Poor  ' + nPoor + '    Fair  ' + nFair + '    Good  ' + nGood, { size: 20, after: 80 }));
+      children.push(p('Impact  ·  Safety ' + impactCount('safety') + '   Downtime ' + (impactCount('downtime') + impactCount('down-time')) + '   Performance ' + impactCount('performance'), { size: 20, color: '5C6570', after: 200 }));
+
+      if (notes) {
+        children.push(p('Summary notes', { bold: true, size: 24, after: 80 }));
+        notes.split(/\n+/).forEach(line => children.push(p(line, { size: 20, after: 80 })));
+      }
+
+      children.push(p('Primary findings', { bold: true, size: 32, before: 240, after: 80 }));
+      children.push(p('Poor and fail items, ranked by safety, then downtime, then performance.', { size: 18, color: '5C6570', after: 160 }));
+
+      const ranked = (findings || []).slice().sort((a, b) => {
+        const score = (f) => {
+          const im = (f.impacts || []).join(' ').toLowerCase();
+          return (im.includes('safety') ? 4 : 0) + (im.includes('downtime') ? 2 : 0) + (im.includes('performance') ? 1 : 0);
+        };
+        return score(b) - score(a);
+      }).filter(f => {
+        const c = String(f.condition || '').toLowerCase();
+        return c === 'poor' || c === 'fail' || c === 'out of spec';
+      });
+
+      if (!ranked.length) {
+        children.push(p('No Poor items on this inspection.', { size: 20, color: '1B7A4A' }));
+      } else {
+        ranked.forEach(f => {
+          const sh = resultShade(f.condition);
+          children.push(p(f.item_name || '', { bold: true, size: 22, after: 20 }));
+          children.push(p([f.section, (f.impacts || []).join(' · '), resultLabel(f.condition)].filter(Boolean).join('  ·  '), { size: 18, color: sh.color, after: 40 }));
+          children.push(p(f.notes || 'No note recorded.', { size: 20, after: 160 }));
+        });
+      }
+
+      children.push(p('Point-by-point inspection', { bold: true, size: 32, before: 280, after: 60 }));
+      children.push(p((model || 'Machine') + (serial ? '  ·  S/N ' + serial : ''), { size: 18, color: '5C6570', after: 160 }));
+
+      sections.forEach(sec => {
+        const secItems = items.filter(it => it.section_id === sec.section_id);
+        if (!secItems.length) return;
+        children.push(p(sec.section, { bold: true, size: 26, before: 200, after: 80 }));
+        const rows = [
+          new TableRow({
+            children: [
+              cell('Item', 4200, { bold: true, size: 16, color: '5C6570', shade: 'F4F5F7' }),
+              cell('Result', 1800, { bold: true, size: 16, color: '5C6570', shade: 'F4F5F7', align: AlignmentType.CENTER }),
+              cell('Notes', 3600, { bold: true, size: 16, color: '5C6570', shade: 'F4F5F7' })
+            ]
+          })
+        ];
+        secItems.forEach(it => {
+          const r = results[it.item_id] || {};
+          const sh = resultShade(r.condition);
+          rows.push(new TableRow({
+            children: [
+              cell(it.inspection_item, 4200, { size: 18 }),
+              cell(resultLabel(r.condition), 1800, { bold: true, size: 16, color: sh.color, shade: sh.fill, align: AlignmentType.CENTER }),
+              cell(r.notes || '', 3600, { size: 18 })
+            ]
+          }));
+        });
+        children.push(new Table({
+          width: { size: 9600, type: WidthType.DXA },
+          columnWidths: [4200, 1800, 3600],
+          rows
+        }));
+      });
+
+      const doc = new Document({
+        styles: { default: { document: { styles: [] } } },
+        sections: [{
+          properties: {
+            page: { margin: { top: 720, bottom: 720, left: 720, right: 720 } }
+          },
+          headers: {
+            default: new Header({
+              children: [p('LeMatic  ·  Field Service Report', { size: 16, color: '5C6570', after: 0 })]
+            })
+          },
+          footers: {
+            default: new Footer({
+              children: [p('Inspection  ·  Customer copy  ·  Editable draft', { size: 16, color: '5C6570', after: 0 })]
+            })
+          },
+          children
+        }]
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const a = document.createElement('a');
+      const safe = (customer || 'Inspection').replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+      a.href = URL.createObjectURL(blob);
+      a.download = safe + '_' + (model || 'machine') + '_' + (date || 'report') + '.docx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast('Word document downloaded');
+    }
 
     // ========== NAV ==========
     document.getElementById('btnInspectHome').addEventListener('click', () => {
