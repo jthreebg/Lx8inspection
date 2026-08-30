@@ -1,20 +1,11 @@
-/* LeMatic Field Service — network-first HTML so GitHub updates actually arrive */
-const CACHE = 'lematic-inspect-v8';
-const PRECACHE = [
-  './',
-  './index.html',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/icon-180.png'
-];
+const CACHE = 'lematic-pwa-v1';
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((cache) =>
-      Promise.all(PRECACHE.map((url) => cache.add(url).catch(() => null)))
-    )
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    await cache.add('./').catch(() => null);
+    await cache.add('./index.html').catch(() => null);
+  })());
   self.skipWaiting();
 });
 
@@ -33,41 +24,18 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  const isDoc = req.mode === 'navigate' ||
-    (req.destination === 'document') ||
-    url.pathname.endsWith('.html') ||
-    url.pathname.endsWith('/');
-
   event.respondWith((async () => {
-    if (isDoc) {
-      try {
-        const fresh = await fetch(req, { cache: 'no-store' });
-        if (fresh && fresh.ok) {
-          const cache = await caches.open(CACHE);
-          cache.put(req, fresh.clone());
-          if (url.pathname.endsWith('/') || url.pathname.endsWith('index.html')) {
-            cache.put('./index.html', fresh.clone()).catch(() => {});
-          }
-        }
-        return fresh;
-      } catch (err) {
-        return (await caches.match(req, { ignoreSearch: true })) ||
-               (await caches.match('./index.html')) ||
-               (await caches.match('./'));
-      }
-    }
-
-    const cached = await caches.match(req, { ignoreSearch: true });
-    if (cached) return cached;
     try {
       const fresh = await fetch(req);
-      if (fresh && fresh.ok) {
+      if (fresh && fresh.ok && req.mode === 'navigate') {
         const cache = await caches.open(CACHE);
-        cache.put(req, fresh.clone());
+        cache.put('./index.html', fresh.clone()).catch(() => {});
       }
       return fresh;
     } catch (err) {
-      return cached;
+      return (await caches.match('./index.html')) ||
+             (await caches.match('./')) ||
+             (await caches.match(req));
     }
   })());
 });
