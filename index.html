@@ -6304,17 +6304,19 @@ const IDB_NAME = "FieldPunchlistDB";
       };
       const argb = colors[key];
       if (!argb) return;
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb } };
       const darkText = key === "In Progress" || key === "Waiting Parts";
-      cell.font = Object.assign({}, cell.font || {}, {
-        color: { argb: darkText ? "FF111111" : "FFFFFFFF" },
-        bold: true
-      });
-      cell.alignment = Object.assign({}, cell.alignment || {}, {
-        vertical: "middle",
-        horizontal: "center",
-        wrapText: true
-      });
+      // Replace the whole style so we do not inherit the template's yellow/red xf.
+      cell.style = {
+        alignment: { vertical: "middle", horizontal: "center", wrapText: true },
+        font: { name: "Calibri", size: 11, bold: true, color: { argb: darkText ? "FF111111" : "FFFFFFFF" } },
+        fill: { type: "pattern", pattern: "solid", fgColor: { argb: argb } },
+        border: {
+          top: { style: "thin", color: { argb: "FFB0B0B0" } },
+          left: { style: "thin", color: { argb: "FFB0B0B0" } },
+          bottom: { style: "thin", color: { argb: "FFB0B0B0" } },
+          right: { style: "thin", color: { argb: "FFB0B0B0" } }
+        }
+      };
     }
 
     function paintStatusGradient(cell, status) {
@@ -6453,17 +6455,11 @@ const IDB_NAME = "FieldPunchlistDB";
             Object.keys(ws.tables).forEach((name) => { try { delete ws.tables[name]; } catch (e) {} });
           }
           wb.worksheets.forEach((sheet) => {
+            try { if (sheet.tables) Object.keys(sheet.tables).forEach((n) => { delete sheet.tables[n]; }); } catch (e) {}
             try { if (sheet.model) sheet.model.tables = []; } catch (e) {}
             try { sheet._tables = {}; } catch (e) {}
-            try {
-              const cfs = sheet.conditionalFormattings || (sheet.model && sheet.model.conditionalFormattings) || [];
-              const keep = (cfs || []).filter((cf) => {
-                const ref = String((cf && (cf.ref || cf.sqref)) || "");
-                return !/^H/i.test(ref);
-              });
-              sheet.conditionalFormattings = keep;
-              if (sheet.model) sheet.model.conditionalFormattings = keep;
-            } catch (e) {}
+            try { sheet.conditionalFormattings = []; } catch (e) {}
+            try { if (sheet.model) sheet.model.conditionalFormattings = []; } catch (e) {}
           });
         } catch (e) {}
 
