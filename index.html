@@ -6294,6 +6294,29 @@ const IDB_NAME = "FieldPunchlistDB";
       "Waiting Parts": ["FFFFB347", "FFE67E22"]
     };
 
+    function paintStatusSolid(cell, status) {
+      const key = String(status || "").trim();
+      const colors = {
+        "Not Started": "FFFC162D",
+        "Complete": "FF2CAA4D",
+        "In Progress": "FFF2C400",
+        "Waiting Parts": "FFE67E22"
+      };
+      const argb = colors[key];
+      if (!argb) return;
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb } };
+      const darkText = key === "In Progress" || key === "Waiting Parts";
+      cell.font = Object.assign({}, cell.font || {}, {
+        color: { argb: darkText ? "FF111111" : "FFFFFFFF" },
+        bold: true
+      });
+      cell.alignment = Object.assign({}, cell.alignment || {}, {
+        vertical: "middle",
+        horizontal: "center",
+        wrapText: true
+      });
+    }
+
     function paintStatusGradient(cell, status) {
       const key = String(status || "").trim();
       const stops = STATUS_GRADIENT[key];
@@ -6335,6 +6358,7 @@ const IDB_NAME = "FieldPunchlistDB";
       const comments = String((item && item.comments) || "");
       const lines = Math.max(desc.length, action.length, comments.length);
       row.height = Math.max(29, Math.min(90, 18 + Math.ceil(lines / 42) * 14));
+      if (item) paintStatusSolid(row.getCell(8), item.status);
     }
 
     async function stripBrokenExcelTable(buf) {
@@ -6431,7 +6455,15 @@ const IDB_NAME = "FieldPunchlistDB";
           wb.worksheets.forEach((sheet) => {
             try { if (sheet.model) sheet.model.tables = []; } catch (e) {}
             try { sheet._tables = {}; } catch (e) {}
-
+            try {
+              const cfs = sheet.conditionalFormattings || (sheet.model && sheet.model.conditionalFormattings) || [];
+              const keep = (cfs || []).filter((cf) => {
+                const ref = String((cf && (cf.ref || cf.sqref)) || "");
+                return !/^H/i.test(ref);
+              });
+              sheet.conditionalFormattings = keep;
+              if (sheet.model) sheet.model.conditionalFormattings = keep;
+            } catch (e) {}
           });
         } catch (e) {}
 
