@@ -9,4 +9,4 @@ Put ALL files from this folder at the GitHub repo ROOT:
   icons/icon-512.png
   icons/apple-touch-icon.png
 
-Open https://YOURUSER.github.io/YOURREPO/ in Safari, then Add to Home Screen.
+Open the site in Safari, then Add to Home Screen.

@@ -462,7 +462,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       object-fit: cover;
       padding: 0;
       border-radius: 50%;
-      transform: translateY(6px);
+      transform: translateY(26px);
     }
     body.on-home .header-logo-pill { display: none; }
     body.on-home .header-logo-round { display: block; }
@@ -769,16 +769,35 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     #screenInspectList > .card,
     #screenVisitList > .card {
       border: none;
-      background: #1a1a1b;
-      padding: 18px;
+      background: transparent;
+      padding: 0;
+      margin: 0;
+      box-shadow: none;
     }
     #screenInspectList > .card .list-item,
     #screenVisitList > .card .list-item {
-      margin: 0 0 10px;
+      margin: 10px 12px;
+      padding: 16px 18px;
+      background: #1a1a1b;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+    }
+    #screenInspectList > .card .list-item.list-complete,
+    #screenVisitList > .card .list-item.list-complete {
+      border-color: transparent;
+      background:
+        linear-gradient(#1a1a1b, #1a1a1b) padding-box,
+        linear-gradient(
+          90deg,
+          #34d399 0,
+          #34d399 2px,
+          rgba(52, 211, 153, 0.35) 12px,
+          rgba(249, 253, 255, 0.12) 22px
+        ) border-box;
     }
     #screenInspectList > .card .list-item:last-child,
     #screenVisitList > .card .list-item:last-child {
-      margin-bottom: 0;
+      margin-bottom: 10px;
     }
     .form-group { margin-bottom: 16px; }
     .form-group label {
@@ -2152,48 +2171,28 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     #pl-modal .photo-preview {
       width: 100%; max-height: 180px; object-fit: cover;
       border-radius: var(--radius-sm); margin-top: 8px;
-      border: none;
+      border: 0.5px solid var(--border);
     }
     #pl-modal .photo-actions { display: flex; gap: 8px; margin-top: 8px; }
-    #pl-modal .photo-actions { position: relative; }
     #pl-modal .photo-btn {
-      position: relative;
-      overflow: hidden;
-      flex: 1; padding: 16px; min-height: 64px; border-radius: var(--radius-sm);
-      display: flex; align-items: center; justify-content: center;
+      flex: 1; padding: 12px; border-radius: var(--radius-sm);
       border: 0.5px dashed var(--border-strong);
-      background: var(--input-bg); font-size: 13px; font-weight: 650;
+      background: var(--input-bg);
+      font-size: 13px; font-weight: 650;
       color: var(--muted); cursor: pointer; text-align: center;
-      box-shadow: none; outline: none;
-      -webkit-appearance: none; appearance: none;
-    }
-    #pl-modal .photo-btn input[type="file"] {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      opacity: 0;
-      border: 0 !important;
-      min-height: 0 !important;
-      background: transparent !important;
       box-shadow: none !important;
-      color: transparent;
+      outline: none;
       -webkit-appearance: none;
       appearance: none;
     }
-    #pl-modal .form-group input[type="file"] {
-      border: 0 !important;
-      box-shadow: none !important;
-      background: transparent !important;
-      min-height: 0 !important;
+    #pl-modal .photo-btn-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 0;
     }
-    #pl-modal .photo-preview {
-      border: none !important;
-      box-shadow: none !important;
-      outline: none;
-      background: transparent;
+    #pl-modal .photo-btn input[type="file"] {
+      display: none !important;
     }
     #pl-modal .btn-row { display: flex; gap: 10px; margin-top: 18px; }
     #pl-modal .job-manage-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
@@ -5773,9 +5772,12 @@ const IDB_NAME = "FieldPunchlistDB";
       const items = getItems();
       const list = document.getElementById("item-list");
       const filtered = items.filter(itemMatchesFilter).slice().sort((a, b) => {
-        const ac = String(a.status || "") === "Complete" ? 1 : 0;
-        const bc = String(b.status || "") === "Complete" ? 1 : 0;
-        return ac - bc;
+        const rank = (item) => {
+          if (String(item.status || "") === "Complete") return 2;
+          if (String(item.priority || "") === "High") return 0;
+          return 1;
+        };
+        return rank(a) - rank(b);
       });
 
       document.getElementById("stat-open").innerHTML = `<strong>${items.filter(i => i.status === "Not Started").length}</strong> Open`;
@@ -5886,27 +5888,16 @@ const IDB_NAME = "FieldPunchlistDB";
           <label>Action</label>
           <textarea id="f-action" placeholder="What needs to be done?">${escapeHtml(item.action || '')}</textarea>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Department</label>
-            <select id="f-department">
-              <option ${item.department === "Service" ? "selected" : ""}>Service</option>
-              <option ${item.department === "Bakery" ? "selected" : ""}>Bakery</option>
-              <option ${item.department === "Programming" ? "selected" : ""}>Programming</option>
-              <option ${item.department === "Engineering" ? "selected" : ""}>Engineering</option>
-              <option ${item.department === "Sales" ? "selected" : ""}>Sales</option>
-              <option ${item.department === "Other" ? "selected" : ""}>Other</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Status</label>
-            <select id="f-status">
-              <option ${item.status === "Not Started" ? "selected" : ""}>Not Started</option>
-              <option ${item.status === "In Progress" ? "selected" : ""}>In Progress</option>
-              <option ${item.status === "Complete" ? "selected" : ""}>Complete</option>
-              <option ${item.status === "Waiting Parts" ? "selected" : ""}>Waiting Parts</option>
-            </select>
-          </div>
+        <div class="form-group">
+          <label>Department</label>
+          <select id="f-department">
+            <option ${item.department === "Service" ? "selected" : ""}>Service</option>
+            <option ${item.department === "Bakery" ? "selected" : ""}>Bakery</option>
+            <option ${item.department === "Programming" ? "selected" : ""}>Programming</option>
+            <option ${item.department === "Engineering" ? "selected" : ""}>Engineering</option>
+            <option ${item.department === "Sales" ? "selected" : ""}>Sales</option>
+            <option ${item.department === "Other" ? "selected" : ""}>Other</option>
+          </select>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -5927,11 +5918,20 @@ const IDB_NAME = "FieldPunchlistDB";
           <textarea id="f-comments">${escapeHtml(item.comments || '')}</textarea>
         </div>
         <div class="form-group">
+          <label>Status</label>
+          <select id="f-status">
+            <option ${item.status === "Not Started" ? "selected" : ""}>Not Started</option>
+            <option ${item.status === "In Progress" ? "selected" : ""}>In Progress</option>
+            <option ${item.status === "Complete" ? "selected" : ""}>Complete</option>
+            <option ${item.status === "Waiting Parts" ? "selected" : ""}>Waiting Parts</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label>Photo</label>
           <div class="photo-actions">
             <label class="photo-btn photo-btn-icon" title="Add photo">
-              <svg viewBox="0 0 32 24" width="46" height="34" aria-hidden="true"><path fill="currentColor" d="M10.2 5.1 11.1 3.85A1.2 1.2 0 0 1 12.1 3.4h7.8c.4 0 .77.2 1 .52L21.8 5.1H24.4A2.6 2.6 0 0 1 27 7.7v9.2A2.6 2.6 0 0 1 24.4 19.5H7.6A2.6 2.6 0 0 1 5 16.9V7.7A2.6 2.6 0 0 1 7.6 5.1h2.6z"/><circle cx="16" cy="12.4" r="4.15" fill="#1a1a1b"/><circle cx="16" cy="12.4" r="2.55" fill="currentColor"/><circle cx="23.15" cy="8.15" r="0.85" fill="#1a1a1b"/></svg>
-              <input type="file" accept="image/*" capture="environment" onchange="handlePhoto(event)">
+              <svg viewBox="0 0 30 24" width="30" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5A2.5 2.5 0 0 1 6 6h3.1l1.15-1.7A1.4 1.4 0 0 1 11.4 3.7h7.2c.46 0 .88.22 1.14.58L20.9 6H24a2.5 2.5 0 0 1 2.5 2.5v9A2.5 2.5 0 0 1 24 20H6A2.5 2.5 0 0 1 3.5 17.5v-9z"/><circle cx="15" cy="13" r="3.5"/></svg>
+              <input type="file" accept="image/*" style="display:none" onchange="handlePhoto(event)">
             </label>
             ${(item.photo || tempPhoto) ? `<button type="button" class="photo-btn" onclick="removePhoto()">Remove</button>` : ''}
           </div>
