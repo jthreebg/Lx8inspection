@@ -6283,6 +6283,99 @@ const IDB_NAME = "FieldPunchlistDB";
       return true;
     }
 
+    const STATUS_GRADIENT = {
+      "Not Started": ["FFFF7F65", "FFFC162D"],
+      "Complete": ["FF6ACC46", "FF2CAA4D"],
+      "In Progress": ["FFFFEB3B", "FFF2C400"],
+      "Waiting Parts": ["FFFFB347", "FFE67E22"]
+    };
+
+    function paintStatusGradient(cell, status) {
+      const stops = STATUS_GRADIENT[status];
+      if (!stops) return;
+      cell.fill = {
+        type: "gradient",
+        gradient: "angle",
+        degree: 90,
+        stops: [
+          { position: 0, color: { argb: stops[0] } },
+          { position: 1, color: { argb: stops[1] } }
+        ]
+      };
+      const darkText = status === "In Progress" || status === "Waiting Parts";
+      cell.font = Object.assign({}, cell.font || {}, {
+        color: { argb: darkText ? "FF111111" : "FFFFFFFF" },
+        bold: true
+      });
+      cell.alignment = Object.assign({}, cell.alignment || {}, {
+        vertical: "middle",
+        horizontal: "center",
+        wrapText: true
+      });
+    }
+
+    function stylePunchlistRow(row, item) {
+      [4, 5, 7].forEach((c) => {
+        const cell = row.getCell(c);
+        cell.alignment = Object.assign({}, cell.alignment || {}, { wrapText: true, vertical: "top" });
+      });
+      const desc = String((item && item.description) || "");
+      const action = String((item && item.action) || "");
+      const comments = String((item && item.comments) || "");
+      const lines = Math.max(desc.length, action.length, comments.length);
+      row.height = Math.max(29, Math.min(90, 18 + Math.ceil(lines / 42) * 14));
+      if (item) paintStatusGradient(row.getCell(8), item.status);
+    }
+
+    async function stripBrokenExcelTable(buf) {
+      try {
+        const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+        const files = (typeof unzipStore === "function") ? unzipStore(u8) : null;
+        if (!files) return buf;
+        const kept = [];
+        let sheetXml = null;
+        let sheetName = null;
+        let relXml = null;
+        let relName = null;
+        let ctXml = null;
+        for (const f of files) {
+          if (/xl\/tables\//.test(f.name)) continue;
+          if (/xl\/worksheets\/sheet\d+\.xml$/.test(f.name)) {
+            sheetName = f.name;
+            sheetXml = (typeof u8ToText === "function") ? u8ToText(f.data) : new TextDecoder().decode(f.data);
+            continue;
+          }
+          if (/xl\/worksheets\/_rels\/sheet\d+\.xml.rels$/.test(f.name)) {
+            relName = f.name;
+            relXml = (typeof u8ToText === "function") ? u8ToText(f.data) : new TextDecoder().decode(f.data);
+            continue;
+          }
+          if (f.name === "[Content_Types].xml") {
+            ctXml = (typeof u8ToText === "function") ? u8ToText(f.data) : new TextDecoder().decode(f.data);
+            continue;
+          }
+          kept.push(f);
+        }
+        if (sheetXml) {
+          sheetXml = sheetXml.replace(/<tableParts\b[\s\S]*?<\/tableParts>/g, "");
+          kept.push({ name: sheetName, data: new TextEncoder().encode(sheetXml) });
+        }
+        if (relXml) {
+          relXml = relXml.replace(/<Relationship[^>]*tables\/table[^>]*\/>/g, "");
+          kept.push({ name: relName, data: new TextEncoder().encode(relXml) });
+        }
+        if (ctXml) {
+          ctXml = ctXml.replace(/<Override[^>]*\/tables\/table[^>]*\/>/g, "");
+          kept.push({ name: "[Content_Types].xml", data: new TextEncoder().encode(ctXml) });
+        }
+        if (typeof zipStore === "function") return zipStore(kept);
+        return buf;
+      } catch (e) {
+        console.warn("table strip failed", e);
+        return buf;
+      }
+    }
+
     async function exportPunchlistExcel() {
       const items = getItems();
       const jobName = data.currentJob || "Punchlist";
@@ -6296,10 +6389,10 @@ const IDB_NAME = "FieldPunchlistDB";
         const wb = new ExcelJS.Workbook();
         await wb.xlsx.load(templateBuf);
         const ws = wb.worksheets[0];
-        try { ws.name = jobName.substring(0, 31); } catch (e) {}
+        try { ws.name = safeName.substring(0, 31); } catch (e) {}
 
         const firstDataRow = 6;
-        const lastTemplateRow = Math.max(ws.rowCount || 50, 50);
+        const lastTemplateRow = 50;
 
         items.forEach((item, idx) => {
           const r = firstDataRow + idx;
@@ -6312,22 +6405,33 @@ const IDB_NAME = "FieldPunchlistDB";
           row.getCell(6).value = item.department || "";
           row.getCell(7).value = item.comments || "";
           row.getCell(8).value = item.status || "";
-          row.commit();
+          stylePunchlistRow(row, item);
         });
 
         for (let r = firstDataRow + items.length; r <= lastTemplateRow; r++) {
           const row = ws.getRow(r);
           row.getCell(1).value = r - firstDataRow + 1;
-          for (let c = 2; c <= 8; c++) row.getCell(c).value = null;
-          row.commit();
+          for (let c = 2; c <= 8; c++) row.getCell(c).value = "";
         }
 
-        const out = await wb.xlsx.writeBuffer();
+        try {
+          if (ws.tables) {
+            Object.keys(ws.tables).forEach((name) => { try { delete ws.tables[name]; } catch (e) {} });
+          }
+          wb.worksheets.forEach((sheet) => {
+            try { if (sheet.model) sheet.model.tables = []; } catch (e) {}
+            try { sheet._tables = {}; } catch (e) {}
+          });
+        } catch (e) {}
+
+        let out = await wb.xlsx.writeBuffer();
+        out = await stripBrokenExcelTable(out);
         await downloadBlob(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
         toast("Excel ready — use Save to Files if asked");
         return;
       } catch (err) {
         console.warn("Template export failed, using fallback", err);
+      }
       }
 
       const X = (typeof XLSX !== "undefined") ? XLSX : (typeof window !== "undefined" ? window.XLSX : undefined);
