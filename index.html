@@ -6206,11 +6206,6 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
     async function getStoredTemplateBuffer() {
-      try {
-        const stored = await idbGet("templateXlsx");
-        if (stored instanceof ArrayBuffer && stored.byteLength) return stored;
-        if (stored && stored.data) return stored.data;
-      } catch (e) {}
       const buf = b64ToArrayBuffer(PUNCHLIST_TEMPLATE_B64);
       try { await idbSet("templateXlsx", buf); } catch (e) {}
       return buf;
