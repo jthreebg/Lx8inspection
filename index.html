@@ -6288,14 +6288,15 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
     const STATUS_GRADIENT = {
-      "Not Started": ["FFFF7F65", "FFFC162D"],
+      "Not Started": ["FFFC162D", "FFE01020"],
       "Complete": ["FF6ACC46", "FF2CAA4D"],
       "In Progress": ["FFFFEB3B", "FFF2C400"],
       "Waiting Parts": ["FFFFB347", "FFE67E22"]
     };
 
     function paintStatusGradient(cell, status) {
-      const stops = STATUS_GRADIENT[status];
+      const key = String(status || "").trim();
+      const stops = STATUS_GRADIENT[key];
       if (!stops) return;
       cell.fill = {
         type: "gradient",
@@ -6306,7 +6307,7 @@ const IDB_NAME = "FieldPunchlistDB";
           { position: 1, color: { argb: stops[1] } }
         ]
       };
-      const darkText = status === "In Progress" || status === "Waiting Parts";
+      const darkText = key === "In Progress" || key === "Waiting Parts";
       cell.font = Object.assign({}, cell.font || {}, {
         color: { argb: darkText ? "FF111111" : "FFFFFFFF" },
         bold: true
@@ -6319,10 +6320,16 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
     function stylePunchlistRow(row, item) {
-      [4, 5, 7].forEach((c) => {
+      for (let c = 1; c <= 8; c++) {
         const cell = row.getCell(c);
-        cell.alignment = Object.assign({}, cell.alignment || {}, { wrapText: true, vertical: "top" });
-      });
+        const wrap = (c === 4 || c === 5 || c === 7);
+        const center = (c === 1 || c === 6 || c === 8);
+        cell.alignment = Object.assign({}, cell.alignment || {}, {
+          vertical: "middle",
+          horizontal: center ? "center" : "left",
+          wrapText: wrap || c === 8
+        });
+      }
       const desc = String((item && item.description) || "");
       const action = String((item && item.action) || "");
       const comments = String((item && item.comments) || "");
@@ -6408,7 +6415,7 @@ const IDB_NAME = "FieldPunchlistDB";
           row.getCell(5).value = item.action || "";
           row.getCell(6).value = item.department || "";
           row.getCell(7).value = item.comments || "";
-          row.getCell(8).value = item.status || "";
+          row.getCell(8).value = String(item.status || "").trim();
           stylePunchlistRow(row, item);
         });
 
@@ -6425,6 +6432,15 @@ const IDB_NAME = "FieldPunchlistDB";
           wb.worksheets.forEach((sheet) => {
             try { if (sheet.model) sheet.model.tables = []; } catch (e) {}
             try { sheet._tables = {}; } catch (e) {}
+            try {
+              const cfs = sheet.conditionalFormattings || (sheet.model && sheet.model.conditionalFormattings) || [];
+              const keep = cfs.filter((cf) => {
+                const ref = String((cf && (cf.ref || cf.sqref)) || "");
+                return ref && !/^H/i.test(ref);
+              });
+              sheet.conditionalFormattings = keep;
+              if (sheet.model) sheet.model.conditionalFormattings = keep;
+            } catch (e) {}
           });
         } catch (e) {}
 
