@@ -3111,13 +3111,17 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       let quota = 0;
       let persisted = false;
       try {
+        const timeout = (p, ms) => Promise.race([
+          p,
+          new Promise((_, rej) => setTimeout(() => rej(new Error("storage-timeout")), ms))
+        ]);
         if (navigator.storage && navigator.storage.estimate) {
-          const est = await navigator.storage.estimate();
+          const est = await timeout(navigator.storage.estimate(), 1500);
           used = est.usage || 0;
           quota = est.quota || 0;
         }
         if (navigator.storage && navigator.storage.persisted) {
-          persisted = await navigator.storage.persisted();
+          persisted = await timeout(navigator.storage.persisted(), 800);
         }
       } catch (e) {}
       if (quota) {
@@ -6431,7 +6435,6 @@ const IDB_NAME = "FieldPunchlistDB";
         return;
       } catch (err) {
         console.warn("Template export failed, using fallback", err);
-      }
       }
 
       const X = (typeof XLSX !== "undefined") ? XLSX : (typeof window !== "undefined" ? window.XLSX : undefined);
