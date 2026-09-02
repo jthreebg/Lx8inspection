@@ -6444,7 +6444,8 @@ const IDB_NAME = "FieldPunchlistDB";
           row.getCell(5).value = item.action || "";
           row.getCell(6).value = item.department || "";
           row.getCell(7).value = item.comments || "";
-          row.getCell(8).value = normStatus(item.status);
+          const status = normStatus(item.status);
+          row.getCell(8).value = status;
           [4, 5, 7].forEach((c) => {
             const cell = row.getCell(c);
             const prev = cell.alignment || {};
@@ -6454,6 +6455,14 @@ const IDB_NAME = "FieldPunchlistDB";
               wrapText: true
             };
           });
+          if (status === "Not Started") {
+            const h = row.getCell(8);
+            h.style = {
+              alignment: { vertical: "middle", horizontal: "center", wrapText: true },
+              font: { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } },
+              fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFC162D" } }
+            };
+          }
         }
 
         for (let r = firstDataRow + count; r <= lastTemplateRow; r++) {
