@@ -6417,59 +6417,117 @@ const IDB_NAME = "FieldPunchlistDB";
       const jobName = data.currentJob || "Punchlist";
       const safeName = jobName.replace(/[\\/:*?"<>|]/g, "-").trim() || "Punchlist";
       const filename = safeName + " Punchlist.xlsx";
+      const STATUS_COLORS = {
+        "Not Started": "FFFC162D",
+        "Complete": "FF2CAA4D",
+        "In Progress": "FFF2C400",
+        "Waiting Parts": "FFE67E22"
+      };
+      const DEPT_COLORS = {
+        "Service": "FF173F5F",
+        "Bakery": "FF3426EE",
+        "Programming": "FF047EE2",
+        "Engineering": "FF343434",
+        "Sales": "FF00B4D2",
+        "Other": "FF5A5A5A"
+      };
+
+      function normStatus(s) {
+        const v = String(s || "").trim().toLowerCase();
+        if (v === "complete" || v === "done" || v === "completed") return "Complete";
+        if (v === "in progress" || v === "progress") return "In Progress";
+        if (v === "waiting parts" || v === "waiting part" || v === "parts") return "Waiting Parts";
+        if (v === "not started" || v === "open") return "Not Started";
+        return String(s || "").trim();
+      }
 
       await ensureExcelLibs();
       try {
         if (typeof ExcelJS === "undefined") throw new Error("ExcelJS missing");
-        const templateBuf = await getStoredTemplateBuffer();
         const wb = new ExcelJS.Workbook();
-        await wb.xlsx.load(templateBuf);
-        const ws = wb.worksheets[0];
-        try { ws.name = safeName.substring(0, 31); } catch (e) {}
+        const ws = wb.addWorksheet(safeName.substring(0, 31) || "Punchlist", {
+          views: [{ state: "frozen", ySplit: 1, showGridLines: true }]
+        });
+        ws.columns = [
+          { width: 8 },
+          { width: 12 },
+          { width: 16 },
+          { width: 52 },
+          { width: 50 },
+          { width: 16 },
+          { width: 50 },
+          { width: 16 }
+        ];
 
-        const firstDataRow = 6;
-        const lastTemplateRow = 50;
+        const headers = ["Item", "Line", "Location", "Description", "Action", "Department", "Comments", "Status"];
+        const head = ws.getRow(1);
+        headers.forEach((h, i) => {
+          const cell = head.getCell(i + 1);
+          cell.value = h;
+          cell.font = { bold: true, color: { argb: "FFFFFFFF" }, name: "Calibri", size: 11 };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E79" } };
+          cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+        });
+        head.height = 22;
 
         items.forEach((item, idx) => {
-          const r = firstDataRow + idx;
+          const r = idx + 2;
           const row = ws.getRow(r);
-          row.getCell(1).value = idx + 1;
-          row.getCell(2).value = item.line || "";
-          row.getCell(3).value = item.location || "";
-          row.getCell(4).value = item.description || "";
-          row.getCell(5).value = item.action || "";
-          row.getCell(6).value = item.department || "";
-          row.getCell(7).value = item.comments || "";
-          row.getCell(8).value = String(item.status || "").trim();
-          stylePunchlistRow(row, item);
+          const status = normStatus(item.status);
+          const vals = [
+            idx + 1,
+            item.line || "",
+            item.location || "",
+            item.description || "",
+            item.action || "",
+            item.department || "",
+            item.comments || "",
+            status
+          ];
+          vals.forEach((v, i) => { row.getCell(i + 1).value = v; });
+          for (let c = 1; c <= 8; c++) {
+            const cell = row.getCell(c);
+            const center = (c === 1 || c === 6 || c === 8);
+            cell.alignment = {
+              vertical: "middle",
+              horizontal: center ? "center" : "left",
+              wrapText: (c === 4 || c === 5 || c === 7 || c === 8)
+            };
+            cell.font = { name: "Calibri", size: 11 };
+            cell.border = {
+              top: { style: "thin", color: { argb: "FFD0D0D0" } },
+              left: { style: "thin", color: { argb: "FFD0D0D0" } },
+              bottom: { style: "thin", color: { argb: "FFD0D0D0" } },
+              right: { style: "thin", color: { argb: "FFD0D0D0" } }
+            };
+          }
+          const dept = String(item.department || "").trim();
+          if (DEPT_COLORS[dept]) {
+            const d = row.getCell(6);
+            d.fill = { type: "pattern", pattern: "solid", fgColor: { argb: DEPT_COLORS[dept] } };
+            d.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+          }
+          if (STATUS_COLORS[status]) {
+            const h = row.getCell(8);
+            const dark = status === "In Progress" || status === "Waiting Parts";
+            h.fill = { type: "pattern", pattern: "solid", fgColor: { argb: STATUS_COLORS[status] } };
+            h.font = { name: "Calibri", size: 11, bold: true, color: { argb: dark ? "FF111111" : "FFFFFFFF" } };
+            h.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+          }
+          const lines = Math.max(
+            String(item.description || "").length,
+            String(item.action || "").length,
+            String(item.comments || "").length
+          );
+          row.height = Math.max(22, Math.min(72, 16 + Math.ceil(lines / 48) * 14));
         });
 
-        for (let r = firstDataRow + items.length; r <= lastTemplateRow; r++) {
-          const row = ws.getRow(r);
-          row.getCell(1).value = r - firstDataRow + 1;
-          for (let c = 2; c <= 8; c++) row.getCell(c).value = "";
-        }
-
-        try {
-          if (ws.tables) {
-            Object.keys(ws.tables).forEach((name) => { try { delete ws.tables[name]; } catch (e) {} });
-          }
-          wb.worksheets.forEach((sheet) => {
-            try { if (sheet.tables) Object.keys(sheet.tables).forEach((n) => { delete sheet.tables[n]; }); } catch (e) {}
-            try { if (sheet.model) sheet.model.tables = []; } catch (e) {}
-            try { sheet._tables = {}; } catch (e) {}
-            try { sheet.conditionalFormattings = []; } catch (e) {}
-            try { if (sheet.model) sheet.model.conditionalFormattings = []; } catch (e) {}
-          });
-        } catch (e) {}
-
-        let out = await wb.xlsx.writeBuffer();
-        out = await stripBrokenExcelTable(out);
+        const out = await wb.xlsx.writeBuffer();
         await downloadBlob(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
         toast("Excel ready — use Save to Files if asked");
         return;
       } catch (err) {
-        console.warn("Template export failed, using fallback", err);
+        console.warn("ExcelJS export failed, using fallback", err);
       }
 
       const X = (typeof XLSX !== "undefined") ? XLSX : (typeof window !== "undefined" ? window.XLSX : undefined);
@@ -6477,16 +6535,23 @@ const IDB_NAME = "FieldPunchlistDB";
         toast("Excel engine missing. Force-refresh the page, then try again.");
         return;
       }
-      const rows = [];
-      for (let i = 0; i < 4; i++) rows.push([]);
-      rows.push(["Item", "Line", "Location", "Description", "Action", "Department", "Comments", "Status"]);
+      const rows = [["Item", "Line", "Location", "Description", "Action", "Department", "Comments", "Status"]];
       items.forEach((item, idx) => {
-        rows.push([idx + 1, item.line || "", item.location || "", item.description || "", item.action || "", item.department || "", item.comments || "", item.status || ""]);
+        rows.push([
+          idx + 1,
+          item.line || "",
+          item.location || "",
+          item.description || "",
+          item.action || "",
+          item.department || "",
+          item.comments || "",
+          normStatus(item.status)
+        ]);
       });
-      const ws = X.utils.aoa_to_sheet(rows);
-      ws["!cols"] = [{ wch: 8 },{ wch: 12 },{ wch: 18 },{ wch: 52 },{ wch: 50 },{ wch: 16 },{ wch: 50 },{ wch: 14 }];
+      const ws2 = X.utils.aoa_to_sheet(rows);
+      ws2["!cols"] = [{ wch: 8 },{ wch: 12 },{ wch: 16 },{ wch: 52 },{ wch: 50 },{ wch: 16 },{ wch: 50 },{ wch: 16 }];
       const wb2 = X.utils.book_new();
-      X.utils.book_append_sheet(wb2, ws, jobName.substring(0, 31));
+      X.utils.book_append_sheet(wb2, ws2, safeName.substring(0, 31));
       const out2 = X.write(wb2, { bookType: "xlsx", type: "array" });
       await downloadBlob(new Blob([out2], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
       toast("Excel ready — use Save to Files if asked");
