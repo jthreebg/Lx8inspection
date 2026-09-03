@@ -1,4 +1,4 @@
-const CACHE = 'lematic-pwa-v25';
+const CACHE = 'lematic-pwa-v26';
 self.addEventListener('install', (e) => { self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))));
