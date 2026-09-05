@@ -5425,68 +5425,61 @@ const IDB_NAME = "FieldPunchlistDB";
       function solid(argb) {
         return { type: "pattern", pattern: "solid", fgColor: { argb: argb } };
       }
-      const STATUS_FILL = {
-        "Not Started": solid("FFFF3B30"),
-        "Complete": solid("FF34C759"),
-        "In Progress": solid("FF007AFF"),
-        "Waiting Parts": solid("FFFF9500")
-      };
-      const DEPT_FILL = {
-        "Bakery": solid("FF7465FF"),
-        "Service": solid("FF286EA8"),
-        "Sales": solid("FF00B4D2"),
-        "Engineering": solid("FF5A5A5A"),
-        "Programming": solid("FF047EE2"),
-        "Other": solid("FF8E8E93")
-      };
-      const thin = { style: "thin", color: { argb: "FFD0D0D0" } };
-      const border = { top: thin, left: thin, bottom: thin, right: thin };
 
       await ensureExcelLibs();
       if (typeof ExcelJS === "undefined") { toast("Excel library not available"); return; }
 
+      const templateBuf = await getStoredTemplateBuffer();
       const wb = new ExcelJS.Workbook();
-      wb.creator = "LeMatic Field Service";
-      const ws = wb.addWorksheet("Punchlist", { views: [{ state: "frozen", ySplit: 1, showGridLines: true }] });
-      const widths = [8, 14, 18, 36, 32, 16, 36, 16];
-      const headers = ["Item","Line","Location","Description","Action","Department","Comments","Status"];
-      ws.columns = headers.map((h, i) => ({ header: h, width: widths[i] }));
-      const head = ws.getRow(1);
-      head.height = 22;
-      for (let c = 1; c <= 8; c++) {
-        const cell = head.getCell(c);
-        cell.value = headers[c - 1];
-        cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
-        cell.fill = solid("FF141418");
-        cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-        cell.border = border;
-      }
+      await wb.xlsx.load(templateBuf);
+      const ws = wb.worksheets[0];
+      const firstDataRow = 6;
+      const lastTemplateRow = 50;
+      const used = Math.max(items.length, 1);
 
-      items.forEach((item, idx) => {
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
+        const row = ws.getRow(firstDataRow + idx);
         const status = normStatus(item.status);
         const dept = String(item.department || "").trim();
-        const vals = [idx + 1, item.line || "", item.location || "", item.description || "", item.action || "", dept, item.comments || "", status];
-        const row = ws.addRow(vals);
-        const per = 40;
-        const lines = Math.max(1, Math.ceil(String(item.description || "").length / per), Math.ceil(String(item.action || "").length / per), Math.ceil(String(item.comments || "").length / per));
-        row.height = Math.min(72, 20 + lines * 14);
-        for (let c = 1; c <= 8; c++) {
+        row.getCell(1).value = idx + 1;
+        row.getCell(2).value = item.line || "";
+        row.getCell(3).value = item.location || "";
+        row.getCell(4).value = item.description || "";
+        row.getCell(5).value = item.action || "";
+        row.getCell(6).value = dept;
+        row.getCell(7).value = item.comments || "";
+        row.getCell(8).value = status;
+        for (let c = 2; c <= 7; c++) {
           const cell = row.getCell(c);
-          cell.alignment = { wrapText: true, vertical: "top", horizontal: (c === 1 || c === 6 || c === 8) ? "center" : "left" };
-          cell.font = { name: "Calibri", size: 11, color: { argb: "FF222222" } };
-          cell.border = border;
+          cell.alignment = Object.assign({}, cell.alignment || {}, { wrapText: true, vertical: "top" });
         }
-        if (dept && DEPT_FILL[dept]) {
-          row.getCell(6).fill = DEPT_FILL[dept];
-          row.getCell(6).font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
-          row.getCell(6).alignment = { wrapText: true, vertical: "middle", horizontal: "center" };
-        }
-        if (STATUS_FILL[status]) {
-          row.getCell(8).fill = STATUS_FILL[status];
-          row.getCell(8).font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
-          row.getCell(8).alignment = { wrapText: true, vertical: "middle", horizontal: "center" };
-        }
-      });
+        const text = [item.description, item.action, item.comments].join(" ");
+        const lines = Math.max(1, Math.ceil(String(text).length / 42));
+        row.height = Math.min(72, Math.max(row.height || 18, 18 + lines * 12));
+      }
+
+      if (!items.length) {
+        const row = ws.getRow(firstDataRow);
+        row.getCell(1).value = 1;
+        for (let c = 2; c <= 8; c++) row.getCell(c).value = "";
+      }
+
+      const deleteFrom = firstDataRow + used;
+      const deleteCount = lastTemplateRow - deleteFrom + 1;
+      if (deleteCount > 0 && typeof ws.spliceRows === "function") {
+        ws.spliceRows(deleteFrom, deleteCount);
+      }
+
+      if (ws.conditionalFormattings && ws.conditionalFormattings.length) {
+        const last = firstDataRow + used - 1;
+        ws.conditionalFormattings.forEach((cf) => {
+          if (!cf || !cf.ref) return;
+          const ref = String(cf.ref);
+          if (ref.indexOf("F6") === 0) cf.ref = "F6:F" + last;
+          if (ref.indexOf("H6") === 0) cf.ref = "H6:H" + last;
+        });
+      }
 
       const out = await wb.xlsx.writeBuffer();
       const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
