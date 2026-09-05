@@ -399,6 +399,10 @@
       min-height: 40px;
       font-size: 0.82rem;
     }
+    .btn-danger {
+      color: var(--brand-red, #D4223B);
+      border-color: var(--brand-red, #D4223B);
+    }
     .list-page-head {
       display: flex;
       align-items: flex-end;

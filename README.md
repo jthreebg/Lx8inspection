@@ -1,24 +1,30 @@
 # LeMatic Field Service PWA
 
-Split static package for GitHub Pages.
+Flat static package for GitHub Pages - every file lives at the repo root
+(no subfolders), so `start_url`/`scope` can stay `./` regardless of where
+the repo is served from.
 
 ## Folder
 
 ```
-pwa/
-  index.html
-  css/app.css
-  js/app.js
-  js/templates.js
-  js/pdf-fallback.js
-  vendor/exceljs.min.js
-  vendor/jspdf.umd.min.js
-  vendor/jspdf.plugin.autotable.min.js
-  icons/
-  manifest.webmanifest
-  sw.js
-  apple-touch-icon.png
+index.html
+app.css
+app.js
+templates.js
+exceljs.min.js
+jspdf.umd.min.js
+jspdf.plugin.autotable.min.js
+manifest.webmanifest
+sw.js
+icon-192.png
+icon-512.png
+icon-512-maskable.png
+apple-touch-icon.png
 ```
+
+`exceljs.min.js` and `jspdf*.min.js` are not loaded on startup - they're
+fetched on demand (with a CDN fallback) the first time someone exports a
+PDF or Excel file, and then cached by the service worker for next time.
 
 ## Add to GitHub
 
