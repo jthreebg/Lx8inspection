@@ -1,44 +1,68 @@
-# LeMatic Inspect PWA
+# LeMatic Field Service PWA
 
-Standalone Progressive Web App for LeMatic bakery equipment inspections and field service visit reports.
+Split static package for GitHub Pages.
 
-Works as a home-screen app on iPhone (Safari → **Add to Home Screen**). Data stays in the device `localStorage`. PDF export uses jsPDF from a CDN (needs network the first time).
-
-## Samples for testing
-
-On Home:
-
-- **Load example inspection** — BBU Orangeburg Line 1 checklist with Good / Fair / Poor picks and notes.
-- **+ Visit Report → Load example** — sample visit letter, repair cards, completed / order lists, and photos.
-
-## Repo layout
+## Folder
 
 ```
-lx8-inspect-pwa/
+pwa/
   index.html
+  css/app.css
+  js/app.js
+  js/templates.js
+  js/pdf-fallback.js
+  vendor/exceljs.min.js
+  vendor/jspdf.umd.min.js
+  vendor/jspdf.plugin.autotable.min.js
+  icons/
   manifest.webmanifest
   sw.js
-  icons/
-    icon-180.png
-    icon-192.png
-    icon-512.png
-    icon-maskable-512.png
-  .nojekyll
+  apple-touch-icon.png
 ```
 
-## Publish on GitHub Pages
+## Add to GitHub
 
-1. Create a GitHub repo.
-2. Upload this folder to the repo root.
-3. Settings → Pages → Deploy from a branch → `main` / `(root)`.
-4. Open `https://<your-user>.github.io/<repo>/`
+### New repo
+1. Create an empty GitHub repo (no README).
+2. On your computer:
 
-HTTPS is required for the service worker and Add to Home Screen.
+```bash
+cd pwa
+git init
+git add .
+git commit -m "LeMatic field service PWA"
+git branch -M main
+git remote add origin https://github.com/YOUR_USER/YOUR_REPO.git
+git push -u origin main
+```
 
-## Install on iPhone
+3. Repo → **Settings** → **Pages**
+4. Source: **Deploy from a branch**
+5. Branch: `main` / folder: `/ (root)`
+6. Save. Wait a minute.
 
-1. Open the Pages URL in Safari.
-2. Share → Add to Home Screen.
-3. The LeMatic globe icon should appear on the home screen.
+Site URL:
 
-Cache name for this build: `lematic-inspect-v7`.
+`https://YOUR_USER.github.io/YOUR_REPO/`
+
+### Existing repo
+Copy everything inside `pwa/` into the repo root (or into `/docs` and set Pages to `/docs`). Commit and push. Then enable Pages as above.
+
+## Test on phone
+1. Open the Pages URL in Safari or Chrome.
+2. iPhone: Share → Add to Home Screen.
+3. Android: Install app / Add to Home Screen.
+
+Needs HTTPS (Pages provides that). Do not open as a `file://` page.
+
+## Local test
+From the `pwa` folder:
+
+```bash
+python3 -m http.server 8080
+```
+
+Open `http://localhost:8080`
+
+## Note
+If the app is not at the domain root (`/YOUR_REPO/`), keep `start_url` and `scope` as `./` in `manifest.webmanifest`. That already matches a project-site URL.

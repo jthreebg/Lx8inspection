@@ -1,0 +1,5532 @@
+    const ICO = {
+      clip: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="3.2" width="8" height="3.6" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="5.2" y="5.2" width="13.6" height="15.6" rx="2.4" stroke="currentColor" stroke-width="1.2"/><path d="M9 12h6M9 16h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+      search: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.2" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+      warn: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4.2L21.2 20.2H2.8L12 4.2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10.2v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1" fill="currentColor"/></svg>',
+      cam: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.2 8.4h3l1.4-2.2h6.8l1.4 2.2h3c.9 0 1.6.7 1.6 1.6v8.2c0 .9-.7 1.6-1.6 1.6H4.2c-.9 0-1.6-.7-1.6-1.6V10c0-.9.7-1.6 1.6-1.6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.4" r="3.1" stroke="currentColor" stroke-width="1.8"/></svg>',
+      doc: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.4h7.2L19.6 9v11.2c0 .8-.7 1.4-1.5 1.4H7c-.8 0-1.5-.6-1.5-1.4V4.8c0-.8.7-1.4 1.5-1.4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14.2 3.5V9h5.3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.6 13h6.8M8.6 16.4h4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+      check: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.2" stroke="currentColor" stroke-width="1.8"/><path d="M8.2 12.2l2.6 2.6 5-5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    };
+
+    // ========== DATA ==========
+    let APP_DATA = null;
+    let currentInspection = null;
+    let editingInspectionId = null; // when set, start form is in edit-meta mode
+    let currentSectionIndex = 0;
+    let extraSectionTab = null;
+    let notesSource = 'inspection';
+    let results = {}; // item_id -> {condition, notes, impacts, severity, photoDataUrl}
+    let findings = [];
+
+    // Load data
+    function setActiveMachine(model) {
+      const key = model || 'LX-8';
+      const pack = (window.MACHINE_TEMPLATES && (window.MACHINE_TEMPLATES[key] || window.MACHINE_TEMPLATES['LX-8'])) || window.EMBEDDED_DATA;
+      APP_DATA = pack || { sections: [], items: [], lists: {} };
+      return APP_DATA;
+    }
+    async function loadData() {
+      if (window.MACHINE_TEMPLATES && window.MACHINE_TEMPLATES['LX-8']) {
+        setActiveMachine('LX-8');
+      } else if (window.EMBEDDED_DATA && window.EMBEDDED_DATA.sections && window.EMBEDDED_DATA.sections.length) {
+        APP_DATA = window.EMBEDDED_DATA;
+      } else {
+        try {
+          const res = await fetch('inspection_data.json');
+          APP_DATA = await res.json();
+        } catch (e) {
+          console.warn('Could not load data');
+          APP_DATA = { sections: [], items: [], lists: {} };
+        }
+      }
+      initApp();
+    }
+
+    // ========== STORAGE (IndexedDB + localStorage fallback) ==========
+    const LX_DB_NAME = 'lematic-lx8';
+    const LX_DB_VER = 1;
+    const storeMem = {
+      inspections: null,
+      visits: null,
+      jobs: null,
+      ready: false
+    };
+    let lxDb = null;
+    let lxPersistTimer = null;
+
+    function lsRead(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        return parsed == null ? fallback : parsed;
+      } catch (e) { return fallback; }
+    }
+    function lsWrite(key, value) {
+      try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+      catch (e) { return false; }
+    }
+
+    function idbOpen() {
+      if (lxDb) return Promise.resolve(lxDb);
+      if (!('indexedDB' in window)) return Promise.reject(new Error('no-idb'));
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(LX_DB_NAME, LX_DB_VER);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+          if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos', { keyPath: 'id' });
+        };
+        req.onsuccess = () => { lxDb = req.result; resolve(lxDb); };
+        req.onerror = () => reject(req.error || new Error('idb-open-failed'));
+      });
+    }
+    function idbGetKv(key) {
+      return idbOpen().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction('kv', 'readonly');
+        const req = tx.objectStore('kv').get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      }));
+    }
+    function idbSetKv(key, value) {
+      return idbOpen().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(value, key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      }));
+    }
+    function idbPutPhoto(rec) {
+      return idbOpen().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction('photos', 'readwrite');
+        tx.objectStore('photos').put(rec);
+        tx.oncomplete = () => resolve(rec.id);
+        tx.onerror = () => reject(tx.error);
+      }));
+    }
+    function idbGetPhoto(id) {
+      if (!id) return Promise.resolve(null);
+      return idbOpen().then(db => new Promise((resolve, reject) => {
+        const req = db.transaction('photos', 'readonly').objectStore('photos').get(id);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      }));
+    }
+    function idbDeletePhotos(ids) {
+      const list = (ids || []).filter(Boolean);
+      if (!list.length) return Promise.resolve();
+      return idbOpen().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction('photos', 'readwrite');
+        const st = tx.objectStore('photos');
+        list.forEach(id => st.delete(id));
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      }));
+    }
+    function idbGetAllPhotos() {
+      return idbOpen().then(db => new Promise((resolve, reject) => {
+        const req = db.transaction('photos', 'readonly').objectStore('photos').getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      })).catch(() => []);
+    }
+
+    function dataUrlToBlob(dataUrl) {
+      try {
+        const m = String(dataUrl).match(/^data:([^;]+);base64,(.*)$/);
+        if (!m) return null;
+        const bin = atob(m[2]);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return new Blob([arr], { type: m[1] || 'image/jpeg' });
+      } catch (e) { return null; }
+    }
+    function blobToObjectUrl(blob) {
+      if (!blob) return '';
+      try { return URL.createObjectURL(blob); } catch (e) { return ''; }
+    }
+    function compressImageFile(file, maxEdge, quality) {
+      maxEdge = maxEdge || 1600;
+      quality = quality == null ? 0.72 : quality;
+      return new Promise((resolve) => {
+        if (!file) return resolve(null);
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            let w = img.naturalWidth || img.width;
+            let h = img.naturalHeight || img.height;
+            const scale = Math.min(1, maxEdge / Math.max(w, h));
+            w = Math.max(1, Math.round(w * scale));
+            h = Math.max(1, Math.round(h * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            canvas.toBlob((blob) => {
+              URL.revokeObjectURL(url);
+              resolve(blob || file);
+            }, 'image/jpeg', quality);
+          } catch (e) {
+            URL.revokeObjectURL(url);
+            resolve(file);
+          }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+      });
+    }
+
+    async function hydratePhotoUrl(ph) {
+      if (!ph) return ph;
+      if (typeof ph === 'string') {
+        if (ph.indexOf('data:') === 0 || ph.indexOf('blob:') === 0) return { url: ph, caption: '' };
+        const rec = await idbGetPhoto(ph).catch(() => null);
+        if (rec && rec.blob) return { id: ph, url: blobToObjectUrl(rec.blob), caption: rec.caption || '' };
+        return { url: ph, caption: '' };
+      }
+      if (ph.url && (String(ph.url).indexOf('data:') === 0 || String(ph.url).indexOf('blob:') === 0 || String(ph.url).indexOf('http') === 0)) return ph;
+      if (ph.id) {
+        const rec = await idbGetPhoto(ph.id).catch(() => null);
+        if (rec && rec.blob) return { id: ph.id, url: blobToObjectUrl(rec.blob), caption: ph.caption || rec.caption || '' };
+      }
+      return ph;
+    }
+
+    async function persistPhotoRecord(photo, prefix) {
+      if (!photo) return photo;
+      const caption = typeof photo === 'string' ? '' : (photo.caption || '');
+      const existingId = typeof photo === 'object' ? photo.id : null;
+      const url = typeof photo === 'string' ? photo : (photo.url || '');
+      if (existingId && (!url || url.indexOf('blob:') === 0)) {
+        return { id: existingId, caption };
+      }
+      if (url && url.indexOf('data:') === 0) {
+        const blob = dataUrlToBlob(url);
+        if (!blob) return { url: url, caption };
+        const id = existingId || (prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
+        await idbPutPhoto({ id, blob, caption, createdAt: Date.now() }).catch(() => null);
+        return { id, caption };
+      }
+      if (photo && photo.blob instanceof Blob) {
+        const id = existingId || (prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
+        await idbPutPhoto({ id, blob: photo.blob, caption, createdAt: Date.now() }).catch(() => null);
+        return { id, caption };
+      }
+      if (existingId) return { id: existingId, caption };
+      return { url: url, caption };
+    }
+
+    function stripInspectionPhotos(list) {
+      return (list || []).map(ins => {
+        const copy = Object.assign({}, ins);
+        if (copy.results) {
+          const r2 = {};
+          Object.keys(copy.results).forEach(k => {
+            const row = Object.assign({}, copy.results[k]);
+            if (row.photoId) delete row.photoDataUrl;
+            else if (row.photoDataUrl && String(row.photoDataUrl).indexOf('blob:') === 0) delete row.photoDataUrl;
+            else if (row.photoDataUrl && String(row.photoDataUrl).length > 80 && String(row.photoDataUrl).indexOf('data:') === 0) {
+              /* kept only as last-resort fallback if IDB write failed */
+            }
+            r2[k] = row;
+          });
+          copy.results = r2;
+        }
+        if (copy.findings) {
+          copy.findings = copy.findings.map(f => {
+            const ff = Object.assign({}, f);
+            if (ff.photoId) delete ff.photoDataUrl;
+            return ff;
+          });
+        }
+        return copy;
+      });
+    }
+
+    async function extractInspectionBlobs(list) {
+      const out = [];
+      for (const ins of (list || [])) {
+        const copy = JSON.parse(JSON.stringify(ins));
+        const insId = copy.id || ('ins_' + Date.now());
+        copy.id = insId;
+        if (copy.results) {
+          for (const k of Object.keys(copy.results)) {
+            const row = copy.results[k] || {};
+            if (row.photoDataUrl && String(row.photoDataUrl).indexOf('data:') === 0 && !row.photoId) {
+              const saved = await persistPhotoRecord({ url: row.photoDataUrl }, 'ins_' + insId + '_' + k);
+              if (saved && saved.id) {
+                row.photoId = saved.id;
+                delete row.photoDataUrl;
+              }
+            } else if (row.photoDataUrl && String(row.photoDataUrl).indexOf('blob:') === 0) {
+              delete row.photoDataUrl;
+            }
+            copy.results[k] = row;
+          }
+        }
+        if (copy.findings) {
+          for (let i = 0; i < copy.findings.length; i++) {
+            const f = copy.findings[i] || {};
+            if (f.photoDataUrl && String(f.photoDataUrl).indexOf('data:') === 0 && !f.photoId) {
+              const saved = await persistPhotoRecord({ url: f.photoDataUrl }, 'insf_' + insId + '_' + i);
+              if (saved && saved.id) {
+                f.photoId = saved.id;
+                delete f.photoDataUrl;
+              }
+            }
+            copy.findings[i] = f;
+          }
+        }
+        out.push(copy);
+      }
+      return out;
+    }
+
+    async function hydrateInspectionBlobs(list) {
+      const out = [];
+      for (const ins of (list || [])) {
+        const copy = Object.assign({}, ins);
+        if (copy.results) {
+          const r2 = {};
+          for (const k of Object.keys(copy.results)) {
+            const row = Object.assign({}, copy.results[k]);
+            if (row.photoId && !row.photoDataUrl) {
+              const rec = await idbGetPhoto(row.photoId).catch(() => null);
+              if (rec && rec.blob) row.photoDataUrl = blobToObjectUrl(rec.blob);
+            }
+            r2[k] = row;
+          }
+          copy.results = r2;
+        }
+        if (copy.findings) {
+          const next = [];
+          for (const f of copy.findings) {
+            const ff = Object.assign({}, f);
+            if (ff.photoId && !ff.photoDataUrl) {
+              const rec = await idbGetPhoto(ff.photoId).catch(() => null);
+              if (rec && rec.blob) ff.photoDataUrl = blobToObjectUrl(rec.blob);
+            }
+            next.push(ff);
+          }
+          copy.findings = next;
+        }
+        out.push(copy);
+      }
+      return out;
+    }
+
+    async function persistAllStores() {
+      const visits = storeMem.visits || [];
+      const inspections = storeMem.inspections || [];
+      const slimVisits = [];
+      for (const v of visits) {
+        const copy = Object.assign({}, v);
+        const photos = [];
+        for (const ph of (v.photos || [])) {
+          photos.push(await persistPhotoRecord(ph, 'vis_' + (v.id || 'x')));
+        }
+        copy.photos = photos;
+        slimVisits.push(copy);
+      }
+      const slimIns = await extractInspectionBlobs(inspections);
+      try {
+        await idbSetKv('visits', slimVisits);
+        await idbSetKv('inspections', slimIns);
+      } catch (e) {
+        console.warn('IndexedDB persist failed', e);
+      }
+      lsWrite('lx8_visits_meta', slimVisits.map(v => ({
+        id: v.id, customer: v.customer, equip: v.equip, dates: v.dates, tech: v.tech,
+        scope: v.scope, status: v.status, updatedAt: v.updatedAt,
+        findings: (v.findings || []).length, photos: (v.photos || []).length
+      })));
+      try {
+        const tiny = stripInspectionPhotos(slimIns).map(ins => {
+          const c = Object.assign({}, ins);
+          if (c.results) {
+            Object.keys(c.results).forEach(k => {
+              if (c.results[k] && c.results[k].photoDataUrl) delete c.results[k].photoDataUrl;
+            });
+          }
+          return c;
+        });
+        lsWrite('lx8_inspections', tiny);
+      } catch (e) {}
+      try { lsWrite('lx8_visits', slimVisits); } catch (e) {}
+    }
+
+    function schedulePersist() {
+      clearTimeout(lxPersistTimer);
+      lxPersistTimer = setTimeout(() => {
+        persistAllStores().catch(err => console.warn(err));
+      }, 180);
+    }
+
+    async function bootStorage() {
+      let visits = lsRead('lx8_visits', []);
+      let inspections = lsRead('lx8_inspections', []);
+      try {
+        await idbOpen();
+        const idbVisits = await idbGetKv('visits');
+        const idbIns = await idbGetKv('inspections');
+        if (Array.isArray(idbVisits) && idbVisits.length) visits = idbVisits;
+        if (Array.isArray(idbIns) && idbIns.length) inspections = idbIns;
+        if (Array.isArray(idbVisits) && visits === idbVisits) {
+          /* already IDB */
+        } else if (Array.isArray(visits) && visits.length) {
+          await idbSetKv('visits', visits).catch(() => {});
+        }
+        inspections = await hydrateInspectionBlobs(inspections);
+        for (const v of visits) {
+          if (v.photos && v.photos.length) {
+            v.photos = await Promise.all(v.photos.map(hydratePhotoUrl));
+          }
+        }
+      } catch (e) {
+        console.warn('IndexedDB unavailable, using localStorage', e);
+      }
+      storeMem.visits = Array.isArray(visits) ? visits : [];
+      storeMem.inspections = Array.isArray(inspections) ? inspections : [];
+      storeMem.ready = true;
+      try {
+        if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+      } catch (e) {}
+    }
+
+    function saveInspections(list) {
+      storeMem.inspections = Array.isArray(list) ? list : [];
+      schedulePersist();
+      const ok = lsWrite('lx8_inspections', stripInspectionPhotos(storeMem.inspections));
+      if (!ok) {
+        try {
+          const slim = stripInspectionPhotos(storeMem.inspections);
+          if (lsWrite('lx8_inspections', slim)) return true;
+        } catch (e2) {}
+        toast('Saved to device storage (IndexedDB)');
+      }
+      return true;
+    }
+    function loadInspections() {
+      if (storeMem.inspections) return storeMem.inspections;
+      const raw = lsRead('lx8_inspections', []);
+      storeMem.inspections = Array.isArray(raw) ? raw : [];
+      return storeMem.inspections;
+    }
+    function saveCurrentDraft() {
+      if (!currentInspection) return;
+      currentInspection.results = results;
+      currentInspection.findings = findings;
+      currentInspection.currentSectionIndex = currentSectionIndex;
+      currentInspection.updatedAt = new Date().toISOString();
+      let list = loadInspections();
+      const idx = list.findIndex(i => i.id === currentInspection.id);
+      if (idx >= 0) list[idx] = currentInspection;
+      else list.unshift(currentInspection);
+      saveInspections(list);
+    }
+
+    // ========== UI HELPERS ==========
+    function showScreen(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      const bottom = document.getElementById('bottomBar');
+      const barInspect = document.getElementById('barInspect');
+      const bars = {
+        screenInspect: 'barInspect',
+        screenFindings: 'barFindings',
+        screenNotes: 'barNotes',
+        screenInspectPreview: 'barPreview'
+      };
+      const barIds = ['barInspect', 'barFindings', 'barNotes', 'barPreview'];
+      if (bottom) {
+        if (bars[id]) {
+          bottom.classList.remove('hidden');
+          barIds.forEach(bid => {
+            const el = document.getElementById(bid);
+            if (el) el.classList.toggle('hidden', bid !== bars[id]);
+          });
+        } else {
+          bottom.classList.add('hidden');
+        }
+      }
+      // Header red glow only on home
+      document.body.classList.toggle('on-home', id === 'screenHome');
+      document.body.classList.toggle('on-punchlist', id === 'screenPunchlist');
+      document.body.classList.toggle('on-jobs-list', id === 'screenJobsList');
+      const fab = document.getElementById('fab-add');
+      if (fab) {
+        if (id === 'screenJobsList') {
+          fab.title = 'Add Job';
+          fab.setAttribute('aria-label', 'Add Job');
+        } else if (id === 'screenPunchlist') {
+          fab.title = 'Add Item';
+          fab.setAttribute('aria-label', 'Add Item');
+        }
+      }
+      document.body.classList.toggle('on-list-search', id === 'screenInspectList' || id === 'screenJobsList');
+      document.body.classList.toggle('on-notes', id === 'screenNotes');
+      if (id === 'screenNotes') {
+        initNotesEditor();
+        requestAnimationFrame(placeNotesFormatBar);
+      } else {
+        document.body.classList.remove('notes-focus');
+        document.body.classList.remove('notes-typing');
+      }
+      const tripFlow = isTripFlowScreen(id);
+      const inspectFlow = id === 'screenInspect' || id === 'screenFindings' || id === 'screenNotes';
+      document.body.classList.toggle('on-inspect-flow', inspectFlow);
+      const inInspections = (
+        id === 'screenStart' ||
+        id === 'screenInspect' ||
+        id === 'screenFindings' ||
+        (id === 'screenNotes') ||
+        id === 'screenInspectPreview'
+      );
+      document.body.classList.toggle('on-inspections', inInspections);
+      if (id === 'screenFindings') extraSectionTab = 'findings';
+      else if (id === 'screenNotes') extraSectionTab = 'notes';
+      else if (id === 'screenInspect') extraSectionTab = null;
+      if (inspectFlow && typeof APP_DATA !== 'undefined' && APP_DATA && APP_DATA.sections) {
+        renderSectionDots(true);
+      }
+      if (id !== 'screenHome') closeSearch();
+      // Always reveal chrome when switching screens
+      window.scrollTo(0, 0);
+      resetChrome();
+      requestAnimationFrame(measureHeaderHeight);
+    }
+    function toast(msg, ms = 2200) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), ms);
+    }
+    function setHeader(title) {
+      // Logo is fixed; title change is optional / no-op for branded header
+    }
+
+    // ========== HOME ==========
+    let searchQuery = '';
+
+    async function refreshPunchlistHome() {
+      const container = document.getElementById('recentPunchlistList');
+      if (!container) return;
+      try {
+        if (typeof window.getPunchlistSummaries === 'function') {
+          const rows = await window.getPunchlistSummaries();
+          if (!rows.length) {
+            container.innerHTML = `<div class="empty-state"><div class="icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4.2" y="3.2" width="15.6" height="17.6" rx="2.2" stroke="currentColor" stroke-width="1.2"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></div><p>No punchlists yet.<br>Tap “+ Punchlist” to begin.</p></div>`;
+            return;
+          }
+          container.innerHTML = rows.map(row => {
+            const done = row.complete || 0;
+            const total = row.total || 0;
+            const open = total - done;
+            const allDone = total > 0 && open === 0;
+            const statusClass = allDone ? 'badge-complete' : (done > 0 ? 'badge-draft' : 'badge-draft');
+            const statusLabel = allDone ? 'Complete' : (total === 0 ? 'Empty' : 'Open');
+            const rowTone = allDone ? 'list-complete' : '';
+            return `
+              <div class="list-item ${rowTone}" data-job-name="${String(row.name).replace(/"/g, '&quot;')}">
+                <div class="list-item-main" data-action="open">
+                  <div class="title">${row.name}</div>
+                  <div class="sub">${total} item${total !== 1 ? 's' : ''} · ${done} complete${open ? ' · ' + open + ' open' : ''}</div>
+                </div>
+                <div class="list-item-actions">
+                  <span class="badge ${statusClass}">${statusLabel}</span>
+                </div>
+              </div>`;
+          }).join('');
+          container.querySelectorAll('.list-item').forEach(el => {
+            const name = el.getAttribute('data-job-name');
+            el.querySelector('[data-action="open"]').addEventListener('click', async () => {
+              if (typeof window.openPunchlistByName === 'function') {
+                await window.openPunchlistByName(name);
+                showScreen('screenPunchlist');
+                setHeader('Punchlist');
+                if (typeof window.renderList === 'function') window.renderList();
+              }
+            });
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+      container.innerHTML = `<div class="empty-state"><div class="icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4.2" y="3.2" width="15.6" height="17.6" rx="2.2" stroke="currentColor" stroke-width="1.2"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></div><p>No punchlists yet.<br>Tap “+ Punchlist” to begin.</p></div>`;
+    }
+
+    function formatJobDateRange(job) {
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const parse = (v) => {
+        if (!v) return null;
+        const s = String(v).slice(0, 10);
+        const p = s.split('-').map(Number);
+        if (p.length < 3 || !p[0] || !p[1] || !p[2]) return null;
+        return { y: p[0], m: p[1], d: p[2] };
+      };
+      const fmt = (dt, withYear) => months[dt.m - 1] + ' ' + dt.d + (withYear ? ', ' + dt.y : '');
+      const a = parse(job && job.date);
+      const b = parse(job && job.endDate);
+      if (a && b) {
+        if (a.y === b.y) return fmt(a, false) + ' - ' + fmt(b, true);
+        return fmt(a, true) + ' - ' + fmt(b, true);
+      }
+      if (a) return fmt(a, true);
+      if (b) return fmt(b, true);
+      return '';
+    }
+    function jobDayStamp(v) {
+      if (!v) return null;
+      const n = Date.parse(String(v).slice(0, 10) + 'T00:00:00');
+      return Number.isNaN(n) ? null : n;
+    }
+    function jobStatusFromDates(job) {
+      const start = jobDayStamp(job && job.date);
+      const end = jobDayStamp(job && job.endDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayMs = today.getTime();
+      if (start != null && todayMs < start) return 'Planned';
+      if (start != null && end != null && todayMs >= start && todayMs <= end) return 'In Progress';
+      if (start != null && end == null && todayMs >= start) return 'In Progress';
+      if (end != null && todayMs > end) return 'Complete';
+      if (start == null && end != null && todayMs <= end) return 'In Progress';
+      return (job && job.status) || 'Planned';
+    }
+    function applyJobStatuses(list) {
+      const arr = Array.isArray(list) ? list : [];
+      let changed = false;
+      arr.forEach(job => {
+        if (!job) return;
+        const next = jobStatusFromDates(job);
+        if (job.status !== next) {
+          job.status = next;
+          changed = true;
+        }
+      });
+      return changed;
+    }
+    function isPastJobByDate(job) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayMs = today.getTime();
+      const end = jobDayStamp(job && job.endDate);
+      const start = jobDayStamp(job && job.date);
+      if (end != null) return end < todayMs;
+      if (start != null) return start < todayMs;
+      return false;
+    }
+    function getCurrentJobs() {
+      return loadJobs().filter(j => j && !isPastJobByDate(j));
+    }
+    let homeDateEditJobId = null;
+    function openHomeJobDatesEditor(jobId) {
+      const job = loadJobs().find(j => j.id === jobId);
+      if (!job) return;
+      homeDateEditJobId = jobId;
+      const s = document.getElementById('homeJobDateStart');
+      const e = document.getElementById('homeJobDateEnd');
+      if (s) s.value = job.date || '';
+      if (e) e.value = job.endDate || '';
+      const modal = document.getElementById('jobDatesModal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      modal.classList.add('show');
+    }
+    function closeHomeJobDatesEditor() {
+      const modal = document.getElementById('jobDatesModal');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.classList.remove('show');
+      homeDateEditJobId = null;
+    }
+    function saveHomeJobDates() {
+      if (!homeDateEditJobId) return;
+      const list = loadJobs();
+      const job = list.find(j => j.id === homeDateEditJobId);
+      if (!job) return;
+      job.date = (document.getElementById('homeJobDateStart') || {}).value || '';
+      job.endDate = (document.getElementById('homeJobDateEnd') || {}).value || '';
+      job.status = jobStatusFromDates(job);
+      saveJobs(list);
+      closeHomeJobDatesEditor();
+      refreshHomeCurrentJob();
+      if (typeof refreshJobsList === 'function') refreshJobsList();
+    }
+    function refreshHomeCurrentJob() {
+      const card = document.getElementById('homeCurrentJobCard');
+      if (!card) return;
+      const current = getCurrentJobs();
+      if (!current.length) {
+        card.classList.add('hidden');
+        document.body.classList.remove('on-home-has-job');
+        return;
+      }
+      const job = current[0];
+      card.classList.remove('hidden');
+      document.body.classList.add('on-home-has-job');
+      const item = document.getElementById('homeCurrentJobItem');
+      if (item) {
+        const dateRange = formatJobDateRange(job);
+        const sub = [job.site, job.technician, dateRange].filter(Boolean).join(' · ');
+        const classes = ['pl-item'];
+        if (job.status === 'Complete') classes.push('list-complete');
+        else if (job.status === 'In Progress') classes.push('job-inprogress');
+        else classes.push('job-planned');
+        item.className = classes.join(' ');
+        const siteLine = [job.site, job.technician].filter(Boolean).join(' · ');
+        item.innerHTML = `
+          <div class="hj-top">
+            <span class="hj-label">Current job</span>
+            <button type="button" class="hj-dates" id="homeCurrentJobDates">${dateRange ? jobEsc(dateRange) : 'Set dates'}</button>
+          </div>
+          <div class="hj-name">${jobEsc(job.customer || 'Untitled job')}</div>
+          ${siteLine ? `<div class="hj-meta">${jobEsc(siteLine)}</div>` : ''}`;
+      }
+      card.onclick = (e) => {
+        if (e.target.closest('.hj-dates')) return;
+        if (typeof openJobDetail === 'function') openJobDetail(job.id);
+      };
+      const dateBtn = document.getElementById('homeCurrentJobDates');
+      if (dateBtn) dateBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openHomeJobDatesEditor(job.id);
+      };
+    }
+
+    function refreshHome() {
+      const inspections = loadInspections();
+      let list = inspections;
+      const container = document.getElementById('recentList');
+      if (!container) {
+        refreshHomeCurrentJob();
+        refreshStorageCard();
+        return;
+      }
+      if (list.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="icon">${ICO.clip}</div><p>No inspections yet.<br>Tap “+ Inspection” to begin.</p></div>`;
+        refreshHomeCurrentJob();
+        refreshStorageCard();
+        return;
+      }
+      container.innerHTML = list.slice(0, 30).map(ins => {
+        const findCount = (ins.findings || []).length;
+        const statusClass = ins.status === 'Complete' ? 'badge-complete' : 'badge-draft';
+        const statusLabel = ins.status === 'Complete' ? 'Complete' : 'Draft';
+        const rowTone = ins.status === 'Complete' ? 'list-complete' : '';
+        return `
+          <div class="list-item ${rowTone}" data-id="${ins.id}">
+            <div class="list-item-main" data-action="open">
+              <div class="title">${ins.customer || 'Unknown'} – ${ins.model || 'LX-8'} – ${ins.serial || 'No S/N'}</div>
+              <div class="sub">${ins.technician || ''} · ${ins.date || ''} · ${findCount} finding${findCount !== 1 ? 's' : ''}</div>
+            </div>
+            <div class="list-item-actions">
+              <button class="btn-edit" data-action="edit" type="button">Edit</button>
+              <span class="badge ${statusClass}">${statusLabel}</span>
+            </div>
+          </div>`;
+      }).join('');
+      container.querySelectorAll('.list-item').forEach(el => {
+        const id = el.dataset.id;
+        el.querySelector('[data-action="open"]').addEventListener('click', () => openInspection(id));
+        el.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
+          e.stopPropagation();
+          editInspectionMeta(id);
+        });
+      });
+      refreshHomeCurrentJob();
+        refreshStorageCard();
+    }
+
+    function formatBytes(n) {
+      n = Number(n) || 0;
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10 * 1024 ? 1 : 0) + ' KB';
+      if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
+      return (n / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    }
+    async function refreshStorageCard() {
+      const line = document.getElementById('storageLine');
+      const sub = document.getElementById('storageSub');
+      const fill = document.getElementById('storageBarFill');
+      if (!line) return;
+      const visits = (typeof loadVisits === 'function' ? loadVisits() : []) || [];
+      const inspections = (typeof loadInspections === 'function' ? loadInspections() : []) || [];
+      const jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
+      let photoCount = 0;
+      visits.forEach(v => { photoCount += (v.photos || []).length; });
+      inspections.forEach(ins => {
+        if (ins.results) Object.keys(ins.results).forEach(k => {
+          if (ins.results[k] && (ins.results[k].photoId || ins.results[k].photoDataUrl)) photoCount += 1;
+        });
+        (ins.findings || []).forEach(f => { if (f && (f.photoId || f.photoDataUrl)) photoCount += 1; });
+      });
+      let used = 0;
+      let quota = 0;
+      let persisted = false;
+      try {
+        const timeout = (p, ms) => Promise.race([
+          p,
+          new Promise((_, rej) => setTimeout(() => rej(new Error("storage-timeout")), ms))
+        ]);
+        if (navigator.storage && navigator.storage.estimate) {
+          const est = await timeout(navigator.storage.estimate(), 1500);
+          used = est.usage || 0;
+          quota = est.quota || 0;
+        }
+        if (navigator.storage && navigator.storage.persisted) {
+          persisted = await timeout(navigator.storage.persisted(), 800);
+        }
+      } catch (e) {}
+      if (quota) {
+        const pct = Math.max(1, Math.min(100, Math.round((used / quota) * 100)));
+        line.textContent = formatBytes(used) + ' of ' + formatBytes(quota) + ' used';
+        if (fill) fill.style.width = pct + '%';
+      } else {
+        line.textContent = jobs.length + ' jobs · ' + inspections.length + ' inspections';
+        if (fill) fill.style.width = photoCount ? '12%' : '2%';
+      }
+      const bits = [];
+      bits.push(jobs.length + ' job' + (jobs.length === 1 ? '' : 's'));
+      bits.push(inspections.length + ' inspection' + (inspections.length === 1 ? '' : 's'));
+      bits.push(photoCount + ' photo' + (photoCount === 1 ? '' : 's'));
+      bits.push(persisted ? 'kept by the OS' : 'ask the OS to keep');
+      if (sub) sub.textContent = bits.join(' · ');
+    }
+
+    async function blobToUint8(blob) {
+      const buf = await blob.arrayBuffer();
+      return new Uint8Array(buf);
+    }
+    function safeZipName(s) {
+      return String(s || 'item').replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'item';
+    }
+    async function exportBackupZip() {
+      toast('Building backup…');
+      try {
+        await persistAllStores();
+        const visits = JSON.parse(JSON.stringify(loadVisits() || []));
+        visits.forEach(v => {
+          (v.photos || []).forEach(ph => { if (ph && ph.url) delete ph.url; });
+        });
+        const inspections = stripInspectionPhotos(JSON.parse(JSON.stringify(loadInspections() || [])));
+        const jobs = JSON.parse(JSON.stringify(loadJobs() || []));
+        const photos = await idbGetAllPhotos();
+        const files = [
+          { name: 'manifest.json', data: JSON.stringify({
+            app: 'lematic-lx8',
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            visits: visits.length,
+            inspections: inspections.length,
+            jobs: jobs.length,
+            photos: photos.length
+          }, null, 2) },
+          { name: 'visits.json', data: JSON.stringify(visits) },
+          { name: 'inspections.json', data: JSON.stringify(inspections) },
+          { name: 'jobs.json', data: JSON.stringify(jobs) }
+        ];
+        if (typeof window.getPunchlistBackup === 'function') {
+          files.push({ name: 'punchlist.json', data: JSON.stringify(window.getPunchlistBackup()) });
+        }
+        for (const rec of photos) {
+          if (!rec || !rec.id || !rec.blob) continue;
+          const ext = (rec.blob.type && rec.blob.type.indexOf('png') >= 0) ? 'png' : 'jpg';
+          files.push({
+            name: 'photos/' + safeZipName(rec.id) + '.' + ext,
+            data: await blobToUint8(rec.blob)
+          });
+        }
+        const bytes = zipStore(files);
+        const blob = new Blob([bytes], { type: 'application/zip' });
+        const a = document.createElement('a');
+        const stamp = new Date().toISOString().slice(0, 10);
+        a.href = URL.createObjectURL(blob);
+        a.download = 'LeMatic_backup_' + stamp + '.zip';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        toast('Backup downloaded');
+      } catch (e) {
+        console.warn(e);
+        toast('Backup failed');
+      }
+    }
+    function unzipStore(u8) {
+      const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+      const files = [];
+      let o = 0;
+      while (o + 30 <= u8.length) {
+        const sig = dv.getUint32(o, true);
+        if (sig === 0x06054b50 || sig === 0x02014b50) break;
+        if (sig !== 0x04034b50) break;
+        const method = dv.getUint16(o + 8, true);
+        const comp = dv.getUint32(o + 18, true);
+        const uncomp = dv.getUint32(o + 22, true);
+        const nameLen = dv.getUint16(o + 26, true);
+        const extraLen = dv.getUint16(o + 28, true);
+        const name = new TextDecoder().decode(u8.subarray(o + 30, o + 30 + nameLen));
+        const start = o + 30 + nameLen + extraLen;
+        if (method !== 0) throw new Error('compressed-zip');
+        files.push({ name, data: u8.subarray(start, start + (comp || uncomp)) });
+        o = start + (comp || uncomp);
+      }
+      return files;
+    }
+    function u8ToText(u8) {
+      return new TextDecoder().decode(u8);
+    }
+    async function importBackupZip(file) {
+      if (!file) return;
+      toast('Restoring backup…');
+      try {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        const files = unzipStore(buf);
+        const byName = {};
+        files.forEach(f => { byName[f.name] = f.data; });
+        if (!byName['visits.json'] && !byName['inspections.json'] && !byName['punchlist.json']) {
+          toast('Not a LeMatic backup');
+          return;
+        }
+        const visits = byName['visits.json'] ? JSON.parse(u8ToText(byName['visits.json'])) : [];
+        const inspections = byName['inspections.json'] ? JSON.parse(u8ToText(byName['inspections.json'])) : [];
+        const jobs = byName['jobs.json'] ? JSON.parse(u8ToText(byName['jobs.json'])) : [];
+        const photoFiles = files.filter(f => f.name.indexOf('photos/') === 0);
+        for (const pf of photoFiles) {
+          const base = pf.name.split('/').pop();
+          const id = base.replace(/\.(jpg|jpeg|png)$/i, '');
+          const mime = /\.png$/i.test(base) ? 'image/png' : 'image/jpeg';
+          const blob = new Blob([pf.data], { type: mime });
+          await idbPutPhoto({ id, blob, caption: '', createdAt: Date.now() });
+        }
+        storeMem.visits = Array.isArray(visits) ? visits : [];
+        storeMem.inspections = Array.isArray(inspections) ? inspections : [];
+        storeMem.jobs = Array.isArray(jobs) ? jobs : [];
+        try { saveJobs(storeMem.jobs); } catch (e) {}
+        for (const v of storeMem.visits) {
+          if (v.photos && v.photos.length) v.photos = await Promise.all(v.photos.map(hydratePhotoUrl));
+        }
+        storeMem.inspections = await hydrateInspectionBlobs(storeMem.inspections);
+        await persistAllStores();
+        if (byName['punchlist.json'] && typeof window.setPunchlistBackup === 'function') {
+          try {
+            const pl = JSON.parse(u8ToText(byName['punchlist.json']));
+            await window.setPunchlistBackup(pl);
+          } catch (err) {
+            console.warn('punchlist restore', err);
+          }
+        }
+        refreshHome();
+        toast(byName['punchlist.json'] ? 'Backup restored' : 'Inspections restored — this zip has no punchlists');
+      } catch (e) {
+        console.warn(e);
+        toast(String(e && e.message) === 'compressed-zip' ? 'Need an uncompressed LeMatic backup' : 'Restore failed');
+      }
+    }
+
+    function loadVisits() { return []; }
+    function saveVisits(list) {}
+    function isTripFlowScreen(id) { return false; }
+    function persistVisit(opts) { return {}; }
+    function openVisit(id) {}
+    function openDeleteVisitModal(id) {}
+    function performDeleteVisit(id) {}
+
+    // ========== JOBS ==========
+    let editingJobId = null;
+
+    const SAMPLE_JOB_ID = 'job_sample_demo';
+    function getSampleJob() {
+      const today = new Date();
+      const end = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000);
+      const iso = (d) => d.toISOString().slice(0, 10);
+      return {
+        id: SAMPLE_JOB_ID,
+        customer: 'BBU Sample Bakery',
+        site: 'Orangeburg',
+        contact: 'John Doe',
+        technician: 'Sample Tech',
+        date: iso(today),
+        endDate: iso(end),
+        po: 'PO-DEMO-1001',
+        status: 'In Progress',
+        scope: 'Demo trip for testing Job Detail, inspections, and punchlist linking.\n\n• Inspect LX-8 line 2\n• Capture punchlist items as found\n• Verify bagger guides and slicer linkage',
+        notes: 'Sample job — safe to edit or delete while testing.',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isSample: true
+      };
+    }
+    function ensureSampleJob(list) {
+      const arr = Array.isArray(list) ? list.slice() : [];
+      const sample = getSampleJob();
+      const idx = arr.findIndex(j => j && j.id === SAMPLE_JOB_ID);
+      if (idx < 0) arr.unshift(sample);
+      else {
+        arr[idx] = Object.assign({}, arr[idx], {
+          site: sample.site,
+          contact: sample.contact
+        });
+      }
+      return arr;
+    }
+    function loadJobs() {
+      if (storeMem.jobs) {
+        storeMem.jobs = ensureSampleJob(storeMem.jobs);
+        if (applyJobStatuses(storeMem.jobs)) saveJobs(storeMem.jobs);
+        return storeMem.jobs;
+      }
+      const raw = lsRead('lx8_jobs', []);
+      storeMem.jobs = ensureSampleJob(Array.isArray(raw) ? raw : []);
+      try { saveJobs(storeMem.jobs); } catch (e) {}
+      return storeMem.jobs;
+    }
+
+    function saveJobs(list) {
+      storeMem.jobs = Array.isArray(list) ? list : [];
+      const ok = lsWrite('lx8_jobs', storeMem.jobs);
+      if (!ok) {
+        try {
+          if (lsWrite('lx8_jobs', storeMem.jobs)) return true;
+        } catch (e) {}
+      }
+      try { idbSetKv('jobs', storeMem.jobs); } catch (e) {}
+      return ok;
+    }
+
+    function jobEsc(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function jobStatusClass(status) {
+      const s = String(status || '').toLowerCase();
+      if (s === 'complete' || s === 'done') return 'badge-complete';
+      if (s === 'in progress') return 'badge-inprogress';
+      return 'badge-planned';
+    }
+
+    function refreshJobsList() {
+      const container = document.getElementById('jobsList');
+      if (!container) return;
+      const list = loadJobs().slice().sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
+      if (!list.length) {
+        container.innerHTML = `<div class="empty">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="7.5" width="17" height="12" rx="2.2" stroke="currentColor" stroke-width="1.2"/><path d="M8.5 7.5V6A1.5 1.5 0 0 1 10 4.5h4A1.5 1.5 0 0 1 15.5 6v1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M3.5 12.5h17" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M11 12.5v2.2h2v-2.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div>No jobs yet</div>
+          <div style="margin-top:8px;font-size:13px;opacity:0.8">Tap + to start a trip</div>
+        </div>`;
+        return;
+      }
+            const dayStamp = (v) => {
+        if (!v) return null;
+        const n = Date.parse(String(v).slice(0, 10) + 'T00:00:00');
+        return Number.isNaN(n) ? null : n;
+      };
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayMs = today.getTime();
+      const isPastJob = (job) => {
+        const end = dayStamp(job.endDate);
+        const start = dayStamp(job.date);
+        if (end != null) return end < todayMs;
+        if (start != null) return start < todayMs;
+        return false;
+      };
+      const current = list.filter(j => !isPastJob(j));
+      const past = list.filter(isPastJob);
+
+      function jobCard(job) {
+        const dateRange = formatJobDateRange(job);
+        const sub = [job.site, job.technician, dateRange].filter(Boolean).join(' · ');
+        const scopePreview = (job.scope || '').trim().replace(/\s+/g, ' ').slice(0, 90);
+        const classes = ['pl-item'];
+        if (job.status === 'Complete') classes.push('list-complete');
+        else if (job.status === 'In Progress') classes.push('job-inprogress');
+        else classes.push('job-planned');
+        return `<div class="${classes.join(' ')}" data-job-id="${job.id}">
+          <div class="list-item-main">
+            <div class="title">${jobEsc(job.customer || 'Untitled job')}</div>
+            <div class="sub">${jobEsc(sub || 'No details yet')}</div>
+            ${scopePreview ? `<div class="action-line">${jobEsc(scopePreview)}${(job.scope || '').length > 90 ? '…' : ''}</div>` : ''}
+          </div>
+          <div class="list-item-actions">
+            <span class="badge ${jobStatusClass(job.status)}">${jobEsc(job.status || 'Planned')}</span>
+          </div>
+        </div>`;
+      }
+
+      let html = '';
+      if (current.length) {
+        html += '<div class="jobs-section-label">Current job</div>' + current.map(jobCard).join('');
+      }
+      if (past.length) {
+        html += '<div class="jobs-section-label">Past jobs</div>' + past.map(jobCard).join('');
+      }
+      container.innerHTML = html;
+      container.querySelectorAll('[data-job-id]').forEach(el => {
+        el.addEventListener('click', () => openJobDetail(el.getAttribute('data-job-id')));
+      });
+    }
+
+    function fillJobCustomerList() {
+      const jobs = loadJobs();
+      const customers = [...new Set(jobs.map(j => j.customer).filter(Boolean))];
+      const dl = document.getElementById('jobCustomerList');
+      if (dl) dl.innerHTML = customers.map(c => `<option value="${jobEsc(c)}">`).join('');
+    }
+
+    function initJobForm(job) {
+      document.getElementById('jobCustomer').value = job?.customer || '';
+      document.getElementById('jobSite').value = job?.site || '';
+      document.getElementById('jobContact').value = job?.contact || '';
+      document.getElementById('jobTechnician').value = job?.technician || (lsRead('lx8_last_tech', '') || '');
+      document.getElementById('jobDate').value = job?.date || new Date().toISOString().slice(0, 10);
+      document.getElementById('jobEndDate').value = job?.endDate || '';
+      document.getElementById('jobPO').value = job?.po || '';
+      document.getElementById('jobSO').value = job?.so || '';
+      document.getElementById('jobStatus').value = job?.status || 'Planned';
+      document.getElementById('jobScope').value = job?.scope || '';
+      document.getElementById('jobNotes').value = job?.notes || '';
+      fillJobCustomerList();
+      setJobMachineFields(job?.machine || 'LX-8');
+      jobSerialsDraft = Array.isArray(job?.serials) ? job.serials.slice() : [];
+      populateJobSerialSelect(jobSerialsDraft, jobSerialsDraft[0] || '');
+      if (typeof renderJobSerialChips === 'function') renderJobSerialChips();
+      updateJobMachineSummary();
+    }
+
+    let jobSerialsDraft = [];
+    let machineModalMode = 'job';
+
+    function updateJobMachineSummary() {
+      const el = document.getElementById('jobMachineSummaryText');
+      if (!el) return;
+      const machine = readJobMachine() || 'No machine';
+      const serial = readJobSerial() || (jobSerialsDraft[0] || '');
+      el.textContent = serial ? (machine + ' · ' + serial) : (machine + ' · add serial');
+    }
+
+    function openMachineModal() {
+      const modal = document.getElementById('machineModal');
+      if (!modal) return;
+      if (!machineModalMode) machineModalMode = 'job';
+      if (machineModalMode === 'job') {
+        const title = document.getElementById('machineModalTitle');
+        const done = document.getElementById('machineModalDone');
+        if (title) title.textContent = 'Machine & serials';
+        if (done) done.textContent = 'Done';
+      }
+      modal.classList.remove('hidden');
+      modal.classList.add('show');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeMachineModal() {
+      const modal = document.getElementById('machineModal');
+      if (!modal) return;
+      const serial = readJobSerial();
+      if (serial && !jobSerialsDraft.some(s => String(s).toLowerCase() === serial.toLowerCase())) {
+        jobSerialsDraft.push(serial);
+      }
+      modal.classList.add('hidden');
+      modal.classList.remove('show');
+      modal.setAttribute('aria-hidden', 'true');
+      updateJobMachineSummary();
+    }
+
+    function renderJobSerialChips() {
+      const wrap = document.getElementById('jobSerialChips');
+      if (!wrap) return;
+      if (!jobSerialsDraft.length) {
+        wrap.innerHTML = '<div class="job-serial-empty">No serials yet</div>';
+        return;
+      }
+      wrap.innerHTML = jobSerialsDraft.map((s, i) =>
+        `<button type="button" class="job-serial-chip" data-idx="${i}">${jobEsc(s)} <span aria-hidden="true">×</span></button>`
+      ).join('');
+      wrap.querySelectorAll('.job-serial-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = Number(btn.getAttribute('data-idx'));
+          jobSerialsDraft.splice(idx, 1);
+          renderJobSerialChips();
+        });
+      });
+      updateJobMachineSummary();
+    }
+
+    function addJobSerialFromInput() {
+      const input = document.getElementById('jobSerialInput');
+      if (!input) return;
+      const v = input.value.trim();
+      if (!v) return;
+      if (!jobSerialsDraft.some(s => s.toLowerCase() === v.toLowerCase())) jobSerialsDraft.push(v);
+      input.value = '';
+      renderJobSerialChips();
+    }
+
+    function setInspectMachineFields(value) {
+      const sel = document.getElementById('inspectMachine');
+      const custom = document.getElementById('inspectMachineCustom');
+      if (!sel || !custom) return;
+      const known = ['LX-8', 'LX-7', 'LS-132', 'LS-133'];
+      const v = String(value || '').trim();
+      if (!v || known.includes(v)) {
+        sel.value = v || 'LX-8';
+        custom.value = '';
+        custom.classList.add('hidden');
+      } else {
+        sel.value = '__other';
+        custom.value = v;
+        custom.classList.remove('hidden');
+      }
+    }
+
+    function readInspectMachine() {
+      const sel = document.getElementById('inspectMachine');
+      const custom = document.getElementById('inspectMachineCustom');
+      if (!sel) return '';
+      if (sel.value === '__other') return (custom && custom.value.trim()) || '';
+      return sel.value;
+    }
+
+    function setJobMachineFields(value) {
+      const sel = document.getElementById('jobMachine');
+      const custom = document.getElementById('jobMachineCustom');
+      if (!sel || !custom) return;
+      const known = ['LX-8', 'LX-7', 'LS-132', 'LS-133'];
+      const v = String(value || '').trim();
+      if (!v || known.includes(v)) {
+        sel.value = v || 'LX-8';
+        custom.value = '';
+        custom.classList.add('hidden');
+      } else {
+        sel.value = '__other';
+        custom.value = v;
+        custom.classList.remove('hidden');
+      }
+    }
+
+    function readJobMachine() {
+      const sel = document.getElementById('jobMachine');
+      const custom = document.getElementById('jobMachineCustom');
+      if (!sel) return '';
+      if (sel.value === '__other') return (custom && custom.value.trim()) || '';
+      return sel.value;
+    }
+
+    function populateJobSerialSelect(serials, selected) {
+      const sel = document.getElementById('inspectSerialSelect');
+      const custom = document.getElementById('inspectSerialInput');
+      if (!sel) return;
+      const list = Array.isArray(serials) ? serials.filter(Boolean) : [];
+      const selVal = String(selected || '').trim();
+      sel.innerHTML = '<option value="">Select serial</option>' +
+        list.map(s => `<option value="${jobEsc(s)}">${jobEsc(s)}</option>`).join('') +
+        '<option value="__other">Other</option>';
+      if (selVal && list.some(s => s === selVal)) {
+        sel.value = selVal;
+        if (custom) { custom.value = ''; custom.classList.add('hidden'); }
+      } else if (selVal) {
+        sel.value = '__other';
+        if (custom) { custom.value = selVal; custom.classList.remove('hidden'); }
+      } else if (list.length === 1) {
+        sel.value = list[0];
+        if (custom) { custom.value = ''; custom.classList.add('hidden'); }
+      } else {
+        sel.value = '';
+        if (custom) { custom.value = ''; custom.classList.add('hidden'); }
+      }
+    }
+
+    function readJobSerial() {
+      const sel = document.getElementById('inspectSerialSelect');
+      const custom = document.getElementById('inspectSerialInput');
+      if (sel && sel.value === '__other') return (custom && custom.value.trim()) || '';
+      if (sel && sel.value) return sel.value.trim();
+      return (custom && custom.value.trim()) || '';
+    }
+
+    let detailJobId = null;
+
+    function openJobDetail(id) {
+      const job = loadJobs().find(j => j.id === id);
+      if (!job) { toast('Job not found'); return; }
+      detailJobId = id;
+      showScreen('screenJobDetail');
+      setHeader('Job');
+      refreshJobDetail();
+    }
+
+    async function refreshJobDetail() {
+      const job = loadJobs().find(j => j.id === detailJobId);
+      if (!job) {
+        toast('Job not found');
+        showScreen('screenJobsList');
+        setHeader('Jobs');
+        refreshJobsList();
+        return;
+      }
+
+      document.getElementById('jobDetailTitle').textContent = job.customer || 'Untitled job';
+      const subParts = [job.site, job.technician].filter(Boolean);
+      document.getElementById('jobDetailSub').textContent = subParts.join(' · ') || '';
+      const badge = document.getElementById('jobDetailStatusBadge');
+      if (badge) {
+        badge.textContent = job.status || 'Planned';
+        badge.className = 'badge hidden';
+      }
+
+      const dash = (v) => (v && String(v).trim()) ? String(v).trim() : '—';
+      document.getElementById('jdSite').textContent = dash(job.site);
+      document.getElementById('jdContact').textContent = dash(job.contact);
+      document.getElementById('jdTech').textContent = dash(job.technician);
+      document.getElementById('jdDates').textContent = formatJobDateRange(job) || '—';
+      document.getElementById('jdPO').textContent = dash(job.po);
+
+      const scopeCard = document.getElementById('jobDetailScopeCard');
+      const scope = (job.scope || '').trim();
+      const notes = (job.notes || '').trim();
+      if (scope || notes) {
+        scopeCard.classList.remove('hidden');
+        document.getElementById('jdScope').textContent = scope || '';
+        document.getElementById('jdScope').style.display = scope ? '' : 'none';
+        const notesEl = document.getElementById('jdNotes');
+        if (notes) {
+          notesEl.textContent = notes;
+          notesEl.classList.remove('hidden');
+        } else {
+          notesEl.classList.add('hidden');
+        }
+      } else {
+        scopeCard.classList.add('hidden');
+      }
+
+      // Linked inspections
+      const inspections = loadInspections().filter(i => i.jobId === job.id);
+      const inspectList = document.getElementById('jobDetailInspectList');
+      const draftN = inspections.filter(i => i.status !== 'Complete').length;
+      const doneN = inspections.filter(i => i.status === 'Complete').length;
+      if (!inspections.length) {
+        document.getElementById('jdInspectCount').textContent = 'None yet';
+        inspectList.innerHTML = `<div class="empty-state compact"><p>No inspections linked yet.</p></div>`;
+      } else {
+        document.getElementById('jdInspectCount').textContent =
+          (draftN ? draftN + ' open' : '') + (draftN && doneN ? ' · ' : '') + (doneN ? doneN + ' complete' : '') || (inspections.length + ' total');
+        inspectList.innerHTML = inspections.slice(0, 20).map(ins => {
+          const findCount = (ins.findings || []).length;
+          const statusClass = ins.status === 'Complete' ? 'badge-complete' : 'badge-draft';
+          const statusLabel = ins.status === 'Complete' ? 'Complete' : 'Draft';
+          const rowTone = ins.status === 'Complete' ? 'list-complete' : '';
+          return `<div class="list-item ${rowTone}" data-id="${ins.id}">
+            <div class="list-item-main" data-action="open">
+              <div class="title">${jobEsc(ins.customer || 'Unknown')} – ${jobEsc(ins.model || 'LX-8')} – ${jobEsc(ins.serial || 'No S/N')}</div>
+              <div class="sub">${jobEsc(ins.technician || '')} · ${jobEsc(ins.date || '')} · ${findCount} finding${findCount !== 1 ? 's' : ''}</div>
+            </div>
+            <div class="list-item-actions">
+              <span class="badge ${statusClass}">${statusLabel}</span>
+            </div>
+          </div>`;
+        }).join('');
+        inspectList.querySelectorAll('.list-item').forEach(el => {
+          const id = el.dataset.id;
+          el.querySelector('[data-action="open"]').addEventListener('click', () => openInspection(id));
+        });
+      }
+
+      // Punchlist summary for this job
+      let punchTotal = 0, punchDone = 0, punchName = '';
+      try {
+        const key = (typeof punchlistKeyForJob === 'function') ? punchlistKeyForJob(job) : (job.customer || '');
+        punchName = key;
+        if (typeof window.getPunchlistSummaries === 'function') {
+          const rows = await window.getPunchlistSummaries();
+          const match = rows.find(r => r.name === key);
+          if (match) {
+            punchTotal = match.total;
+            punchDone = match.complete;
+            punchName = match.name;
+          }
+        }
+      } catch (e) {}
+      if (punchTotal === 0 && !punchName) {
+        document.getElementById('jdPunchCount').textContent = 'None yet';
+      } else {
+        const open = punchTotal - punchDone;
+        document.getElementById('jdPunchCount').textContent =
+          punchTotal === 0 ? 'Ready to add' : (punchTotal + ' item' + (punchTotal !== 1 ? 's' : '') + (open ? ' · ' + open + ' open' : ' · complete'));
+      }
+
+      const punchList = document.getElementById('jobDetailPunchList');
+      if (punchTotal === 0) {
+        punchList.innerHTML = `<div class="empty-state compact"><p>No punchlist items yet. Tap Punchlist to add.</p></div>`;
+      } else {
+        const open = punchTotal - punchDone;
+        const allDone = open === 0;
+        punchList.innerHTML = `<div class="list-item ${allDone ? 'list-complete' : ''}" data-action="open-punch">
+          <div class="list-item-main">
+            <div class="title">${jobEsc(punchName || jobDisplayName(job))}</div>
+            <div class="sub">${punchTotal} item${punchTotal !== 1 ? 's' : ''} · ${punchDone} complete${open ? ' · ' + open + ' open' : ''}</div>
+          </div>
+          <div class="list-item-actions">
+            <span class="badge ${allDone ? 'badge-complete' : 'badge-draft'}">${allDone ? 'Complete' : 'Open'}</span>
+          </div>
+        </div>`;
+        punchList.querySelector('[data-action="open-punch"]').addEventListener('click', () => startPunchlistForDetailJob());
+      }
+    }
+
+    function openJob(id) {
+      // Edit form
+      const job = loadJobs().find(j => j.id === id);
+      if (!job) { toast('Job not found'); return; }
+      editingJobId = id;
+      detailJobId = id;
+      initJobForm(job);
+      document.getElementById('btnSaveJob').textContent = 'Save Job';
+      document.getElementById('btnDeleteJob').classList.remove('hidden');
+      showScreen('screenJobForm');
+      setHeader('Edit Job');
+    }
+
+    function startInspectionForDetailJob() {
+      const job = loadJobs().find(j => j.id === detailJobId);
+      if (!job) { toast('Job not found'); return; }
+      currentInspection = null;
+      editingInspectionId = null;
+      results = {};
+      findings = [];
+      currentSectionIndex = 0;
+      applyJobToInspectionForm(job);
+      const model = job.machine || 'LX-8';
+      const known = ['LX-8', 'LX-7', 'LS-132', 'LS-133'];
+      const modelEl = document.getElementById('inpModel');
+      if (modelEl) {
+        if (known.includes(model)) modelEl.value = model;
+        else modelEl.value = 'LX-8';
+      }
+      fillInspectionSerialOptions(job);
+      jobSerialsDraft = Array.isArray(job.serials) ? job.serials.slice() : [];
+      machineModalMode = 'startInspect';
+      const title = document.getElementById('machineModalTitle');
+      const done = document.getElementById('machineModalDone');
+      if (title) title.textContent = 'Machine & serial';
+      if (done) done.textContent = 'Start inspection';
+      setInspectMachineFields(job.machine || 'LX-8');
+      populateJobSerialSelect(jobSerialsDraft, jobSerialsDraft[0] || '');
+      openMachineModal();
+      toast('Add machine type and serial number to start inspection');
+    }
+
+    function fillInspectionSerialOptions(job) {
+      let dl = document.getElementById('jobSerialList');
+      if (!dl) {
+        dl = document.createElement('datalist');
+        dl.id = 'jobSerialList';
+        const serialInp = document.getElementById('inpSerial');
+        if (serialInp) {
+          serialInp.setAttribute('list', 'jobSerialList');
+          serialInp.parentNode.appendChild(dl);
+        }
+      }
+      const serials = (job && Array.isArray(job.serials)) ? job.serials : [];
+      dl.innerHTML = serials.map(s => `<option value="${jobEsc(s)}">`).join('');
+    }
+
+    function startInspectionFromMachinePopup() {
+      const job = loadJobs().find(j => j.id === detailJobId);
+      if (!job) { toast('Job not found'); closeMachineModal(); return; }
+      const serial = readJobSerial();
+      const model = readInspectMachine() || job.machine || 'LX-8';
+      if (serial) {
+        if (!jobSerialsDraft.some(s => String(s).toLowerCase() === serial.toLowerCase())) jobSerialsDraft.push(serial);
+        rememberJobSerial(job.id, serial);
+      }
+      closeMachineModal();
+      machineModalMode = 'job';
+      currentInspection = null;
+      editingInspectionId = null;
+      results = {};
+      findings = [];
+      currentSectionIndex = 0;
+      if (typeof setActiveMachine === 'function') setActiveMachine(model);
+      currentInspection = {
+        id: 'ins_' + Date.now(),
+        customer: job.customer || '',
+        model,
+        serial,
+        technician: job.technician || '',
+        date: job.date || new Date().toISOString().slice(0, 10),
+        po: job.po || '',
+        jobId: job.id,
+        status: 'Draft',
+        results: {},
+        findings: [],
+        currentSectionIndex: 0,
+        createdAt: new Date().toISOString()
+      };
+      saveCurrentDraft();
+      renderSection();
+      showScreen('screenInspect');
+      setHeader('Inspecting');
+    }
+
+    function rememberJobSerial(jobId, serial) {
+      if (!jobId || !serial) return;
+      const list = loadJobs();
+      const job = list.find(j => j.id === jobId);
+      if (!job) return;
+      if (!Array.isArray(job.serials)) job.serials = [];
+      if (!job.serials.some(s => String(s).toLowerCase() === serial.toLowerCase())) {
+        job.serials.push(serial);
+        saveJobs(list);
+      }
+      jobSerialsDraft = job.serials.slice();
+    }
+
+    async function startPunchlistForDetailJob() {
+      const job = loadJobs().find(j => j.id === detailJobId);
+      if (!job) { toast('Job not found'); return; }
+      try {
+        if (typeof window.openPunchlistForJob !== 'function') {
+          toast('Punchlist not ready');
+          return;
+        }
+        await window.openPunchlistForJob(job);
+        showScreen('screenPunchlist');
+        setHeader('Punchlist');
+        if (typeof window.renderList === 'function') window.renderList();
+        toast('Punchlist: ' + jobDisplayName(job));
+      } catch (e) {
+        console.error(e);
+        toast('Could not open punchlist');
+      }
+    }
+
+    function openNewJob() {
+      editingJobId = null;
+      initJobForm(null);
+      document.getElementById('btnSaveJob').textContent = 'Save Job';
+      document.getElementById('btnDeleteJob').classList.add('hidden');
+      showScreen('screenJobForm');
+      setHeader('New Job');
+    }
+
+    function saveJobFromForm() {
+      const customer = document.getElementById('jobCustomer').value.trim();
+      const tech = document.getElementById('jobTechnician').value.trim();
+      const scope = document.getElementById('jobScope').value.trim();
+      const so = document.getElementById('jobSO').value.trim();
+      if (!customer || !tech) {
+        toast('Please fill Customer and Technician');
+        return;
+      }
+      if (!so) {
+        toast('Please fill Sales order');
+        return;
+      }
+      const payload = {
+        customer,
+        site: document.getElementById('jobSite').value.trim(),
+        contact: document.getElementById('jobContact').value.trim(),
+        technician: tech,
+        date: document.getElementById('jobDate').value,
+        endDate: document.getElementById('jobEndDate').value,
+        po: document.getElementById('jobPO').value.trim(),
+        so: document.getElementById('jobSO').value.trim(),
+        status: document.getElementById('jobStatus').value || 'Planned',
+        scope,
+        machine: readJobMachine(),
+        serials: jobSerialsDraft.slice(),
+        notes: document.getElementById('jobNotes').value.trim(),
+        updatedAt: new Date().toISOString()
+      };
+      payload.status = jobStatusFromDates(payload);
+      try { lsWrite('lx8_last_tech', tech); } catch (e) {}
+      const list = loadJobs();
+      if (editingJobId) {
+        const idx = list.findIndex(j => j.id === editingJobId);
+        if (idx < 0) { toast('Job not found'); return; }
+        list[idx] = { ...list[idx], ...payload };
+        toast('Job updated');
+      } else {
+        const newId = 'job_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        list.unshift({
+          id: newId,
+          createdAt: new Date().toISOString(),
+          ...payload
+        });
+        editingJobId = newId;
+        toast('Job saved');
+      }
+      saveJobs(list);
+      const savedId = editingJobId;
+      editingJobId = null;
+      if (savedId) {
+        detailJobId = savedId;
+        showScreen('screenJobDetail');
+        setHeader('Job');
+        refreshJobDetail();
+      } else {
+        showScreen('screenJobsList');
+        setHeader('Jobs');
+        refreshJobsList();
+      }
+      refreshHomeCurrentJob();
+        refreshStorageCard();
+    }
+
+    function deleteJobCurrent() {
+      const id = editingJobId;
+      if (!id) {
+        toast('No job to delete');
+        return;
+      }
+      pendingDeleteId = id;
+      pendingDeleteKind = 'job';
+      document.getElementById('deleteModalTitle').textContent = 'Delete job?';
+      document.getElementById('deleteModalLabel').textContent =
+        'This job and its details will be permanently deleted.';
+      const modal = document.getElementById('deleteModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('show');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function performDeleteJob(id) {
+      if (!id) {
+        toast('No job to delete');
+        return;
+      }
+      const list = loadJobs();
+      const before = list.length;
+      const next = list.filter(j => j.id !== id);
+      if (next.length === before) {
+        toast('Job not found');
+        closeDeleteModal();
+        return;
+      }
+      saveJobs(next);
+      const check = loadJobs();
+      if (check.some(j => j.id === id)) {
+        toast('Delete failed — storage error');
+        return;
+      }
+      if (editingJobId === id) editingJobId = null;
+      if (detailJobId === id) detailJobId = null;
+      const delBtn = document.getElementById('btnDeleteJob');
+      if (delBtn) delBtn.classList.add('hidden');
+      closeDeleteModal();
+      toast('Job deleted');
+      showScreen('screenJobsList');
+      setHeader('Jobs');
+      refreshJobsList();
+      refreshHomeCurrentJob();
+        refreshStorageCard();
+    }
+
+    let pendingDeleteId = null;
+    let pendingDeleteKind = 'inspection';
+
+    function openDeleteModal(id) {
+      const list = loadInspections();
+      const ins = list.find(i => i.id === id);
+      if (!ins) {
+        toast('Inspection not found');
+        return;
+      }
+      pendingDeleteId = id;
+      pendingDeleteKind = 'inspection';
+      document.getElementById('deleteModalTitle').textContent = 'Delete inspection?';
+      const modal = document.getElementById('deleteModal');
+      document.getElementById('deleteModalLabel').textContent =
+        'This inspection report will be permanently deleted.';
+      modal.classList.remove('hidden');
+      modal.classList.add('show');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDeleteModal() {
+      pendingDeleteId = null;
+      pendingDeleteKind = 'inspection';
+      const modal = document.getElementById('deleteModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('show');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
+    function performDeleteInspection(id) {
+      if (!id) {
+        toast('No inspection to delete');
+        return;
+      }
+      const list = loadInspections();
+      const before = list.length;
+      const next = list.filter(i => i.id !== id);
+      if (next.length === before) {
+        toast('Inspection not found');
+        closeDeleteModal();
+        return;
+      }
+      saveInspections(next);
+
+      // Verify write stuck
+      const check = loadInspections();
+      if (check.some(i => i.id === id)) {
+        toast('Delete failed — storage error');
+        return;
+      }
+
+      if (currentInspection && currentInspection.id === id) {
+        currentInspection = null;
+        results = {};
+        findings = [];
+      }
+      editingInspectionId = null;
+      document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
+      const delBtn = document.getElementById('btnDeleteInspection');
+      if (delBtn) delBtn.classList.add('hidden');
+
+      closeDeleteModal();
+      toast('Inspection deleted');
+      showScreen('screenInspectList');
+      setHeader('Inspections');
+      refreshHome();
+    }
+
+    document.getElementById('btnDeleteInspection').addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = editingInspectionId || (currentInspection && currentInspection.id);
+      if (!id) {
+        toast('No inspection to delete');
+        return;
+      }
+      openDeleteModal(id);
+    });
+
+    document.getElementById('deleteModalCancel').addEventListener('click', (e) => {
+      e.preventDefault();
+      closeDeleteModal();
+    });
+
+    document.getElementById('deleteModalConfirm').addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = pendingDeleteId;
+      const kind = pendingDeleteKind;
+      if (!id) {
+        closeDeleteModal();
+        return;
+      }
+      if (kind === 'visit') performDeleteVisit(id);
+      else if (kind === 'job') performDeleteJob(id);
+      else if (kind === 'punchlist-item') performDeletePunchlistItem(id);
+      else performDeleteInspection(id);
+    });
+
+    // Tap backdrop to cancel
+    document.getElementById('deleteModal').addEventListener('click', (e) => {
+      if (e.target.id === 'deleteModal') closeDeleteModal();
+    });
+
+    function openInspection(id) {
+      closeSearch();
+      const list = loadInspections();
+      const ins = list.find(i => i.id === id);
+      if (!ins) return;
+      currentInspection = ins;
+      setActiveMachine(ins.model || 'LX-8');
+      results = ins.results || {};
+      findings = ins.findings || [];
+      currentSectionIndex = Math.max(0, ins.currentSectionIndex || 0);
+      editingInspectionId = null;
+      if (ins.status === 'Complete') {
+        showFindings();
+      } else {
+        renderSection();
+        showScreen('screenInspect');
+        setHeader('Inspecting');
+      }
+    }
+
+    function editInspectionMeta(id) {
+      closeSearch();
+      const list = loadInspections();
+      const ins = list.find(i => i.id === id);
+      if (!ins) return;
+      editingInspectionId = id;
+      currentInspection = ins;
+      // Prefill form
+      document.getElementById('inpCustomer').value = ins.customer || '';
+      document.getElementById('inpModel').value = ins.model || 'LX-8';
+      document.getElementById('inpSerial').value = ins.serial || '';
+      document.getElementById('inpTechnician').value = ins.technician || '';
+      document.getElementById('inpDate').value = ins.date || new Date().toISOString().slice(0, 10);
+      document.getElementById('inpPO').value = ins.po || '';
+      // Autocomplete customers
+      const customers = [...new Set(list.map(i => i.customer).filter(Boolean))];
+      document.getElementById('customerList').innerHTML = customers.map(c => `<option value="${c}">`).join('');
+      // Linked job chip
+      linkedJobIdForStart = ins.jobId || null;
+      if (ins.jobId && typeof loadJobs === 'function') {
+        const linked = loadJobs().find(j => j.id === ins.jobId);
+        applyJobToInspectionForm(linked || { id: ins.jobId, customer: ins.customer, technician: ins.technician, date: ins.date, po: ins.po });
+        // re-apply inspection values (applyJob may overwrite)
+        document.getElementById('inpCustomer').value = ins.customer || '';
+        document.getElementById('inpModel').value = ins.model || 'LX-8';
+        document.getElementById('inpSerial').value = ins.serial || '';
+        document.getElementById('inpTechnician').value = ins.technician || '';
+        document.getElementById('inpDate').value = ins.date || '';
+        document.getElementById('inpPO').value = ins.po || '';
+      } else {
+        const group = document.getElementById('jobLinkGroup');
+        if (group) group.classList.add('hidden');
+      }
+      // Update button label + show delete
+      const btn = document.getElementById('btnBeginInspection');
+      btn.textContent = 'Save Changes';
+      document.getElementById('btnDeleteInspection').classList.remove('hidden');
+      document.getElementById('exampleInspectCard').classList.add('hidden');
+      showScreen('screenStart');
+      setHeader('Edit Inspection');
+    }
+
+    // ========== START ==========
+    function initStartForm() {
+      // Always start blank for a new inspection
+      document.getElementById('inpCustomer').value = '';
+      document.getElementById('inpModel').value = 'LX-8';
+      document.getElementById('inpSerial').value = '';
+      document.getElementById('inpSerial').placeholder = 'Enter serial number';
+      document.getElementById('inpTechnician').value = '';
+      document.getElementById('inpDate').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('inpPO').value = '';
+      linkedJobIdForStart = null;
+      const group = document.getElementById('jobLinkGroup');
+      if (group) group.classList.add('hidden');
+      const chip = document.getElementById('jobLinkChip');
+      if (chip) chip.textContent = '—';
+      // Autocomplete suggestions only (does not fill the fields)
+      const list = loadInspections();
+      const customers = [...new Set(list.map(i => i.customer).filter(Boolean))];
+      document.getElementById('customerList').innerHTML = customers.map(c => `<option value="${c}">`).join('');
+    }
+
+
+    document.getElementById('btnLoadExampleInspection').addEventListener('click', () => {
+      closeSearch();
+      const exampleResults = {1:{condition:'N/A'},2:{condition:'N/A'},3:{condition:'N/A'},4:{condition:'N/A'},5:{condition:'N/A'},6:{condition:'Good'},7:{condition:'Fair',notes:'Belting is stretched.'},8:{condition:'Good'},9:{condition:'Good'},10:{condition:'Fair',notes:'Some wear but can be adjusted.'},11:{condition:'Fair',notes:'Missing 4 but not needed on clusters.'},12:{condition:'Pass'},13:{condition:'Good'},14:{condition:'Fair',notes:'Belting is stretched.'},15:{condition:'Fair'},16:{condition:'Good',impacts:['Performance']},17:{condition:'Poor',notes:'Both are worn. Infeed is worn a lot.',impacts:['Performance'],severity:2},18:{condition:'Good'},19:{condition:'Fair',notes:'Circuit breaker tripped.'},20:{condition:'Good'},21:{condition:'Good'},22:{condition:'Poor',notes:'Worn smooth, should replace.',impacts:['Performance'],severity:2},23:{condition:'Fair',notes:'Center support bushings gone.'},24:{condition:'Fair',notes:'Play in base, pin, and clevis.'},25:{condition:'Fair',notes:'Broken top corner, op side gate.'},26:{condition:'Good'},27:{condition:'Good'},28:{condition:'Good'},29:{condition:'Good'},30:{condition:'Pass'},31:{condition:'Fair',notes:'Belting new but lane guides have worn grooves in rubber grip top.'},32:{condition:'Good'},33:{condition:'Poor',notes:'Infeed nose bar worn and transition gap is large.',impacts:['Performance'],severity:2},34:{condition:'Good'},35:{condition:'Good'},36:{condition:'Pass'},37:{condition:'Pass'},38:{condition:'Pass',notes:'Blade break prox cable has been cut and taped back together.'},39:{condition:'Good'},40:{condition:'Fair',notes:'Guides showing wear. Mix of old and new belts. Belts should be replaced in sets.'},41:{condition:'Good'},42:{condition:'N/A'},43:{condition:'Good'},44:{condition:'Poor',notes:'Missing blade guides. Blade wipers are broken.',impacts:['Downtime', 'Performance'],severity:2},45:{condition:'Poor',notes:'Bearings are bad, need to be replaced.',impacts:['Downtime', 'Performance'],severity:2},46:{condition:'Fair',notes:'Idler pulley new, drive pulley is worn.'},47:{condition:'Good',notes:'One bad hub, LeMatic and maintenance replaced.'},48:{condition:'Pass'},49:{condition:'Good',notes:'We installed a new blade, old blade had a lot of crumb build up.'},50:{condition:'Good'},51:{condition:'Good'},52:{condition:'Pass'},53:{condition:'Good'},54:{condition:'Good'},55:{condition:'Poor',notes:'Missing tensioner assembly.',impacts:['Downtime', 'Performance'],severity:2},56:{condition:'Good'},57:{condition:'Within Spec'},58:{condition:'Good'},59:{condition:'Good'},60:{condition:'Good'},61:{condition:'N/A'},62:{condition:'Good'},63:{condition:'Good'},65:{condition:'Pass'},66:{condition:'Pass',notes:'Prox is ok but linkage is worn and turning off prox.'},67:{condition:'Poor',notes:'Linkage worn out and needs to be replaced.',impacts:['Downtime', 'Performance'],severity:2},68:{condition:'Good'},69:{condition:'Good'},70:{condition:'Good'},71:{condition:'Good'},72:{condition:'Pass'},73:{condition:'Good'},75:{condition:'Pass'},76:{condition:'Good'},77:{condition:'Good'},78:{condition:'Poor',notes:'Blades are very rusty.',severity:2},79:{condition:'Pass'},81:{condition:'Good'},82:{condition:'Good'},83:{condition:'Fair',notes:'Track is showing some wear.',impacts:['Downtime']},84:{condition:'Good'},85:{condition:'Within Spec'},86:{condition:'Within Spec'},87:{condition:'Good'},88:{condition:'Good'},90:{condition:'Pass'},91:{condition:'Pass'},92:{condition:'Good'},93:{condition:'Good'},94:{condition:'Pass'},95:{condition:'Good'},96:{condition:'Fair',notes:'Non op bagger guides missing bolts.',impacts:['Performance']},97:{condition:'Poor',notes:'Transfer grate is bent, should be replaced.',impacts:['Performance'],severity:2},98:{condition:'Fair',notes:'Friction top is worn smooth, buns may slide.'},99:{condition:'Good'},100:{condition:'Good'},101:{condition:'Pass'},102:{condition:'Good'},103:{condition:'Fair',notes:'Dead plate is slightly bent.'},104:{condition:'Fair',notes:'Some play in clevis.'},105:{condition:'Good'},106:{condition:'Fair',notes:'Brackets were bent, LeMatic and maintenance fixed.'},107:{condition:'Fair',notes:'Some play in clevis'},108:{condition:'Poor',notes:'Bearings feel tight.',impacts:['Downtime'],severity:2},109:{condition:'Good'},110:{condition:'Fail',notes:'Lower drive belt cover is missing',impacts:['Safety'],severity:2},111:{condition:'Fair'},112:{condition:'Fair',notes:'Lift screws slightly noisy needs a little lube.'},113:{condition:'Poor',notes:'Broken tab.',impacts:['Performance'],severity:2},114:{condition:'Good'},115:{condition:'Within Spec'},116:{condition:'Fair',notes:'Should be cleaned.'},117:{condition:'Good'},118:{condition:'Good'},119:{condition:'Good'},120:{condition:'Good'},121:{condition:'Fair',notes:'Belt is slightly old but ok.'},122:{condition:'Good'},123:{condition:'Good'},124:{condition:'Good'},125:{condition:'Good'},126:{condition:'Good'},127:{condition:'Good'},128:{condition:'Within Spec'},129:{condition:'Good'},130:{condition:'Good'},131:{condition:'Out of Spec',notes:'Timing belts are getting loose.',severity:2},132:{condition:'Good'},133:{condition:'Good'},134:{condition:'Good'},135:{condition:'Pass'}};
+      currentInspection = {
+        id: 'ins_example_orangeburg',
+        customer: 'BBU Orangeburg',
+        model: 'LX-8',
+        serial: '44621019 Line 1',
+        technician: 'Josh Denig',
+        date: '2026-02-22',
+        po: '',
+        status: 'Draft',
+        results: exampleResults,
+        findings: [],
+        currentSectionIndex: 1,
+        createdAt: new Date().toISOString(),
+        overallCondition: 'Needs Attention',
+        coverCards: [
+          { tag: 'Safety', title: 'Missing elevator drive belt cover', body: 'Lower drive-belt cover is off. Put it on before Monday.' },
+          { tag: 'Uptime', title: 'Hinge tensioners', body: 'All three lines. Line 2 is worst. Order the full assembly.' },
+          { tag: 'Slice', title: 'Bottom-slicer linkage', body: 'Worn on all three. Order LH sleeves and clevises.' }
+        ],
+        summaryNotes: "The baggers are in much better condition now than they were a year ago. The bottom slicer linkage and the hinge slicer drive chain tensioners should be the immediate focus for improvement as both of those items can lead to a loss in efficiency and an increase in downtime.\n\nThe horizontal blades in the hinge slicer are the double notch design. They should be swapped for single notch blades as it is very easy to install blades incorrectly, this will lead to a poor slice and/or damage to the machine.\n\nBlade scrapers for the band slicers could increase the life of the blades and decrease down time due to blades coming off."
+      };
+      results = exampleResults;
+      findings = [];
+      currentSectionIndex = 1;
+      editingInspectionId = null;
+      const list = loadInspections().filter(i => i.id !== currentInspection.id);
+      list.unshift(currentInspection);
+      saveInspections(list);
+      updateFindings();
+      currentInspection.findings = findings;
+      saveCurrentDraft();
+      renderSection(true);
+      showScreen('screenInspect');
+      toast('Orangeburg Line 1 example loaded');
+    });
+
+    document.getElementById('homeTileInspect').addEventListener('click', () => {
+      closeSearch();
+      showScreen('screenInspectList');
+      setHeader('Inspections');
+      refreshHome();
+    });
+    function getLastPunchlistName() {
+      try {
+        if (typeof lsRead === 'function') return lsRead('lx8_last_punchlist', '') || '';
+        return localStorage.getItem('lx8_last_punchlist') || '';
+      } catch (e) { return ''; }
+    }
+    function setLastPunchlistName(name) {
+      if (!name) return;
+      try {
+        if (typeof lsWrite === 'function') lsWrite('lx8_last_punchlist', name);
+        else localStorage.setItem('lx8_last_punchlist', name);
+      } catch (e) {}
+      try { window.__lastPunchlistName = name; } catch (e) {}
+    }
+    window.setLastPunchlistName = setLastPunchlistName;
+    window.getLastPunchlistName = getLastPunchlistName;
+
+    async function openPunchlistRecentList() {
+      closeSearch();
+      showScreen('screenPunchlistList');
+      setHeader('Punchlist');
+      if (typeof refreshPunchlistHome === 'function') await refreshPunchlistHome();
+    }
+
+    async function resumeLastPunchlistOrList() {
+      closeSearch();
+      const last = (getLastPunchlistName() || '').trim();
+      if (last && typeof window.openPunchlistByName === 'function') {
+        try {
+          const rows = typeof window.getPunchlistSummaries === 'function'
+            ? await window.getPunchlistSummaries()
+            : [];
+          const match = rows.find(r => r.name === last);
+          // Resume when the list exists and is "in progress":
+          // empty (ready to capture) or has open items. If fully complete, show All lists.
+          if (match) {
+            const open = (match.total || 0) - (match.complete || 0);
+            const inProgress = match.total === 0 || open > 0;
+            if (inProgress) {
+              await window.openPunchlistByName(last);
+              showScreen('screenPunchlist');
+              setHeader('Punchlist');
+              if (typeof window.renderList === 'function') window.renderList();
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn(e);
+        }
+      }
+      await openPunchlistRecentList();
+    }
+
+    document.getElementById('homeTilePunchlist').addEventListener('click', () => {
+      resumeLastPunchlistOrList();
+    });
+
+    document.getElementById('btnPunchlistAllLists').addEventListener('click', () => {
+      openPunchlistRecentList();
+    });
+    document.getElementById('homeTileJobs').addEventListener('click', () => {
+      closeSearch();
+      showScreen('screenJobsList');
+      setHeader('Jobs');
+      refreshJobsList();
+    });
+    document.getElementById('btnCancelJob').addEventListener('click', () => {
+      editingJobId = null;
+      document.getElementById('btnDeleteJob').classList.add('hidden');
+      if (detailJobId && loadJobs().some(j => j.id === detailJobId)) {
+        showScreen('screenJobDetail');
+        setHeader('Job');
+        refreshJobDetail();
+      } else {
+        showScreen('screenJobsList');
+        setHeader('Jobs');
+        refreshJobsList();
+      }
+    });
+    document.getElementById('btnEditJobDetail').addEventListener('click', () => {
+      if (detailJobId) openJob(detailJobId);
+    });
+    document.getElementById('btnJobStartInspection').addEventListener('click', () => startInspectionForDetailJob());
+    document.getElementById('btnJobOpenPunchlist').addEventListener('click', () => startPunchlistForDetailJob());
+
+    const btnJobMachinePopup = document.getElementById('btnJobMachinePopup');
+    if (btnJobMachinePopup) btnJobMachinePopup.addEventListener('click', () => {
+      machineModalMode = 'job';
+      openMachineModal();
+    });
+    const jobDatesCancel = document.getElementById('jobDatesCancel');
+    if (jobDatesCancel) jobDatesCancel.addEventListener('click', closeHomeJobDatesEditor);
+    const jobDatesSave = document.getElementById('jobDatesSave');
+    if (jobDatesSave) jobDatesSave.addEventListener('click', saveHomeJobDates);
+    const jobDatesModal = document.getElementById('jobDatesModal');
+    if (jobDatesModal) jobDatesModal.addEventListener('click', (e) => {
+      if (e.target.id === 'jobDatesModal') closeHomeJobDatesEditor();
+    });
+    const machineCancel = document.getElementById('machineModalCancel');
+    if (machineCancel) machineCancel.addEventListener('click', () => {
+      machineModalMode = 'job';
+      closeMachineModal();
+    });
+    const machineDone = document.getElementById('machineModalDone');
+    if (machineDone) machineDone.addEventListener('click', () => {
+      if (machineModalMode === 'startInspect') {
+        startInspectionFromMachinePopup();
+        return;
+      }
+      closeMachineModal();
+    });
+    const machineModal = document.getElementById('machineModal');
+    if (machineModal) machineModal.addEventListener('click', (e) => {
+      if (e.target.id === 'machineModal') closeMachineModal();
+    });
+    const addSerialBtn = document.getElementById('btnAddJobSerial');
+    if (addSerialBtn) addSerialBtn.addEventListener('click', addJobSerialFromInput);
+    const serialInp = document.getElementById('jobSerialInput');
+    if (serialInp) serialInp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addJobSerialFromInput(); }
+    });
+    const jobSerialSel = document.getElementById('inspectSerialSelect');
+    if (jobSerialSel) {
+      jobSerialSel.addEventListener('change', () => {
+        const custom = document.getElementById('inspectSerialInput');
+        if (!custom) return;
+        if (jobSerialSel.value === '__other') {
+          custom.classList.remove('hidden');
+          custom.focus();
+        } else {
+          custom.classList.add('hidden');
+          custom.value = '';
+        }
+        updateJobMachineSummary();
+      });
+    }
+    const inspectMachineSel = document.getElementById('inspectMachine');
+    if (inspectMachineSel) {
+      inspectMachineSel.addEventListener('change', () => {
+        const custom = document.getElementById('inspectMachineCustom');
+        if (!custom) return;
+        if (inspectMachineSel.value === '__other') {
+          custom.classList.remove('hidden');
+          custom.focus();
+        } else {
+          custom.classList.add('hidden');
+          custom.value = '';
+        }
+      });
+    }
+    const jobMachineSel = document.getElementById('jobMachine');
+    if (jobMachineSel) {
+      jobMachineSel.addEventListener('change', () => {
+        const custom = document.getElementById('jobMachineCustom');
+        if (!custom) return;
+        if (jobMachineSel.value === '__other') {
+          custom.classList.remove('hidden');
+          custom.focus();
+        } else {
+          custom.classList.add('hidden');
+          custom.value = '';
+        }
+        updateJobMachineSummary();
+      });
+    }
+    document.getElementById('btnSaveJob').addEventListener('click', () => saveJobFromForm());
+    document.getElementById('btnDeleteJob').addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteJobCurrent();
+    });
+
+    // ========== JOB LINKING (inspections + punchlist) ==========
+    let pendingJobPickPurpose = null; // 'inspection' | 'punchlist'
+    let linkedJobIdForStart = null;
+
+    function jobDisplayName(job) {
+      if (!job) return 'Job';
+      const site = (job.site || '').trim();
+      return site ? (job.customer || 'Job') + ' – ' + site : (job.customer || 'Job');
+    }
+
+    function jobSubLine(job) {
+      if (!job) return '';
+      const parts = [];
+      if (job.technician) parts.push(job.technician);
+      const range = formatJobDateRange(job);
+      if (range) parts.push(range);
+      if (job.status) parts.push(job.status);
+      return parts.join(' · ');
+    }
+
+    function punchlistKeyForJob(job) {
+      return jobDisplayName(job);
+    }
+
+    function ensurePunchlistBucketForJob(job) {
+      if (!job) return;
+      if (!data) data = { jobs: {}, currentJob: '' };
+      if (!data.jobs) data.jobs = {};
+      const key = punchlistKeyForJob(job);
+      if (!data.jobs[key]) data.jobs[key] = [];
+      data.currentJob = key;
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      data.jobIdByKey[key] = job.id;
+      if (!data.keyByJobId) data.keyByJobId = {};
+      data.keyByJobId[job.id] = key;
+      if (typeof plSaveData === 'function') plSaveData();
+      if (typeof populateJobSelect === 'function') populateJobSelect();
+      return key;
+    }
+
+    function closeJobPicker() {
+      pendingJobPickPurpose = null;
+      const modal = document.getElementById('jobPickerModal');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.classList.remove('show');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
+    function openJobPicker(purpose) {
+      const jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
+      pendingJobPickPurpose = purpose;
+      const modal = document.getElementById('jobPickerModal');
+      const listEl = document.getElementById('jobPickerList');
+      const title = document.getElementById('jobPickerTitle');
+      if (!modal || !listEl) return;
+
+      title.textContent = purpose === 'punchlist' ? 'Select Job for Punchlist' : 'Select Job for Inspection';
+
+      const skipLabel = purpose === 'punchlist' ? 'Continue without a job' : 'Continue without a job';
+      const skipSub = purpose === 'punchlist'
+        ? 'Start a punchlist not linked to a job'
+        : 'Enter customer details manually';
+      let html = '';
+      if (!jobs.length) {
+        html += `<div class="job-picker-empty">No jobs yet.<br>You can continue without one, or create a job first.</div>`;
+      } else {
+        const sorted = jobs.slice().sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
+        html += sorted.map(job => {
+          const sub = jobSubLine(job);
+          return `<button type="button" class="job-picker-item" data-job-id="${jobEsc(job.id)}">
+            <span class="jp-title">${jobEsc(jobDisplayName(job))}</span>
+            ${sub ? `<span class="jp-sub">${jobEsc(sub)}</span>` : ''}
+          </button>`;
+        }).join('');
+      }
+      html += `<button type="button" class="job-picker-item job-picker-skip" data-job-id="__none__">
+        <span class="jp-title">${skipLabel}</span>
+        <span class="jp-sub">${skipSub}</span>
+      </button>`;
+      listEl.innerHTML = html;
+      listEl.querySelectorAll('[data-job-id]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-job-id');
+          onJobPicked(id);
+        });
+      });
+
+      modal.classList.remove('hidden');
+      modal.classList.add('show');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function applyJobToInspectionForm(job) {
+      linkedJobIdForStart = job ? job.id : null;
+      const group = document.getElementById('jobLinkGroup');
+      const chip = document.getElementById('jobLinkChip');
+      if (job) {
+        if (group) group.classList.remove('hidden');
+        if (chip) {
+          const sub = jobSubLine(job);
+          chip.innerHTML = jobEsc(jobDisplayName(job)) + (sub ? `<span class="jl-sub">${jobEsc(sub)}</span>` : '');
+        }
+        document.getElementById('inpCustomer').value = job.customer || '';
+        document.getElementById('inpTechnician').value = job.technician || '';
+        document.getElementById('inpDate').value = job.date || new Date().toISOString().slice(0, 10);
+        document.getElementById('inpPO').value = job.po || '';
+        // Prefer site as a helpful default for serial/location context only if serial empty
+        if (job.site && !document.getElementById('inpSerial').value) {
+          document.getElementById('inpSerial').placeholder = job.site;
+        }
+      } else {
+        linkedJobIdForStart = null;
+        if (group) group.classList.add('hidden');
+        if (chip) chip.textContent = '—';
+      }
+    }
+
+    async function onJobPicked(jobId) {
+      const purpose = pendingJobPickPurpose;
+      const skip = !jobId || jobId === '__none__';
+      const job = skip ? null : loadJobs().find(j => j.id === jobId);
+      if (!skip && !job) {
+        toast('Job not found');
+        closeJobPicker();
+        return;
+      }
+      closeJobPicker();
+
+      if (purpose === 'inspection') {
+        currentInspection = null;
+        editingInspectionId = null;
+        results = {};
+        findings = [];
+        currentSectionIndex = 0;
+        document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
+        document.getElementById('btnDeleteInspection').classList.add('hidden');
+
+        // Linked job: start inspection immediately (edit details later from card)
+        if (job) {
+          const model = 'LX-8';
+          setActiveMachine(model);
+          currentInspection = {
+            id: 'ins_' + Date.now(),
+            customer: job.customer || '',
+            model,
+            serial: (job.site || '').trim() || 'TBD',
+            technician: job.technician || '',
+            date: job.date || new Date().toISOString().slice(0, 10),
+            po: job.po || '',
+            jobId: job.id,
+            status: 'Draft',
+            results: {},
+            findings: [],
+            currentSectionIndex: 0,
+            createdAt: new Date().toISOString()
+          };
+          linkedJobIdForStart = null;
+          saveCurrentDraft();
+          renderSection();
+          showScreen('screenInspect');
+          setHeader('Inspecting');
+          toast('Inspection started — ' + jobDisplayName(job));
+          return;
+        }
+
+        // No job: show manual start form
+        initStartForm();
+        applyJobToInspectionForm(null);
+        document.getElementById('exampleInspectCard').classList.remove('hidden');
+        showScreen('screenStart');
+        setHeader('New Inspection');
+        return;
+      }
+
+      if (purpose === 'punchlist') {
+        try {
+          if (typeof window.openPunchlistForJob !== 'function') {
+            toast('Punchlist not ready');
+            return;
+          }
+          const label = await window.openPunchlistForJob(job || null);
+          showScreen('screenPunchlist');
+          setHeader('Punchlist');
+          if (typeof window.renderList === 'function') window.renderList();
+          toast(job ? ('Punchlist: ' + jobDisplayName(job)) : 'Punchlist (no job)');
+        } catch (err) {
+          console.error(err);
+          toast('Could not open punchlist');
+        }
+      }
+    }
+
+    document.getElementById('jobPickerCancel').addEventListener('click', () => closeJobPicker());
+    document.getElementById('jobPickerGoJobs').addEventListener('click', () => {
+      closeJobPicker();
+      showScreen('screenJobsList');
+      setHeader('Jobs');
+      if (typeof refreshJobsList === 'function') refreshJobsList();
+    });
+
+    document.getElementById('jobPickerModal').addEventListener('click', (e) => {
+      if (e.target.id === 'jobPickerModal') closeJobPicker();
+    });
+
+
+    const btnBackupZip = document.getElementById('btnBackupZip');
+    const btnRestoreZip = document.getElementById('btnRestoreZip');
+    const restoreZipInput = document.getElementById('restoreZipInput');
+    if (btnBackupZip) btnBackupZip.addEventListener('click', () => exportBackupZip());
+    if (btnRestoreZip) btnRestoreZip.addEventListener('click', () => restoreZipInput && restoreZipInput.click());
+    if (restoreZipInput) restoreZipInput.addEventListener('change', ev => {
+      const file = ev.target.files && ev.target.files[0];
+      ev.target.value = '';
+      if (file) importBackupZip(file);
+    });
+
+    document.getElementById('btnNewInspection').addEventListener('click', () => {
+      closeSearch();
+      openJobPicker('inspection');
+    });
+    document.getElementById('btnNewPunchlist').addEventListener('click', () => {
+      closeSearch();
+      openJobPicker('punchlist');
+    });
+
+
+    document.getElementById('btnCancelStart').addEventListener('click', () => {
+      editingInspectionId = null;
+      document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
+      document.getElementById('btnDeleteInspection').classList.add('hidden');
+      showScreen('screenInspectList');
+      setHeader('Inspections');
+      refreshHome();
+    });
+
+    document.getElementById('btnBeginInspection').addEventListener('click', () => {
+      const customer = document.getElementById('inpCustomer').value.trim();
+      const serial = document.getElementById('inpSerial').value.trim();
+      const tech = document.getElementById('inpTechnician').value.trim();
+      if (!customer || !serial || !tech) {
+        toast('Please fill Customer, Serial # and Technician');
+        return;
+      }
+      if (linkedJobIdForStart) rememberJobSerial(linkedJobIdForStart, serial);
+      const model = document.getElementById('inpModel').value.trim() || 'LX-8';
+      setActiveMachine(model);
+      const date = document.getElementById('inpDate').value;
+      const po = document.getElementById('inpPO').value.trim();
+
+      // Edit existing inspection metadata
+      if (editingInspectionId) {
+        const list = loadInspections();
+        const idx = list.findIndex(i => i.id === editingInspectionId);
+        if (idx < 0) {
+          toast('Inspection not found');
+          return;
+        }
+        list[idx].customer = customer;
+        list[idx].model = model;
+        list[idx].serial = serial;
+        list[idx].technician = tech;
+        list[idx].date = date;
+        list[idx].po = po;
+        if (linkedJobIdForStart) list[idx].jobId = linkedJobIdForStart;
+        list[idx].updatedAt = new Date().toISOString();
+        saveInspections(list);
+        currentInspection = list[idx];
+        editingInspectionId = null;
+        document.getElementById('btnBeginInspection').textContent = 'Begin Inspection';
+        document.getElementById('btnDeleteInspection').classList.add('hidden');
+        toast('Inspection details updated');
+        showScreen('screenInspectList');
+        setHeader('Inspections');
+        refreshHome();
+        return;
+      }
+
+      // Create new inspection
+      currentInspection = {
+        id: 'ins_' + Date.now(),
+        customer,
+        model,
+        serial,
+        technician: tech,
+        date,
+        po,
+        jobId: linkedJobIdForStart || null,
+        status: 'Draft',
+        results: {},
+        findings: [],
+        currentSectionIndex: 0,
+        createdAt: new Date().toISOString()
+      };
+      linkedJobIdForStart = null;
+      results = {};
+      findings = [];
+      currentSectionIndex = 0;
+      saveCurrentDraft();
+      renderSection();
+      showScreen('screenInspect');
+      setHeader('Inspecting');
+      toast('Inspection started');
+    });
+
+    // ========== INSPECTION ==========
+    function getItemsForSection(sectionId) {
+      const items = (APP_DATA && APP_DATA.items) || [];
+      return items
+        .filter(i => i.section_id === sectionId)
+        .sort((a, b) => a.item_order_in_section - b.item_order_in_section);
+    }
+
+    function shortSectionName(name) {
+      // Keep names readable but compact for the horizontal scroller
+      const map = {
+        'Spread Conveyor': 'Spread Conv.',
+        'Accumulating Conveyor': 'Accum. Conv.',
+        'Grouper Section': 'Grouper',
+        'Slicing Conveyor': 'Slicing Conv.',
+        'Band Slicer': 'Band Slicer',
+        'Hinge Slicer': 'Hinge Slicer',
+        'Bottom Slicer': 'Bottom Slicer',
+        'Top Slicer': 'Top Slicer',
+        'Cross-Over Conveyor': 'Cross-Over',
+        'Bagger': 'Bagger',
+        'Over Head Paddle Conveyor': 'Paddle Conv.',
+        'Tying Conveyor': 'Tying Conv.'
+      };
+      return map[name] || name;
+    }
+
+    function renderSectionDots(scrollToCurrent) {
+      const container = document.getElementById('sectionDots');
+      if (!container || !APP_DATA || !APP_DATA.sections) return;
+      const inspectCurrent = extraSectionTab == null;
+      let html = APP_DATA.sections.map((s, idx) => {
+        let cls = 'section-dot';
+        if (idx < currentSectionIndex) cls += ' done';
+        if (inspectCurrent && idx === currentSectionIndex) cls += ' current';
+        const sectionItems = getItemsForSection(s.section_id);
+        const hasFinding = sectionItems.some(it => {
+          const r = results[it.item_id];
+          return r && isBadResult(it, r.condition);
+        });
+        if (hasFinding) cls += ' has-findings';
+        const label = shortSectionName(s.section);
+        return `<div class="${cls}" data-idx="${idx}" title="${s.section}">${label}</div>`;
+      }).join('');
+      html += `<div class="section-dot${extraSectionTab === 'findings' ? ' current' : ''}" data-extra="findings">Findings</div>`;
+      html += `<div class="section-dot${extraSectionTab === 'notes' ? ' current' : ''}" data-extra="notes">Notes</div>`;
+      container.innerHTML = html;
+      container.querySelectorAll('.section-dot').forEach(d => {
+        d.addEventListener('click', () => {
+          if (d.dataset.extra === 'findings') {
+            extraSectionTab = 'findings';
+            if (currentInspection) saveCurrentDraft();
+            updateFindings();
+            showFindings();
+            return;
+          }
+          if (d.dataset.extra === 'notes') {
+            extraSectionTab = 'notes';
+            if (currentInspection) {
+              saveCurrentDraft();
+              if (!document.getElementById('summaryNotes').value && currentInspection.summaryNotes) {
+                setNotesContent(currentInspection.summaryNotes);
+              }
+            }
+            notesSource = 'inspection';
+            showScreen('screenNotes');
+            setHeader('Notes');
+            return;
+          }
+          extraSectionTab = null;
+          currentSectionIndex = parseInt(d.dataset.idx, 10);
+          showScreen('screenInspect');
+          renderSection(true);
+        });
+      });
+      // Only auto-scroll the dots bar when changing sections intentionally
+      if (scrollToCurrent) {
+        const current = container.querySelector('.section-dot.current');
+        if (current) current.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+
+    function isBadResult(item, value) {
+      if (!value) return false;
+      const bad = (item.photo_required_if || '').toLowerCase();
+      return value.toLowerCase() === bad ||
+        (item.inspection_type === 'Condition' && (value === 'Poor' || value === 'Damaged')) ||
+        (item.inspection_type === 'Functional' && value === 'Fail') ||
+        (item.inspection_type === 'Measurement' && value === 'Out of Spec');
+    }
+
+    function isFairResult(value) {
+      return value === 'Fair';
+    }
+
+    function showsFindingPanel(item, value) {
+      return isBadResult(item, value) || isFairResult(value);
+    }
+
+    function choiceTone(value) {
+      const v = (value || '').toLowerCase();
+      if (v === 'n/a') return 'na';
+      if (v === 'good' || v === 'pass' || v === 'within spec') return 'good';
+      if (v === 'fair') return 'fair';
+      if (v === 'poor' || v === 'fail' || v === 'out of spec' || v === 'damaged') return 'bad';
+      return '';
+    }
+
+    function renderSection(isSectionChange) {
+      if (!APP_DATA || !APP_DATA.sections || !APP_DATA.sections.length) {
+        toast('Inspection data not loaded');
+        return;
+      }
+      if (currentSectionIndex < 0) currentSectionIndex = 0;
+      if (currentSectionIndex >= APP_DATA.sections.length) {
+        currentSectionIndex = APP_DATA.sections.length - 1;
+      }
+      const section = APP_DATA.sections[currentSectionIndex];
+      if (!section) return;
+      document.getElementById('sectionCounter').textContent = `Section ${currentSectionIndex + 1} of ${APP_DATA.sections.length}`;
+      document.getElementById('sectionName').textContent = section.section;
+      renderSectionDots(!!isSectionChange);
+
+      const items = getItemsForSection(section.section_id);
+      const answered = items.filter(i => results[i.item_id]?.condition).length;
+      document.getElementById('itemProgress').textContent = `${answered} / ${items.length}`;
+
+      const container = document.getElementById('itemsContainer');
+      container.innerHTML = items.map(item => {
+        const res = results[item.item_id] || {};
+        const isAnswered = !!res.condition;
+        const isFinding = isBadResult(item, res.condition);
+        const isFair = isFairResult(res.condition);
+        let cardClass = 'item-card';
+        if (isFinding) cardClass += ' finding';
+        else if (isFair) cardClass += ' fair';
+        else if (res.condition === 'N/A') cardClass += ' na';
+        else if (isAnswered) cardClass += ' answered';
+
+        const choices = (item.choices || '').split('|').filter(Boolean);
+        const choiceHtml = choices.map(c => {
+          const sel = res.condition === c ? 'selected' : '';
+          return `<button class="choice-btn ${choiceTone(c)} ${sel}" data-item="${item.item_id}" data-value="${c}">${c}</button>`;
+        }).join('');
+
+        let findingHtml = '';
+        if (showsFindingPanel(item, res.condition)) {
+          const impacts = res.impacts || [];
+          const impactBtns = (APP_DATA.lists.impact || ['Downtime','Performance','Safety']).map(imp => {
+            const sel = impacts.includes(imp) ? 'selected' : '';
+            return `<span class="impact-tag ${sel}" data-item="${item.item_id}" data-impact="${imp}">${imp}</span>`;
+          }).join('');
+          const sevs = APP_DATA.lists.severity || ['1 - Monitor','2 - Repair','3 - Critical'];
+          const curSev = res.severity ? String(res.severity) : '';
+          const sevOpts = ['<option value=""' + (curSev ? '' : ' selected') + '>Select</option>'].concat(sevs.map(s => {
+            const val = s.charAt(0);
+            const selected = curSev === val ? 'selected' : '';
+            return `<option value="${val}" ${selected}>${s}</option>`;
+          })).join('');
+
+          findingHtml = `
+            <div class="finding-panel show">
+              <div class="finding-heading"><span class="ico">${ICO.warn}</span>Finding Details</div>
+              <div class="form-group" style="margin-bottom:8px">
+                <label>Impact</label>
+                <div class="impact-tags">${impactBtns}</div>
+              </div>
+              <div class="form-group severity-select">
+                <label>Severity</label>
+                <select class="sev-select" data-item="${item.item_id}">${sevOpts}</select>
+              </div>
+              <div class="form-group">
+                <label>Notes</label>
+                <textarea class="notes-input" data-item="${item.item_id}" placeholder="Describe the issue...">${res.notes || ''}</textarea>
+              </div>
+              <div class="photo-area ${res.photoDataUrl ? 'has-photo' : ''}" data-item="${item.item_id}">
+                ${res.photoDataUrl
+                  ? `<img class="photo-preview" src="${res.photoDataUrl}" alt="Photo" /><br><button class="photo-btn" data-item="${item.item_id}">Change Photo</button>`
+                  : `<div class="photo-needed"><span class="ico">${ICO.cam}</span>${isFinding ? 'Photo required' : 'Photo optional'}</div><button class="photo-btn" data-item="${item.item_id}"><span class="ico">${ICO.cam}</span>Take / Choose Photo</button>`
+                }
+                <input type="file" accept="image/*" class="photo-input hidden" data-item="${item.item_id}" />
+              </div>
+            </div>`;
+        }
+
+        return `
+          <div class="${cardClass}" id="item-${item.item_id}">
+            <div class="item-title">${item.inspection_item}</div>
+            <div class="choice-grid">${choiceHtml}</div>
+            ${findingHtml}
+          </div>`;
+      }).join('');
+
+      // Bind choice buttons
+      container.querySelectorAll('.choice-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const itemId = parseInt(btn.dataset.item);
+          const value = btn.dataset.value;
+          if (!results[itemId]) results[itemId] = {};
+          results[itemId].condition = value;
+          const item = APP_DATA.items.find(i => i.item_id === itemId);
+          if (!showsFindingPanel(item, value)) {
+            delete results[itemId].impacts;
+            delete results[itemId].notes;
+            delete results[itemId].photoDataUrl;
+            delete results[itemId].severity;
+          }
+          updateFindings();
+          saveCurrentDraft();
+          // Preserve scroll position when re-rendering
+          const scrollY = window.scrollY || window.pageYOffset;
+          renderSection(false);
+          // Restore after layout (double rAF is more reliable on mobile)
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              window.scrollTo(0, scrollY);
+            });
+          });
+        });
+      });
+
+      // Bind impact tags
+      container.querySelectorAll('.impact-tag').forEach(tag => {
+        tag.addEventListener('click', () => {
+          const itemId = parseInt(tag.dataset.item, 10);
+          const impact = tag.dataset.impact;
+          if (!results[itemId]) results[itemId] = {};
+          if (!results[itemId].impacts) results[itemId].impacts = [];
+          const idx = results[itemId].impacts.indexOf(impact);
+          if (idx >= 0) results[itemId].impacts.splice(idx, 1);
+          else results[itemId].impacts.push(impact);
+          updateFindings();
+          saveCurrentDraft();
+          tag.classList.toggle('selected');
+        });
+      });
+
+      // Bind severity
+      container.querySelectorAll('.sev-select').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const itemId = parseInt(sel.dataset.item, 10);
+          if (!results[itemId]) results[itemId] = {};
+          results[itemId].severity = sel.value ? parseInt(sel.value, 10) : '';
+          updateFindings();
+          saveCurrentDraft();
+        });
+      });
+
+      // Bind notes
+      container.querySelectorAll('.notes-input').forEach(ta => {
+        ta.addEventListener('input', () => {
+          const itemId = parseInt(ta.dataset.item, 10);
+          if (!results[itemId]) results[itemId] = {};
+          results[itemId].notes = ta.value;
+          updateFindings();
+          saveCurrentDraft();
+        });
+      });
+
+      // Bind photo
+      container.querySelectorAll('.photo-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const itemId = btn.dataset.item;
+          const input = container.querySelector(`.photo-input[data-item="${itemId}"]`);
+          if (input) input.click();
+        });
+      });
+      container.querySelectorAll('.photo-input').forEach(inp => {
+        inp.addEventListener('change', (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          if (!file.type || !file.type.startsWith('image/')) {
+            toast('Please choose an image');
+            return;
+          }
+          const itemId = parseInt(inp.dataset.item, 10);
+          if (!results[itemId]) results[itemId] = {};
+          (async () => {
+            try {
+              const blob = await compressImageFile(file, 1600, 0.72);
+              const id = 'ins_' + ((currentInspection && currentInspection.id) || 'draft') + '_' + itemId + '_' + Date.now();
+              await idbPutPhoto({ id, blob: blob || file, caption: '', createdAt: Date.now() });
+              results[itemId].photoId = id;
+              results[itemId].photoDataUrl = blobToObjectUrl(blob || file);
+            } catch (err) {
+              const reader = new FileReader();
+              await new Promise((resolve, reject) => {
+                reader.onload = resolve;
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+              });
+              results[itemId].photoDataUrl = reader.result;
+            }
+            updateFindings();
+            saveCurrentDraft();
+            const scrollY = window.scrollY || window.pageYOffset;
+            renderSection(false);
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                window.scrollTo(0, scrollY);
+              });
+            });
+            toast('Photo attached');
+          })();
+        });
+      });
+
+      // Update next button text
+      const isLast = currentSectionIndex === APP_DATA.sections.length - 1;
+      document.getElementById('btnNextSection').textContent = isLast ? 'Findings →' : 'Next →';
+      document.getElementById('btnPrevSection').style.visibility = currentSectionIndex === 0 ? 'hidden' : 'visible';
+    }
+
+    function updateFindings() {
+      findings = [];
+      if (!APP_DATA || !APP_DATA.items) return;
+      Object.keys(results).forEach(idStr => {
+        const itemId = parseInt(idStr, 10);
+        const item = APP_DATA.items.find(i => i.item_id === itemId);
+        if (!item) return;
+        const r = results[itemId];
+        if (!r) return;
+        if (showsFindingPanel(item, r.condition)) {
+          findings.push({
+            item_id: itemId,
+            section: item.section,
+            item_name: item.inspection_item,
+            condition: r.condition,
+            severity: r.severity ? Math.min(parseInt(r.severity, 10) || 0, 3) : '',
+            impacts: r.impacts || [],
+            notes: r.notes || '',
+            photoDataUrl: r.photoDataUrl || null,
+            ai_category: item.ai_finding_category,
+            status: 'Open'
+          });
+        }
+      });
+    }
+
+    document.getElementById('btnNextSection').addEventListener('click', () => {
+      if (!APP_DATA || !APP_DATA.sections) return;
+      if (currentSectionIndex < APP_DATA.sections.length - 1) {
+        currentSectionIndex++;
+        saveCurrentDraft();
+        renderSection(true);
+        window.scrollTo(0, 0);
+      } else {
+        updateFindings();
+        saveCurrentDraft();
+        showFindings();
+      }
+    });
+
+    document.getElementById('btnPrevSection').addEventListener('click', () => {
+      if (currentSectionIndex > 0) {
+        currentSectionIndex--;
+        saveCurrentDraft();
+        renderSection(true);
+        window.scrollTo(0, 0);
+      }
+    });
+
+    // ========== SUMMARY ==========
+    function collectCoverCards() {
+      const cards = [];
+      for (let n = 1; n <= 3; n++) {
+        const tag = (document.getElementById('cover' + n + 'tag') || {}).value || '';
+        const title = (document.getElementById('cover' + n + 'title') || {}).value || '';
+        const body = (document.getElementById('cover' + n + 'body') || {}).value || '';
+        if (title.trim() || body.trim()) cards.push({ tag: tag.trim(), title: title.trim(), body: body.trim() });
+      }
+      return cards;
+    }
+    function saveCoverCards() {
+      if (!currentInspection) return;
+      currentInspection.coverCards = collectCoverCards();
+      currentInspection.summaryNotes = (document.getElementById('summaryNotes') || {}).value || '';
+      currentInspection.overallCondition = (document.getElementById('overallCondition') || {}).value || '';
+    }
+    function fillCoverCards(list) {
+      for (let n = 1; n <= 3; n++) {
+        const c = (list || [])[n - 1] || {};
+        const tag = document.getElementById('cover' + n + 'tag');
+        const title = document.getElementById('cover' + n + 'title');
+        const body = document.getElementById('cover' + n + 'body');
+        if (tag) tag.value = c.tag || '';
+        if (title) title.value = c.title || '';
+        if (body) body.value = c.body || '';
+      }
+    }
+
+    function showFindings() {
+      if (!currentInspection) {
+        toast('No active inspection');
+        showScreen('screenHome');
+        return;
+      }
+      updateFindings();
+      const totalAnswered = Object.keys(results).length;
+      document.getElementById('sumTotalItems').textContent = totalAnswered;
+      document.getElementById('sumFindings').textContent = findings.length;
+
+      document.getElementById('summaryMeta').innerHTML = `
+        <div class="review-customer">${currentInspection.customer || 'Inspection'}</div>
+        <div class="review-line">${currentInspection.model || ''} · S/N ${currentInspection.serial || ''}</div>
+        <div class="review-line">${currentInspection.technician || ''} · ${currentInspection.date || ''}${currentInspection.po ? ' · PO ' + currentInspection.po : ''}</div>
+      `;
+
+      if (currentInspection.summaryNotes && !document.getElementById('summaryNotes').value) {
+        setNotesContent(currentInspection.summaryNotes);
+      }
+      if (currentInspection.overallCondition) {
+        document.getElementById('overallCondition').value = currentInspection.overallCondition;
+      }
+      fillCoverCards(currentInspection.coverCards);
+
+      const listEl = document.getElementById('findingsList');
+      if (findings.length === 0) {
+        listEl.innerHTML = `<div class="empty-state" style="padding:20px"><div class="icon">${ICO.check}</div><p>No findings.<br>All items passed.</p></div>`;
+      } else {
+        const sevNames = { 1: 'Monitor', 2: 'Repair', 3: 'Critical' };
+        listEl.innerHTML = findings
+          .sort((a, b) => (parseInt(b.severity, 10) || 0) - (parseInt(a.severity, 10) || 0))
+          .map(f => {
+            let sev = parseInt(f.severity, 10) || 0;
+            if (sev > 3) sev = 3;
+            const isFair = f.condition === 'Fair';
+            const high = !isFair && (sev >= 3 || f.condition === 'Poor' || f.condition === 'Fail' || f.condition === 'Out of Spec' || f.condition === 'Damaged');
+            const sevLabel = sevNames[sev] || '';
+            const cardTone = high ? ' sev-high' : (isFair ? ' sev-fair' : '');
+            const pill = sevLabel
+              ? `<span class="badge badge-sev ${high ? 'badge-findings' : 'badge-draft'}">${sevLabel}</span>`
+              : '';
+            const src = f.photoDataUrl || (results[f.item_id] && results[f.item_id].photoDataUrl);
+            return `
+            <div class="finding-summary-card${cardTone}">
+              <div class="finding-summary-top">
+                <div>
+                  <div class="finding-name">${f.item_name}</div>
+                  <div class="finding-section">${f.section}</div>
+                </div>
+                ${pill}
+              </div>
+              <div class="finding-meta">${f.condition}${f.impacts.length ? ' · ' + f.impacts.join(', ') : ''}</div>
+              ${f.notes ? `<div class="finding-notes">${f.notes}</div>` : ''}
+              ${src ? `<img src="${src}" class="photo-preview" style="margin-top:8px" />` : ''}
+            </div>`;
+          }).join('');
+      }
+
+      showScreen('screenFindings');
+      setHeader('Findings');
+    }
+
+    function renderInspectPreview() {
+      saveCoverCards();
+      updateFindings();
+      const items = (APP_DATA && APP_DATA.items) || [];
+      let nGood = 0, nFair = 0, nPoor = 0, nAns = 0;
+      items.forEach(it => {
+        const c = String((results[it.item_id] && results[it.item_id].condition) || '').toLowerCase();
+        if (!c) return;
+        nAns++;
+        if (c === 'poor' || c === 'fail' || c === 'out of spec') nPoor++;
+        else if (c === 'fair') nFair++;
+        else if (c !== 'n/a') nGood++;
+      });
+      const photos = [];
+      findings.forEach(f => {
+        const r = results[f.item_id] || {};
+        const src = f.photoDataUrl || r.photoDataUrl;
+        if (src) photos.push({ src, cap: f.item_name || '', notes: f.notes || '' });
+      });
+      const logo = (document.querySelector('.header-logo-img') || {}).src || '';
+      const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      const cards = collectCoverCards();
+      const feat = photos.slice(0, 2).map(p =>
+        `<div><img src="${p.src}" alt=""><p>${esc(p.cap)}${p.notes ? ' · ' + esc(p.notes) : ''}</p></div>`
+      ).join('');
+      const moves = cards.map(c => `
+        <div class="move">
+          <div class="t">${esc(c.tag || 'REPAIR')}</div>
+          <b>${esc(c.title)}</b>
+          <div>${esc(c.body)}</div>
+        </div>`).join('');
+      document.getElementById('irPreviewSheet').innerHTML = `
+        <div class="hero">
+          <div class="k">FIELD SERVICE TRIP REPORT</div>
+          <div class="visit-logo-pill">${logo ? `<img src="${logo}" alt="LeMatic">` : ''}</div>
+          <h2>${esc(currentInspection.customer || 'Inspection')}</h2>
+          <div class="s">${esc(currentInspection.model || '')}${currentInspection.serial ? ' · S/N ' + esc(currentInspection.serial) : ''}</div>
+          <div class="s">${esc(currentInspection.technician || '')}${currentInspection.date ? ' · ' + esc(currentInspection.date) : ''}</div>
+        </div>
+        <div class="tiles">
+          <div class="tile" style="background:#2a3036"><b>${nAns}</b><span>ITEMS CHECKED</span></div>
+          <div class="tile" style="background:#c62828"><b>${nPoor}</b><span>POOR</span></div>
+          <div class="tile" style="background:#b8860b"><b>${nFair}</b><span>FAIR</span></div>
+          <div class="tile" style="background:#1f4e3a"><b>${nGood}</b><span>GOOD</span></div>
+        </div>
+        ${feat ? `<div class="feat">${feat}</div>` : ''}
+        ${moves || '<div class="body">Add cover items on Review to show them here.</div>'}
+        <div class="h">On site</div>
+        <div class="body">${esc(getNotesPlain() || '—')}</div>
+      `;
+      showScreen('screenInspectPreview');
+    }
+
+    document.getElementById('btnFindingsBack').addEventListener('click', () => {
+      renderSection();
+      showScreen('screenInspect');
+      setHeader('Inspecting');
+    });
+    document.getElementById('btnFindingsNext').addEventListener('click', () => {
+      if (currentInspection && !document.getElementById('summaryNotes').value && currentInspection.summaryNotes) {
+        setNotesContent(currentInspection.summaryNotes);
+      }
+      notesSource = 'inspection';
+      showScreen('screenNotes');
+    });
+    function notesLooksHTML(s) {
+      return /<(p|div|h1|h2|h3|ul|ol|li|b|i|u|strong|em|br|span)[>\s/]/i.test(s || '');
+    }
+    function syncNotesField() {
+      const ed = document.getElementById('notesEditor');
+      const ta = document.getElementById('summaryNotes');
+      if (ed && ta) ta.value = ed.innerHTML === '<br>' ? '' : ed.innerHTML;
+    }
+    function setNotesContent(val) {
+      const ed = document.getElementById('notesEditor');
+      const ta = document.getElementById('summaryNotes');
+      val = String(val || '').replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
+      if (!ed || !ta) return;
+      if (!val) {
+        ed.innerHTML = '';
+        ta.value = '';
+        return;
+      }
+      if (notesLooksHTML(val)) ed.innerHTML = val;
+      else ed.textContent = val;
+      syncNotesField();
+    }
+    function getNotesPlain() {
+      const ed = document.getElementById('notesEditor');
+      if (!ed) return (document.getElementById('summaryNotes') || {}).value || '';
+      const clone = ed.cloneNode(true);
+      clone.querySelectorAll('li').forEach(li => { li.prepend('• '); });
+      return String(clone.innerText || '').replace(/\n{3,}/g, '\n\n').trim();
+    }
+    function placeNotesFormatBar() {
+      const bar = document.getElementById('notesFormatBar');
+      if (!bar || !document.body.classList.contains('on-notes')) return;
+      const vv = window.visualViewport;
+      const kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+      const typing = kb > 80;
+      document.body.classList.toggle('notes-typing', typing);
+      const dock = document.getElementById('bottomBar');
+      const dockUp = !typing && notesSource !== 'visit-letter' && dock && !dock.classList.contains('hidden');
+      const dockH = dockUp ? dock.getBoundingClientRect().height : 0;
+      bar.style.bottom = (kb + dockH + 10) + 'px';
+    }
+    function initNotesEditor() {
+      const ed = document.getElementById('notesEditor');
+      const bar = document.getElementById('notesFormatBar');
+      if (!ed || !bar || bar.dataset.ready) return;
+      bar.dataset.ready = '1';
+      ed.addEventListener('input', syncNotesField);
+      ed.addEventListener('focus', () => {
+        document.body.classList.add('notes-focus');
+        placeNotesFormatBar();
+      });
+      ed.addEventListener('blur', () => {
+        setTimeout(() => {
+          if (!bar.contains(document.activeElement)) document.body.classList.remove('notes-focus');
+        }, 80);
+      });
+      bar.addEventListener('mousedown', (e) => e.preventDefault());
+      bar.addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        ed.focus();
+        const cmd = btn.dataset.notesCmd;
+        const block = btn.dataset.notesBlock;
+        const size = btn.dataset.notesSize;
+        if (cmd) document.execCommand(cmd, false, null);
+        else if (block) document.execCommand('formatBlock', false, block);
+        else if (size) document.execCommand('fontSize', false, size === 'inc' ? '5' : '2');
+        syncNotesField();
+      });
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', placeNotesFormatBar);
+        window.visualViewport.addEventListener('scroll', placeNotesFormatBar);
+      }
+      window.addEventListener('resize', placeNotesFormatBar);
+    }
+
+    function openFullNotes(source, value) {
+      notesSource = source || 'inspection';
+      setNotesContent(value || '');
+      showScreen('screenNotes');
+      setHeader(source === 'visit-letter' ? 'On Site' : 'Notes');
+      initNotesEditor();
+      requestAnimationFrame(() => {
+        const ed = document.getElementById('notesEditor');
+        if (ed) ed.focus();
+        placeNotesFormatBar();
+      });
+    }
+    function closeFullNotes() {
+      syncNotesField();
+      const html = (document.getElementById('summaryNotes') || {}).value || '';
+      const plain = getNotesPlain();
+      if (false) {
+        vrWriteNotesBack();
+        showTripSection(vrSection || 'site');
+        setHeader('Trip Report');
+        return;
+      }
+      if (currentInspection) currentInspection.summaryNotes = html;
+      showFindings();
+    }
+    function leaveNotesToFindings() {
+      closeFullNotes();
+    }
+    document.getElementById('btnNotesBack').addEventListener('click', leaveNotesToFindings);
+    document.getElementById('btnHeaderBack').addEventListener('click', () => {
+      if (document.body.classList.contains('on-notes')) closeFullNotes();
+    });
+    document.getElementById('btnNotesNext').addEventListener('click', () => {
+      if (false) {
+        closeFullNotes();
+        return;
+      }
+      if (currentInspection) {
+        syncNotesField();
+        currentInspection.summaryNotes = document.getElementById('summaryNotes').value;
+      }
+      renderInspectPreview();
+    });
+
+        document.getElementById('btnPreviewBack').addEventListener('click', () => {
+      notesSource = 'inspection';
+      showScreen('screenNotes');
+    });
+    function openSaveSheet() {
+      const scrim = document.getElementById('saveSheetScrim');
+      const sheet = document.getElementById('saveSheet');
+      scrim.hidden = false;
+      sheet.hidden = false;
+      requestAnimationFrame(() => {
+        scrim.classList.add('show');
+        sheet.classList.add('show');
+      });
+    }
+    function closeSaveSheet() {
+      const scrim = document.getElementById('saveSheetScrim');
+      const sheet = document.getElementById('saveSheet');
+      scrim.classList.remove('show');
+      sheet.classList.remove('show');
+      setTimeout(() => {
+        if (!sheet.classList.contains('show')) {
+          scrim.hidden = true;
+          sheet.hidden = true;
+        }
+      }, 380);
+    }
+    document.getElementById('btnSaveInspect').addEventListener('click', openSaveSheet);
+    document.getElementById('saveSheetScrim').addEventListener('click', closeSaveSheet);
+    document.getElementById('saveSheetCancel').addEventListener('click', closeSaveSheet);
+    document.getElementById('saveSheetPdf').addEventListener('click', () => {
+      closeSaveSheet();
+      generatePDFReport();
+    });
+    document.getElementById('saveSheetDocx').addEventListener('click', () => {
+      closeSaveSheet();
+      generateWordReport();
+    });
+    document.getElementById('saveSheetXlsx').addEventListener('click', () => {
+      closeSaveSheet();
+      generateInspectionExcel().catch(err => {
+        console.warn(err);
+        toast('Could not build Excel file');
+      });
+    });
+    document.getElementById('btnCompleteInspect').addEventListener('click', () => {
+      if (!currentInspection) {
+        toast('No active inspection');
+        return;
+      }
+      syncNotesField();
+      currentInspection.summaryNotes = (document.getElementById('summaryNotes') || {}).value || currentInspection.summaryNotes || '';
+      updateFindings();
+      currentInspection.findings = findings;
+      currentInspection.results = results;
+      currentInspection.status = 'Complete';
+      currentInspection.updatedAt = new Date().toISOString();
+      saveCurrentDraft();
+      toast('Inspection completed');
+      showScreen('screenInspectList');
+      setHeader('Inspections');
+      refreshHome();
+    });
+
+
+    // ========== PDF REPORT ==========
+    function findRelatedVisit(ins) { return null; }
+    const LEMATIC_LOGO_JPG = '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';
+    function generatePDFReport() {
+      if (!currentInspection) {
+        toast('No inspection data');
+        return;
+      }
+      if (typeof window.jspdf === 'undefined') {
+        toast('PDF library still loading… try again in a moment');
+        return;
+      }
+
+      updateFindings();
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      const L = 14;
+      const R = W - 14;
+      const usable = R - L;
+      const footerY = H - 10;
+      let y = 20;
+
+      const INK = [20, 20, 24];
+      const MUTED = [92, 101, 112];
+      const LINE = [228, 230, 234];
+      const PAPER = [244, 245, 247];
+      const RED = [212, 34, 59];
+      const POORC = [198, 40, 40];
+      const FAIRC = [184, 134, 11];
+      const GOODC = [27, 122, 74];
+
+      const customer = currentInspection.customer || 'Customer';
+      const model = currentInspection.model || 'LX-8';
+      const serial = currentInspection.serial || '';
+      const tech = currentInspection.technician || '';
+      const date = currentInspection.date || '';
+      const notes = (getNotesPlain() || String(currentInspection.summaryNotes || '').replace(/<[^>]+>/g, ' ')).trim();
+      let visit = findRelatedVisit(currentInspection);
+      if (!visit) {
+        try {
+          const live = collectVisit();
+          const same = String(live.customer || '').toLowerCase().trim() === String(currentInspection.customer || '').toLowerCase().trim();
+          if (same && (live.summary || live.scopeText || live.arrival || (live.findings||[]).length || (live.parts||[]).length)) visit = live;
+        } catch (e) {}
+      }
+      const combined = !!visit;
+
+      function condOf(id) {
+        return (results[id] && results[id].condition) || '';
+      }
+      let nGood = 0, nFair = 0, nPoor = 0, nNa = 0, nAns = 0;
+      const items = (APP_DATA && APP_DATA.items) || [];
+      items.forEach(it => {
+        const c = String(condOf(it.item_id)).toLowerCase();
+        if (!c) return;
+        nAns++;
+        if (c === 'poor' || c === 'fail' || c === 'out of spec') nPoor++;
+        else if (c === 'fair') nFair++;
+        else if (c === 'n/a') nNa++;
+        else nGood++;
+      });
+
+      const photoFindings = [];
+      findings.forEach(f => {
+        const r = results[f.item_id] || f;
+        const src = r.photoDataUrl || f.photoDataUrl;
+        if (src) photoFindings.push({ src, cap: (f.item_name || '') + (f.notes ? '  ·  ' + f.notes : ''), finding: f });
+      });
+
+      function rankScore(f) {
+        const im = (f.impacts || []).join(' ').toLowerCase();
+        let s = 0;
+        if (im.includes('safety')) s += 100;
+        if (im.includes('downtime')) s += 50;
+        if (im.includes('performance')) s += 20;
+        const c = String(f.condition || '').toLowerCase();
+        if (c === 'poor' || c === 'fail' || c === 'out of spec') s += 30;
+        s += Number(f.severity || 0);
+        return s;
+      }
+      const ranked = findings.slice().sort((a, b) => rankScore(b) - rankScore(a));
+      const coverCards = (typeof collectCoverCards === "function" ? collectCoverCards() : []) || currentInspection.coverCards || [];
+      const poorList = ranked.filter(f => {
+        const c = String(f.condition || '').toLowerCase();
+        return c === 'poor' || c === 'fail' || c === 'out of spec';
+      });
+
+      function runningHeader() {
+        doc.setFillColor(20, 20, 24);
+        doc.rect(0, 0, W, 10, 'F');
+        doc.setFillColor(212, 34, 59);
+        doc.rect(0, 0, 3.2, 10, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.text('LeMatic  ·  Field Service Report', 8, 6.6);
+        doc.setFont('helvetica', 'normal');
+        const right = (customer + (date ? '  ·  ' + date : (serial ? '  ·  ' + serial : ''))).substring(0, 48);
+        doc.text(right, W - 8, 6.6, { align: 'right' });
+      }
+      function runningFooter() {
+        const page = doc.internal.getCurrentPageInfo().pageNumber;
+        doc.setFillColor(244, 245, 247);
+        doc.rect(0, H - 12, W, 12, 'F');
+        doc.setTextColor(92, 101, 112);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.text(combined ? 'Visit report + inspection  ·  Customer copy' : 'Inspection checklist  ·  Customer copy', 8, H - 5);
+        doc.text('Page ' + page, W - 8, H - 5, { align: 'right' });
+      }
+      function paintChrome() {
+        runningHeader();
+        runningFooter();
+      }
+      function newPage() {
+        doc.addPage();
+        paintChrome();
+        y = 16;
+      }
+      function need(h) {
+        if (y + h > H - 16) newPage();
+      }
+      function wrap(text, width, fontSize) {
+        doc.setFontSize(fontSize || 9);
+        return doc.splitTextToSize(String(text || ''), width);
+      }
+
+      paintChrome();
+      y = 14;
+
+      // Hero
+      doc.setFillColor(20, 20, 24);
+      doc.rect(L, y, usable, 36, 'F');
+      doc.setTextColor(243, 179, 188);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text('FIELD SERVICE TRIP REPORT', L + 6, y + 8);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text(customer, L + 6, y + 17);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(208, 213, 219);
+      const line2 = [model, serial].filter(Boolean).join('  ·  ');
+      const line3 = [date, tech].filter(Boolean).join('  ·  ');
+      if (line2) doc.text(line2, L + 6, y + 24);
+      if (line3) doc.text(line3, L + 6, y + 29.5);
+      try {
+        const lw = 34, lh = 11.5;
+        const logoTop = y + 6;
+        doc.setFillColor(255, 255, 255);
+        doc.rect(R - 8 - lw, logoTop, lw, lh, 'F');
+        doc.addImage('data:image/jpeg;base64,' + LEMATIC_LOGO_JPG, 'JPEG', R - 8 - lw + 1.1, logoTop + 0.9, lw - 2.2, lh - 1.8);
+      } catch (e) {}
+      y += 40;
+
+      // Tiles
+      const tiles = [
+        [String(nAns || items.length), 'ITEMS CHECKED', [42, 48, 54]],
+        [String(nPoor), 'POOR', [198, 40, 40]],
+        [String(nFair), 'FAIR', [184, 134, 11]],
+        [String(nGood), 'GOOD', [31, 78, 58]]
+      ];
+      const tw = (usable - 9) / 4;
+      tiles.forEach((tile, i) => {
+        const x = L + i * (tw + 3);
+        doc.setFillColor(tile[2][0], tile[2][1], tile[2][2]);
+        doc.rect(x, y, tw, 18, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.text(tile[0], x + tw / 2, y + 9, { align: 'center' });
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.text(tile[1], x + tw / 2, y + 15, { align: 'center' });
+      });
+      y += 22;
+
+      // Impact graphics
+      const impactCount = (name) => findings.filter(f =>
+        (f.impacts || []).some(x => String(x).toLowerCase().includes(name))
+      ).length;
+      const nSafety = impactCount('safety');
+      const nDown = impactCount('downtime') + impactCount('down-time');
+      const nPerf = impactCount('performance');
+      const impacts = [
+        { n: nSafety, label: 'SAFETY', color: [198, 40, 40], icon: 'safety' },
+        { n: nDown, label: 'DOWNTIME', color: [184, 134, 11], icon: 'down' },
+        { n: nPerf, label: 'PERFORMANCE', color: [37, 99, 180], icon: 'perf' }
+      ];
+      doc.setTextColor(92, 101, 112);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.text('IMPACT', L, y);
+      y += 3;
+      const iw = (usable - 6) / 3;
+      impacts.forEach((imp, i) => {
+        const x = L + i * (iw + 3);
+        doc.setFillColor(248, 249, 251);
+        doc.roundedRect(x, y, iw, 20, 1.2, 1.2, 'F');
+        const cx = x + 10;
+        const cy = y + 10;
+        doc.setFillColor(imp.color[0], imp.color[1], imp.color[2]);
+        if (imp.icon === 'safety') {
+          doc.triangle(cx, cy - 5, cx - 5, cy + 4.2, cx + 5, cy + 4.2, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7);
+          doc.text('!', cx, cy + 2.4, { align: 'center' });
+        } else if (imp.icon === 'down') {
+          doc.circle(cx, cy, 5.1, 'F');
+          doc.setFillColor(248, 249, 251);
+          doc.rect(cx - 1.8, cy - 2.6, 1.2, 5.2, 'F');
+          doc.rect(cx + 0.6, cy - 2.6, 1.2, 5.2, 'F');
+        } else {
+          doc.rect(cx - 4.2, cy + 1.6, 2.2, 3.2, 'F');
+          doc.rect(cx - 1.1, cy - 0.6, 2.2, 5.4, 'F');
+          doc.rect(cx + 2.0, cy - 3.4, 2.2, 8.2, 'F');
+        }
+        doc.setTextColor(20, 20, 24);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.text(String(imp.n), x + 20, y + 9);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.4);
+        doc.setTextColor(92, 101, 112);
+        doc.text(imp.label, x + 20, y + 15);
+      });
+      y += 24;
+
+      // Featured photos
+      const feat = photoFindings.slice(0, 2);
+      if (feat.length) {
+        const pw = (usable - 4) / 2;
+        const ph = 42;
+        feat.forEach((p, i) => {
+          const x = L + i * (pw + 4);
+          doc.setFillColor(244, 245, 247);
+          doc.rect(x, y, pw, ph + 10, 'F');
+          try {
+            doc.addImage(p.src, 'JPEG', x + 1.5, y + 1.5, pw - 3, ph);
+          } catch (e) {
+            try { doc.addImage(p.src, 'PNG', x + 1.5, y + 1.5, pw - 3, ph); } catch (e2) {}
+          }
+          doc.setTextColor(92, 101, 112);
+          doc.setFontSize(6.5);
+          const cap = wrap(p.cap, pw - 4, 6.5);
+          doc.text(cap.slice(0, 2), x + 2, y + ph + 5);
+        });
+        y += ph + 14;
+      }
+
+      // Three cover action cards
+      if (coverCards.length) {
+        const cw = (usable - 8) / 3;
+        const ch = 28;
+        coverCards.forEach((f, i) => {
+          const x = L + i * (cw + 4);
+          doc.setFillColor(255, 255, 255);
+          doc.setDrawColor(228, 230, 234);
+          doc.rect(x, y, cw, ch, 'FD');
+          doc.setFillColor(198, 40, 40);
+          doc.rect(x, y, 1.6, ch, 'F');
+          const tag = (f.tag || f.condition || 'REPAIR').toUpperCase();
+          doc.setTextColor(198, 40, 40);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.5);
+          doc.text(String(tag).substring(0, 16), x + 4, y + 6);
+          doc.setTextColor(20, 20, 24);
+          doc.setFontSize(8);
+          const title = wrap(f.title || f.item_name || '', cw - 7, 8);
+          doc.text(title.slice(0, 2), x + 4, y + 12);
+          doc.setTextColor(92, 101, 112);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          const body = wrap(f.body || f.notes || '', cw - 7, 6.5);
+          doc.text(body.slice(0, 2), x + 4, y + 21);
+        });
+        y += 32;
+      }
+
+      doc.setTextColor(92, 101, 112);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text('Primary findings, photos, and the full checklist start on the next page.', L, y);
+
+      // On site / notes
+      newPage();
+      doc.setTextColor(212, 34, 59);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text('ON SITE', L, y);
+      y += 6;
+      doc.setTextColor(20, 20, 24);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('On site', L, y);
+      y += 6;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(92, 101, 112);
+      doc.text([date, tech].filter(Boolean).join('  ·  ') || '', L, y);
+      y += 8;
+      if (notes) {
+        doc.setTextColor(20, 20, 24);
+        doc.setFontSize(9.5);
+        const lines = wrap(notes, usable, 9.5);
+        lines.forEach(line => {
+          need(6);
+          doc.text(line, L, y);
+          y += 5;
+        });
+      } else {
+        doc.setTextColor(92, 101, 112);
+        doc.setFontSize(9);
+        doc.text('No summary notes recorded for this inspection.', L, y);
+        y += 8;
+      }
+
+      if (combined) {
+        function writePara(titleKicker, title, body) {
+          if (!body) return;
+          need(20);
+          doc.setTextColor(212, 34, 59);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.text(titleKicker, L, y);
+          y += 6;
+          doc.setTextColor(20, 20, 24);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(16);
+          doc.text(title, L, y);
+          y += 8;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9.5);
+          String(body).split('\n').forEach(para => {
+            if (!para.trim()) { y += 3; return; }
+            wrap(para, usable, 9.5).forEach(line => {
+              need(6);
+              doc.text(line, L, y);
+              y += 5;
+            });
+            y += 2;
+          });
+          y += 4;
+        }
+        newPage();
+                const letter = visit.letter || visit.arrival || visitNarrative(visit);
+        const done = visit.done || [visit.inspectIntro, tripPlainBlocks(visit.inspectBlocks), visit.prodIntro, tripPlainBlocks(visit.prodBlocks)].filter(Boolean).join('\n\n');
+        const order = visit.order || visitPartsText(visit);
+        const close = visit.close || visit.summary || '';
+        writePara('VISIT LETTER', 'What happened on site', String(letter || '').replace(/<[^>]+>/g, ' ').trim());
+        if (done) writePara('ON SITE', 'Completed on site', done);
+        if (order) writePara('ORDER NOW', 'Parts to order', order);
+        if (close) writePara('CONCLUSION', 'Conclusion', close);
+        const vphotos = (visit.photos || []).map(ph => (typeof ph === 'string' ? ph : (ph && ph.url) || '')).filter(Boolean);
+        if (vphotos.length) {
+          need(56);
+          doc.setTextColor(212, 34, 59);
+          doc.setFontSize(8);
+          doc.text('TRIP PHOTOS', L, y);
+          y += 6;
+          const pw = (usable - 4) / 2;
+          const ph = 42;
+          vphotos.slice(0, 4).forEach((src, i) => {
+            if (i === 2) { y += ph + 8; }
+            need(ph + 8);
+            const x = L + (i % 2) * (pw + 4);
+            try { doc.addImage(src, 'JPEG', x, y, pw, ph); }
+            catch (e) { try { doc.addImage(src, 'PNG', x, y, pw, ph); } catch (e2) {} }
+          });
+          y += ph + 10;
+        }
+      }
+
+      // Primary findings
+      newPage();
+      doc.setTextColor(20, 20, 24);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('Primary findings', L, y);
+      y += 6;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(92, 101, 112);
+      doc.text('Poor and fail items, ranked by safety, then downtime, then performance.', L, y);
+      y += 8;
+
+      function chip(label, x, yy, tone) {
+        const bg = tone === 'poor' ? [253, 236, 234] : [255, 246, 217];
+        const fg = tone === 'poor' ? [198, 40, 40] : [184, 134, 11];
+        doc.setFillColor(bg[0], bg[1], bg[2]);
+        doc.roundedRect(x, yy - 4, 16, 6, 1, 1, 'F');
+        doc.setTextColor(fg[0], fg[1], fg[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.text(String(label || '').toUpperCase().substring(0, 8), x + 8, yy, { align: 'center' });
+      }
+
+      function findingCard(f) {
+        const r = results[f.item_id] || f;
+        const src = r.photoDataUrl || f.photoDataUrl;
+        const bodyLines = wrap(f.notes || 'No note recorded.', usable - 10, 9);
+        const photoH = src ? 48 : 0;
+        const h = 16 + bodyLines.length * 4.2 + photoH + (src ? 8 : 4);
+        need(Math.min(h, 70));
+        const boxH = Math.min(h, H - 16 - y);
+        doc.setDrawColor(228, 230, 234);
+        doc.setFillColor(255, 255, 255);
+        doc.rect(L, y, usable, h, 'FD');
+        doc.setFillColor(198, 40, 40);
+        doc.rect(L, y, 1.8, h, 'F');
+        doc.setTextColor(20, 20, 24);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text(String(f.item_name || '').substring(0, 62), L + 5, y + 7);
+        const c = String(f.condition || 'Poor');
+        chip(c, R - 22, y + 7, /poor|fail|out/i.test(c) ? 'poor' : 'fair');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(92, 101, 112);
+        const meta = [f.section, (f.impacts || []).join('  ·  ')].filter(Boolean).join('  ·  ');
+        doc.text(meta.substring(0, 90), L + 5, y + 13);
+        doc.setTextColor(20, 20, 24);
+        doc.setFontSize(9);
+        let yy = y + 19;
+        bodyLines.forEach(line => {
+          doc.text(line, L + 5, yy);
+          yy += 4.2;
+        });
+        if (src) {
+          try {
+            doc.addImage(src, 'JPEG', L + 5, yy, 70, 42);
+          } catch (e) {
+            try { doc.addImage(src, 'PNG', L + 5, yy, 70, 42); } catch (e2) {}
+          }
+        }
+        y += h + 4;
+      }
+
+      if (!poorList.length) {
+        doc.setTextColor(27, 122, 74);
+        doc.setFontSize(9);
+        doc.text('No Poor items on this inspection.', L, y);
+        y += 8;
+      } else {
+        poorList.forEach(findingCard);
+      }
+
+
+      // Checklist appendix — match customer example
+      newPage();
+      doc.setTextColor(20, 20, 24);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('Point-by-point inspection', L, y);
+      y += 6;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(92, 101, 112);
+      doc.text((model || 'Machine') + (serial ? '  ·  S/N ' + serial : ''), L, y);
+      y += 5;
+      const intro = wrap('Every checkpoint on this machine, with result and notes.', usable, 8);
+      intro.forEach(line => { doc.text(line, L, y); y += 4; });
+      y += 3;
+
+      function resultStyle(raw) {
+        const v = String(raw || '').trim().toLowerCase();
+        if (v === 'good' || v === 'pass' || v === 'within spec') {
+          return { label: v === 'pass' ? 'PASS' : (v === 'within spec' ? 'IN SPEC' : 'GOOD'), bg: [229, 246, 238], fg: [27, 122, 74] };
+        }
+        if (v === 'fair') return { label: 'FAIR', bg: [255, 246, 217], fg: [184, 134, 11] };
+        if (v === 'poor' || v === 'fail' || v === 'out of spec' || v === 'damaged') {
+          return { label: v === 'fail' ? 'FAIL' : (v === 'out of spec' ? 'OUT OF SPEC' : 'POOR'), bg: [253, 236, 234], fg: [198, 40, 40] };
+        }
+        if (v === 'n/a' || v === 'na') return { label: 'N/A', bg: [244, 245, 247], fg: [113, 128, 150] };
+        if (!v || v === '—') return { label: '—', bg: [255, 255, 255], fg: [160, 174, 192] };
+        return { label: String(raw).toUpperCase().substring(0, 10), bg: [244, 245, 247], fg: [20, 20, 24] };
+      }
+
+      const sections = (APP_DATA && APP_DATA.sections) || [];
+      sections.forEach(sec => {
+        const secItems = items.filter(i => {
+          if (i.section_id !== sec.section_id) return false;
+          const r = results[i.item_id] || {};
+          const name = String(i.inspection_item || '');
+          if (/^other:?$/i.test(name.trim()) && !r.condition && !r.notes) return false;
+          return true;
+        });
+        if (!secItems.length) return;
+        need(22);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(20, 20, 24);
+        doc.text(sec.section.replace(/ Section$/,'') , L, y);
+        y += 3;
+        const body = secItems.map(it => {
+          const r = results[it.item_id] || {};
+          return [it.inspection_item, r.condition || '', r.notes || '—'];
+        });
+        doc.autoTable({
+          startY: y,
+          margin: { left: L, right: 14, bottom: 16 },
+          head: [['Item', 'Result', 'Notes']],
+          body,
+          theme: 'plain',
+          styles: {
+            fontSize: 8,
+            cellPadding: { top: 2.2, bottom: 2.2, left: 2.4, right: 2.4 },
+            valign: 'middle',
+            textColor: [20, 20, 24],
+            lineColor: [228, 230, 234],
+            lineWidth: 0.15
+          },
+          headStyles: {
+            fillColor: [244, 245, 247],
+            textColor: [92, 101, 112],
+            fontStyle: 'bold',
+            fontSize: 7.5
+          },
+          columnStyles: {
+            0: { cellWidth: 62 },
+            1: { cellWidth: 32, halign: 'center', valign: 'middle', fontStyle: 'bold', fontSize: 6.4, overflow: 'linebreak' },
+            2: { cellWidth: 'auto' }
+          },
+          didParseCell: function(data) {
+            if (data.section === 'head' && data.column.index === 1) {
+              data.cell.styles.halign = 'center';
+              return;
+            }
+            if (data.section !== 'body' || data.column.index !== 1) return;
+            const st = resultStyle(data.cell.raw);
+            data.cell.styles.fillColor = st.bg;
+            data.cell.styles.textColor = st.fg;
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.halign = 'center';
+            data.cell.styles.valign = 'middle';
+            data.cell.styles.fontSize = st.label.length > 6 ? 6.2 : 7;
+            data.cell.styles.overflow = 'linebreak';
+            data.cell.styles.cellPadding = { top: 2.4, bottom: 2.4, left: 1.2, right: 1.2 };
+            data.cell.text = [st.label];
+          }
+        });
+        y = doc.lastAutoTable.finalY + 8;
+      });
+
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        runningFooter();
+      }
+
+      const safeName = (customer || 'Inspection').replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+      doc.save((combined ? 'LeMatic_Visit_Inspection_' : 'LeMatic_Inspection_') + safeName + '_' + (date || 'report') + '.pdf');
+      toast(combined ? 'Combined visit + inspection PDF downloaded' : 'PDF report downloaded');
+    }
+
+
+
+
+
+    async function generateInspectionExcel() {
+      if (!currentInspection) { toast('No inspection data'); return; }
+      if (typeof updateFindings === 'function') updateFindings();
+      await ensureExcelLibs();
+      if (typeof ExcelJS === 'undefined') { toast('Excel library not available'); return; }
+      const customer = currentInspection.customer || 'Customer';
+      const model = currentInspection.model || '';
+      const serial = currentInspection.serial || '';
+      const tech = currentInspection.technician || '';
+      const date = currentInspection.date || '';
+      const job = currentInspection.jobId ? (loadJobs().find(j => j.id === currentInspection.jobId) || null) : null;
+      const items = (APP_DATA && APP_DATA.items) || [];
+      const sections = (APP_DATA && APP_DATA.sections) || [];
+      const sectionName = (id) => {
+        const s = sections.find(x => x.section_id === id);
+        return s ? (s.name || s.title || '') : '';
+      };
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'LeMatic Field Service';
+      const ws = wb.addWorksheet('Inspection', { views: [{ state: 'frozen', ySplit: 8 }] });
+      ws.columns = [
+        { width: 22 }, { width: 36 }, { width: 14 }, { width: 28 }, { width: 36 }
+      ];
+      const title = ws.getRow(1);
+      title.getCell(1).value = 'LeMatic Field Service Inspection';
+      title.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF141418' } };
+      ws.mergeCells('A1:E1');
+      const meta = [
+        ['Customer', customer],
+        ['Machine', model],
+        ['Serial', serial],
+        ['Technician', tech],
+        ['Date', date],
+        ['Sales order', job && job.so ? job.so : (currentInspection.so || '')],
+        ['Job site', job && job.site ? job.site : '']
+      ];
+      meta.forEach((pair, i) => {
+        const row = ws.getRow(2 + i);
+        row.getCell(1).value = pair[0];
+        row.getCell(1).font = { bold: true, color: { argb: 'FF5C656F' } };
+        row.getCell(2).value = pair[1] || '—';
+        ws.mergeCells(2 + i, 2, 2 + i, 5);
+      });
+      const head = ws.getRow(10);
+      ['Section', 'Item', 'Condition', 'Notes', 'Finding'].forEach((h, i) => {
+        const c = head.getCell(i + 1);
+        c.value = h;
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF141418' } };
+      });
+      const condOf = (id) => (results[id] && results[id].condition) || '';
+      const notesOf = (id) => (results[id] && (results[id].notes || results[id].comment)) || '';
+      items.forEach((it, idx) => {
+        const row = ws.getRow(11 + idx);
+        row.getCell(1).value = sectionName(it.section_id);
+        row.getCell(2).value = it.name || it.title || it.item_id;
+        row.getCell(3).value = condOf(it.item_id) || '';
+        row.getCell(4).value = notesOf(it.item_id);
+        const f = (findings || []).find(x => x.item_id === it.item_id);
+        row.getCell(5).value = f ? (f.notes || f.item_name || '') : '';
+      });
+      const safe = String(customer).replace(/[\\/:*?"<>|]/g, '-').trim() || 'Inspection';
+      const out = await wb.xlsx.writeBuffer();
+      const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'LeMatic_Inspection_' + safe + '_' + (date || 'report') + '.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      toast('Excel report downloaded');
+    }
+
+    async function generateWordReport() {
+      if (!currentInspection) { toast('No inspection data'); return; }
+      updateFindings();
+      generateWordHtmlDoc();
+    }
+
+    function crc32Bytes(u8) {
+      let c = ~0;
+      for (let i = 0; i < u8.length; i++) {
+        c ^= u8[i];
+        for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1));
+      }
+      return (~c) >>> 0;
+    }
+    function zipStore(files) {
+      const enc = new TextEncoder();
+      const parts = [];
+      const central = [];
+      let offset = 0;
+      files.forEach(f => {
+        const name = enc.encode(f.name);
+        const data = (typeof f.data === 'string') ? enc.encode(f.data) : f.data;
+        const crc = crc32Bytes(data);
+        const local = new Uint8Array(30 + name.length);
+        const lv = new DataView(local.buffer);
+        lv.setUint32(0, 0x04034b50, true);
+        lv.setUint16(4, 20, true);
+        lv.setUint32(14, crc, true);
+        lv.setUint32(18, data.length, true);
+        lv.setUint32(22, data.length, true);
+        lv.setUint16(26, name.length, true);
+        local.set(name, 30);
+        parts.push(local, data);
+        const cen = new Uint8Array(46 + name.length);
+        const cv = new DataView(cen.buffer);
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 20, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, data.length, true);
+        cv.setUint32(24, data.length, true);
+        cv.setUint16(28, name.length, true);
+        cv.setUint32(42, offset, true);
+        cen.set(name, 46);
+        central.push(cen);
+        offset += local.length + data.length;
+      });
+      const cenStart = offset;
+      let cenSize = 0;
+      central.forEach(c => { parts.push(c); cenSize += c.length; });
+      const end = new Uint8Array(22);
+      const ev = new DataView(end.buffer);
+      ev.setUint32(0, 0x06054b50, true);
+      ev.setUint16(8, files.length, true);
+      ev.setUint16(10, files.length, true);
+      ev.setUint32(12, cenSize, true);
+      ev.setUint32(16, cenStart, true);
+      parts.push(end);
+      let total = 0;
+      parts.forEach(p => total += p.length);
+      const out = new Uint8Array(total);
+      let o = 0;
+      parts.forEach(p => { out.set(p, o); o += p.length; });
+      return out;
+    }
+    function generateWordHtmlDoc() {
+      if (!currentInspection) return;
+      const customer = currentInspection.customer || 'Customer';
+      const model = currentInspection.model || 'LX-8';
+      const serial = currentInspection.serial || '';
+      const tech = currentInspection.technician || '';
+      const date = currentInspection.date || '';
+      const notes = (typeof getNotesPlain === 'function' ? getNotesPlain() : '') || String(currentInspection.summaryNotes || '').replace(/<[^>]+>/g, ' ').trim();
+      const items = (APP_DATA && APP_DATA.items) || [];
+      const sections = (APP_DATA && APP_DATA.sections) || [];
+      const ICON_B64 = {
+        safety: 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABa0lEQVR4nO1auw7CMBBrET/TASGx8f8DGxJi6K+AGGA6CVWkzePunBB7pO2dYzupOBgfz9d76Bg7NAE0KACaABoUAE0ADbgA1+MB2h8qgCweKQI8AWjABFi6jkoBE4BoGnIbkQImwLvhlsveKWACPJvFuuuZAibAq1Gqq14pYAI8muS66ZECcwFKF2EtQvdbYLScCofcO89z8JnLNP38/HS7q3BaovsEmAmgvXetzgImwKKolVsWdZkA7YLW723t+kyAZjGvLzCafdQE8J7kaPXjFtAogprpa/RlAkoLoH/cLO3PBJQ8jHZfUMKj+wRkD0Rqcf8bOUOT7hOQJUCN7g9DHq+9AY9N5MwErZCcgFrdF6TySxKg9sULUnjyEIy9sRX3BbF8mYCYm1pzXxDDG/Ia9H7VrWEzAa26L9jizzNg7WLr7gvW1sEEhC78i/uC0HpM/yDRArgF0ATQoABoAmhQADQBNCgAmgAaH1wjVlChn5+sAAAAAElFTkSuQmCC',
+        down: 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABY0lEQVR4nO2bSw4CIRBEHeMBPJJ38hzeySO51LjQFYkhZugfVBPqrRGqa4pPRmZ7vt6fw8Ic0QLQ0AC0ADQ0AC0ADQ1AC0BzGj3g/XZutrlcH911FLbeByFJwS16GtLNgIjCa3oYEW5Aj8JrIo0IXQRHFB89TkgCRhX+D28a3AlAFh8xvssAdPEFjw6zAVmKL1j1mAzIVnzBomv5o7DagKxPv6DVp9oGNZ3vbU97/Vh/p+nnF04BacPs0a+R6mUCJI1me/oFiW4mAC0ADQ1oNZh1/hda+pkAtAA0NAAtAA0NQAtAQwPQAtA0DRj5R2UPWvqZALQANDRA0mjWdUCimwmQNpwtBXwtLkR9P2CGFySatKoTkH0qaPUtPwVMBmRNgUWXOQHZTLDqcU2BLCZ4dLjXALQJ3vFDL0qO3CKjjA/dBUalIXIc3hXmbfHB3w0u971AdngURgtAQwPQAtDQALQANF9eD4x7xDKd6AAAAABJRU5ErkJggg==',
+        perf: 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAyUlEQVR4nO3bsQlCQRAAURXbsQ57sSB7sQ6bUQy0BP0f9Ak7E9/BMGywF9z2dn88N4PZaQFNAbSApgBaQFMALaApgBbQFEALaAqgBTR7LfCOw+my+M71fPz47PgJKIAW0BRAC2gKoAU0BdACmgJoAc3P3gLf3unXMn4CCqAFNAXQApoCaAFNAbSAZvEm+K8b3VrGT0ABtICmAFpAUwAtoCmAFtAUQAtoCqAFNAXQApoCaAHN+ADbvs0NpwBaQFMALaApgBbQjA/wAv4sEVtu4y33AAAAAElFTkSuQmCC'
+      };
+      function condOf(id) { return (results[id] && results[id].condition) || ''; }
+      function xml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+      function iconDrawing(rid, name) {
+        const cx = 365760, cy = 365760;
+        return '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="' + rid.replace('rId','') + '" name="' + name + '"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="' + name + '.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="' + rid + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+      }
+      function resultLabel(raw) {
+        const v = String(raw || '').trim().toLowerCase();
+        if (v === 'pass') return 'PASS';
+        if (v === 'within spec') return 'IN SPEC';
+        if (v === 'out of spec') return 'OUT OF SPEC';
+        if (v === 'good') return 'GOOD';
+        if (v === 'fair') return 'FAIR';
+        if (v === 'poor') return 'POOR';
+        if (v === 'fail') return 'FAIL';
+        if (v === 'n/a' || v === 'na') return 'N/A';
+        if (!v) return '—';
+        return String(raw).toUpperCase();
+      }
+      function resultFill(raw) {
+        const v = String(raw || '').trim().toLowerCase();
+        if (v === 'good' || v === 'pass' || v === 'within spec') return 'E5F6EE';
+        if (v === 'fair') return 'FFF6D9';
+        if (v === 'poor' || v === 'fail' || v === 'out of spec') return 'FDECEA';
+        return 'F4F5F7';
+      }
+      function resultColor(raw) {
+        const v = String(raw || '').trim().toLowerCase();
+        if (v === 'good' || v === 'pass' || v === 'within spec') return '1B7A4A';
+        if (v === 'fair') return 'B8860B';
+        if (v === 'poor' || v === 'fail' || v === 'out of spec') return 'C62828';
+        return '718096';
+      }
+      let nGood = 0, nFair = 0, nPoor = 0, nAns = 0;
+      items.forEach(it => {
+        const c = String(condOf(it.item_id)).toLowerCase();
+        if (!c) return;
+        nAns++;
+        if (c === 'poor' || c === 'fail' || c === 'out of spec') nPoor++;
+        else if (c === 'fair') nFair++;
+        else if (c !== 'n/a' && c !== 'na') nGood++;
+      });
+      const impactCount = (name) => (findings || []).filter(f => (f.impacts || []).some(x => String(x).toLowerCase().includes(name))).length;
+      const ranked = (findings || []).filter(f => {
+        const c = String(f.condition || '').toLowerCase();
+        return c === 'poor' || c === 'fail' || c === 'out of spec';
+      });
+
+      function run(text, o) {
+        o = o || {};
+        return '<w:r><w:rPr><w:noProof/>' + (o.bold ? '<w:b/>' : '') + '<w:sz w:val="' + (o.size || 22) + '"/><w:szCs w:val="' + (o.size || 22) + '"/>' + (o.color ? '<w:color w:val="' + o.color + '"/>' : '<w:color w:val="141418"/>') + '<w:u w:val="none"/><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/></w:rPr><w:t xml:space="preserve">' + xml(text) + '</w:t></w:r>';
+      }
+      function para(runsXml, o) {
+        o = o || {};
+        return '<w:p><w:pPr><w:keepNext w:val="0"/><w:spacing w:before="' + (o.before || 0) + '" w:after="' + (o.after || 60) + '"/>' + (o.center ? '<w:jc w:val="center"/>' : '') + (o.right ? '<w:jc w:val="right"/>' : '') + '</w:pPr>' + (runsXml || '') + '</w:p>';
+      }
+      function p(text, o) { return para(run(text, o), o); }
+      function emptyP() { return '<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>'; }
+      function strut(color) {
+        return para(run(new Array(92).join('\u00A0'), { size: 4, color: color || 'FFFFFF' }), { after: 0 });
+      }
+      function tc(inner, dxa, fill, extra) {
+        return '<w:tc><w:tcPr><w:tcW w:w="' + dxa + '" w:type="dxa"/>' + (fill ? '<w:shd w:val="clear" w:color="auto" w:fill="' + fill + '"/>' : '') + (extra || '') + '<w:vAlign w:val="center"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr>' + (inner || emptyP()) + '</w:tc>';
+      }
+      function resultCell(label, raw, dxa) {
+        const fill = resultFill(raw);
+        const color = resultColor(raw);
+        const inner = '<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="60" w:after="60" w:line="276" w:lineRule="auto"/><w:shd w:val="clear" w:color="auto" w:fill="' + fill + '"/></w:pPr>' + run(label, { size: 16, bold: true, color: color }) + '</w:p>';
+        return '<w:tc><w:tcPr><w:tcW w:w="' + dxa + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="' + fill + '"/><w:vAlign w:val="center"/><w:tcBorders><w:top w:val="single" w:sz="12" w:color="' + fill + '"/><w:left w:val="single" w:sz="4" w:color="D0D4DA"/><w:bottom w:val="single" w:sz="12" w:color="' + fill + '"/><w:right w:val="single" w:sz="4" w:color="D0D4DA"/></w:tcBorders><w:tcMar><w:top w:w="0" w:type="dxa"/><w:left w:w="40" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="40" w:type="dxa"/></w:tcMar></w:tcPr>' + inner + '</w:tc>';
+      }
+      function makeTbl(widths, rowsXml, bordered) {
+        const total = widths.reduce(function(a, b) { return a + b; }, 0);
+        const borders = bordered
+          ? '<w:top w:val="single" w:sz="4" w:space="0" w:color="D0D4DA"/><w:left w:val="single" w:sz="4" w:space="0" w:color="D0D4DA"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="D0D4DA"/><w:right w:val="single" w:sz="4" w:space="0" w:color="D0D4DA"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="D0D4DA"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="D0D4DA"/>'
+          : '<w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/>';
+        return '<w:tbl><w:tblPr><w:tblW w:w="' + total + '" w:type="dxa"/><w:tblW w:w="5000" w:type="pct"/><w:tblLayout w:type="fixed"/><w:tblBorders>' + borders + '</w:tblBorders></w:tblPr><w:tblGrid>' + widths.map(function(w) { return '<w:gridCol w:w="' + w + '"/>'; }).join('') + '</w:tblGrid>' + rowsXml + '</w:tbl>';
+      }
+
+      const FULL = 10800;
+      let body = '';
+
+      body += makeTbl([7600, 3200], '<w:tr>' +
+        tc(
+          strut('141418') +
+          p('FIELD SERVICE INSPECTION', { size: 16, color: 'F3B3BC', after: 40 }) +
+          p(customer, { size: 36, bold: true, color: 'FFFFFF', after: 40 }) +
+          p([model.replace('-', '\u2011'), serial ? 'S/N ' + serial : ''].filter(Boolean).join('   '), { size: 18, color: 'D0D5DB', after: 20 }) +
+          p([tech, date].filter(Boolean).join('   '), { size: 18, color: 'D0D5DB', after: 20 }),
+          7600, '141418') +
+        tc('<w:p><w:pPr><w:jc w:val="right"/><w:spacing w:before="120" w:after="0"/></w:pPr>' + (function(){
+          const cx=1371600, cy=457200;
+          return '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:docPr id="21" name="LeMatic logo"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="lematic-logo.jpg"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdLogoDoc"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+        })() + '</w:p>', 3200, '141418') +
+      '</w:tr>');
+      body += p('', { after: 160 });
+
+      const tiles = [
+        [String(nAns), 'ITEMS CHECKED', '2A3036'],
+        [String(nPoor), 'POOR', 'C62828'],
+        [String(nFair), 'FAIR', 'B8860B'],
+        [String(nGood), 'GOOD', '1F4E3A']
+      ];
+      const tw = 2700;
+      body += makeTbl([tw, tw, tw, tw], '<w:tr>' + tiles.map(function(tile) {
+        return tc(strut(tile[2]) + p(tile[0], { size: 32, bold: true, color: 'FFFFFF', center: true, after: 40 }) + p(tile[1], { size: 13, color: 'FFFFFF', center: true, after: 20 }), tw, tile[2]);
+      }).join('') + '</w:tr>');
+      body += p('', { after: 160 });
+
+      body += p('IMPACT', { size: 16, bold: true, color: '5C6570', after: 80 });
+      const impacts = [
+        [String(impactCount('safety')), 'SAFETY', 'C62828', 'rId5', 'safety'],
+        [String(impactCount('downtime') + impactCount('down-time')), 'DOWNTIME', 'B8860B', 'rId6', 'down'],
+        [String(impactCount('performance')), 'PERFORMANCE', '2563B4', 'rId7', 'perf']
+      ];
+      const iw = 3600;
+      body += makeTbl([iw, iw, iw], '<w:tr>' + impacts.map(function(imp) {
+        const iconP = '<w:p><w:pPr><w:spacing w:after="40"/><w:jc w:val="left"/></w:pPr>' + iconDrawing(imp[3], imp[4]) + run('  ' + imp[0], { size: 28, bold: true, color: imp[2] }) + '</w:p>';
+        return tc(strut('F8F9FB') + iconP + p(imp[1], { size: 14, color: '5C6570', after: 20 }), iw, 'F8F9FB');
+      }).join('') + '</w:tr>');
+      body += p('', { after: 200 });
+
+      if (notes) {
+        body += p('SUMMARY NOTES', { size: 16, bold: true, color: '5C6570', after: 80 });
+        notes.split(/\n+/).forEach(function(line) { body += p(line, { size: 22, after: 80 }); });
+        body += p('', { after: 120 });
+      }
+
+      body += p('Primary findings', { size: 32, bold: true, after: 40 });
+      body += p('Poor and fail items, ranked by safety, then downtime, then performance.', { size: 18, color: '5C6570', after: 160 });
+      if (!ranked.length) {
+        body += p('No Poor items on this inspection.', { size: 22, color: '1B7A4A' });
+      } else {
+        ranked.forEach(function(f) {
+          const label = resultLabel(f.condition);
+          const fill = resultFill(f.condition);
+          const color = resultColor(f.condition);
+          const titleP = '<w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="10080"/></w:tabs><w:spacing w:after="40"/></w:pPr>' +
+            run(f.item_name || '', { size: 22, bold: true }) +
+            '<w:r><w:tab/></w:r>' +
+            run(label, { size: 16, bold: true, color: color }) +
+          '</w:p>';
+          const metaP = p([f.section, (f.impacts || []).join('  |  ')].filter(Boolean).join('   '), { size: 16, color: '5C6570', after: 40 });
+          const noteP = p(f.notes || 'No note recorded.', { size: 20, after: 40 });
+          const cell = '<w:tc><w:tcPr><w:tcW w:w="' + FULL + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="FFFFFF"/><w:tcBorders><w:top w:val="nil"/><w:left w:val="single" w:sz="48" w:space="0" w:color="C62828"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="160" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>' + titleP + metaP + noteP + '</w:tc>';
+          body += makeTbl([FULL], '<w:tr>' + cell + '</w:tr>');
+          body += p('', { after: 80 });
+        });
+      }
+
+      body += p('Point-by-point inspection', { size: 32, bold: true, before: 200, after: 40 });
+      body += p([model.replace('-', '\u2011'), serial ? 'S/N ' + serial : ''].filter(Boolean).join('   '), { size: 18, color: '5C6570', after: 160 });
+      const cItem = 4800, cRes = 1800, cNote = 4200;
+      sections.forEach(function(sec) {
+        const secItems = items.filter(function(it) { return it.section_id === sec.section_id; });
+        if (!secItems.length) return;
+        body += p(sec.section, { size: 26, bold: true, before: 160, after: 80 });
+        let rows = '<w:tr>' +
+          tc(strut('F4F5F7') + p('Item', { size: 16, bold: true, color: '5C6570', after: 20 }), cItem, 'F4F5F7') +
+          tc(p('Result', { size: 16, bold: true, color: '5C6570', center: true, after: 20 }), cRes, 'F4F5F7') +
+          tc(p('Notes', { size: 16, bold: true, color: '5C6570', after: 20 }), cNote, 'F4F5F7') +
+        '</w:tr>';
+        secItems.forEach(function(it) {
+          const r = results[it.item_id] || {};
+          rows += '<w:tr>' +
+            tc(p(it.inspection_item, { size: 18, after: 20 }), cItem, 'FFFFFF') +
+            resultCell(resultLabel(r.condition), r.condition, cRes) +
+            tc(p(r.notes || '', { size: 18, after: 20 }), cNote, 'FFFFFF') +
+          '</w:tr>';
+        });
+        body += makeTbl([cItem, cRes, cNote], rows, true);
+      });
+
+      body += '<w:sectPr><w:headerReference w:type="default" r:id="rId1"/><w:footerReference w:type="default" r:id="rId2"/><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="360" w:footer="360"/></w:sectPr>';
+
+      const documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>' + body + '</w:body></w:document>';
+      const headerInner = '<w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="10080"/></w:tabs><w:spacing w:before="40" w:after="40"/></w:pPr>' +
+        run('LeMatic  ·  Field Service Report', { size: 16, bold: true, color: 'FFFFFF' }) +
+        '<w:r><w:tab/></w:r>' +
+        run((customer + (date ? '  ·  ' + date : (serial ? '  ·  ' + serial : ''))).substring(0, 48), { size: 16, color: 'D0D5DB' }) +
+      '</w:p>';
+      const headerCell = '<w:tc><w:tcPr><w:tcW w:w="' + FULL + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="141418"/><w:tcBorders><w:top w:val="nil"/><w:left w:val="single" w:sz="48" w:space="0" w:color="D4223B"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders><w:tcMar><w:top w:w="40" w:type="dxa"/><w:left w:w="160" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>' + headerInner + '</w:tc>';
+      const headerXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+        makeTbl([FULL], '<w:tr>' + headerCell + '</w:tr>') +
+      '</w:hdr>';
+      const footerXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+        makeTbl([FULL], '<w:tr>' + tc(strut('F4F5F7') + p('Inspection checklist   Customer copy', { size: 14, color: '5C6570', after: 20 }), FULL, 'F4F5F7') + '</w:tr>') +
+      '</w:ftr>';
+      const stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="22"/><w:noProof/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>';
+      const settingsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:hideSpellingErrors w:val="true"/><w:hideGrammaticalErrors w:val="true"/><w:proofState w:spelling="clean" w:grammar="clean"/><w:zoom w:percent="100"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>';
+      const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/></Types>';
+      const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>';
+      const docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/icon-safety.png"/><Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/icon-down.png"/><Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/icon-perf.png"/><Relationship Id="rIdLogoDoc" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/lematic-logo.jpg"/></Relationships>';
+      const bytes = zipStore([
+        { name: '[Content_Types].xml', data: contentTypes },
+        { name: '_rels/.rels', data: rels },
+        { name: 'word/document.xml', data: documentXml },
+        { name: 'word/_rels/document.xml.rels', data: docRels },
+        { name: 'word/header1.xml', data: headerXml },
+        { name: 'word/footer1.xml', data: footerXml },
+        { name: 'word/styles.xml', data: stylesXml },
+        { name: 'word/settings.xml', data: settingsXml },
+        { name: 'word/media/icon-safety.png', data: Uint8Array.from(atob(ICON_B64.safety), function(c) { return c.charCodeAt(0); }) },
+        { name: 'word/media/icon-down.png', data: Uint8Array.from(atob(ICON_B64.down), function(c) { return c.charCodeAt(0); }) },
+        { name: 'word/media/icon-perf.png', data: Uint8Array.from(atob(ICON_B64.perf), function(c) { return c.charCodeAt(0); }) },
+        { name: 'word/media/lematic-logo.jpg', data: Uint8Array.from(atob(LEMATIC_LOGO_JPG), function(c) { return c.charCodeAt(0); }) },
+      ]);
+      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+      const a = document.createElement('a');
+      const safe = (customer || 'Inspection').replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+      a.href = URL.createObjectURL(blob);
+      a.download = safe + '_' + (model || 'machine') + '_' + (date || 'report') + '.docx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast('Word document downloaded');
+    }
+
+    // ========== NAV ==========
+    document.getElementById('btnInspectHome').addEventListener('click', () => {
+      if (currentInspection && currentInspection.status !== 'Complete') {
+        saveCurrentDraft();
+      }
+      if (document.body.classList.contains('on-notes')) syncNotesField();
+      closeSearch();
+      showScreen('screenInspectList');
+      setHeader('Inspections');
+      refreshHome();
+    });
+
+    document.getElementById('btnHome').addEventListener('click', () => {
+      if (currentInspection && currentInspection.status !== 'Complete') {
+        saveCurrentDraft();
+      }
+      closeSearch();
+      showScreen('screenHome');
+      setHeader('LeMatic Inspection');
+      refreshHome();
+      measureHeaderHeight();
+      requestAnimationFrame(() => {
+        measureHeaderHeight();
+        window.scrollTo(0, 0);
+        resetChrome();
+      });
+    });
+
+    document.getElementById('btnSearch').addEventListener('click', () => {
+      const bar = document.getElementById('searchBar');
+      const isOpen = bar.classList.toggle('show');
+      if (isOpen) {
+        document.body.classList.add('search-open');
+        const inp = document.getElementById('inpSearch');
+        inp.focus();
+        renderSearchResults();
+      } else {
+        closeSearch();
+      }
+    });
+
+    function syncSearchClear() {
+      const bar = document.getElementById('searchBar');
+      const inp = document.getElementById('inpSearch');
+      bar.classList.toggle('has-query', !!(inp.value || '').trim());
+    }
+
+    function hideSearchResults() {
+      const panel = document.getElementById('searchResults');
+      const scrim = document.getElementById('searchScrim');
+      panel.classList.remove('show');
+      panel.hidden = true;
+      panel.innerHTML = '';
+      if (scrim) {
+        scrim.classList.remove('show');
+        scrim.hidden = true;
+      }
+    }
+
+    function positionSearchResults() {
+      const bar = document.getElementById('searchBar');
+      const panel = document.getElementById('searchResults');
+      if (!bar.classList.contains('show') || !panel.classList.contains('show')) return;
+      const rect = bar.getBoundingClientRect();
+      const vv = window.visualViewport;
+      const viewBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
+      panel.style.top = Math.round(rect.bottom + 8) + 'px';
+      panel.style.maxHeight = Math.max(120, Math.round(viewBottom - rect.bottom - 16)) + 'px';
+    }
+
+    function renderSearchResults() {
+      const panel = document.getElementById('searchResults');
+      const bar = document.getElementById('searchBar');
+      const q = (searchQuery || '').trim().toLowerCase();
+      if (!bar.classList.contains('show') || !q) {
+        hideSearchResults();
+        return;
+      }
+      const matches = loadInspections().filter(ins => {
+        const hay = [
+          ins.customer, ins.serial, ins.technician, ins.model,
+          ins.po, ins.date, ins.status
+        ].map(x => (x || '').toLowerCase()).join(' ');
+        return hay.includes(q);
+      }).slice(0, 30);
+
+      if (matches.length === 0) {
+        panel.innerHTML = `<div class="search-empty">No inspections match</div>`;
+      } else {
+        panel.innerHTML = matches.map(ins => {
+          const findCount = (ins.findings || []).length;
+          const statusClass = ins.status === 'Complete' ? 'badge-complete' : 'badge-draft';
+          const statusLabel = ins.status === 'Complete' ? 'Complete' : 'Draft';
+          return `
+            <div class="list-item" data-id="${ins.id}">
+              <div class="list-item-main" data-action="open">
+                <div class="title">${ins.customer || 'Unknown'} – ${ins.model || 'LX-8'} – ${ins.serial || 'No S/N'}</div>
+                <div class="sub">${ins.technician || ''} · ${ins.date || ''} · ${findCount} finding${findCount !== 1 ? 's' : ''}</div>
+              </div>
+              <div class="list-item-actions">
+                <button class="btn-edit" data-action="edit" type="button">Edit</button>
+                <span class="badge ${statusClass}">${statusLabel}</span>
+              </div>
+            </div>`;
+        }).join('');
+        panel.querySelectorAll('.list-item').forEach(el => {
+          const id = el.dataset.id;
+          el.querySelector('[data-action="open"]').addEventListener('click', () => openInspection(id));
+          el.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            editInspectionMeta(id);
+          });
+        });
+      }
+      panel.hidden = false;
+      panel.classList.add('show');
+      const scrim = document.getElementById('searchScrim');
+      if (scrim) {
+        scrim.hidden = false;
+        scrim.classList.add('show');
+      }
+      positionSearchResults();
+    }
+
+    function closeSearch() {
+      const bar = document.getElementById('searchBar');
+      bar.classList.remove('show', 'has-query');
+      document.body.classList.remove('search-open');
+      searchQuery = '';
+      document.getElementById('inpSearch').value = '';
+      hideSearchResults();
+      refreshHome();
+    }
+
+    document.getElementById('inpSearch').addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      syncSearchClear();
+      renderSearchResults();
+    });
+
+    document.getElementById('btnSearchClear').addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const inp = document.getElementById('inpSearch');
+      inp.value = '';
+      searchQuery = '';
+      syncSearchClear();
+      inp.focus();
+      hideSearchResults();
+    });
+
+    document.getElementById('btnSearchCancel').addEventListener('click', (e) => {
+      e.preventDefault();
+      closeSearch();
+    });
+
+    window.addEventListener('resize', positionSearchResults);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', positionSearchResults);
+      window.visualViewport.addEventListener('scroll', positionSearchResults);
+    }
+
+    // ========== NATIVE iOS-STYLE SCROLL CHROME ==========
+    // Let the browser own scrolling. JavaScript only changes chrome state.
+    let lastY = window.scrollY || 0;
+    let chromeHidden = false;
+    let chromeTicking = false;
+
+    function setChrome(hidden) {
+      if (chromeHidden === hidden) return;
+      chromeHidden = hidden;
+
+      document.body.classList.toggle('chrome-hidden', hidden);
+
+      const header = document.getElementById('appHeader');
+      const search = document.getElementById('searchBar');
+      const dots = document.getElementById('sectionDots');
+      const headerHeight = header ? header.offsetHeight : 96;
+      const dotsHeight = dots && dots.offsetHeight ? dots.offsetHeight : 52;
+      const searchHeight = search && search.offsetHeight ? search.offsetHeight : 56;
+      // Extra clears the Dynamic Island after the bar reaches y = 0
+      const extra = 20;
+      const headerOffset = hidden ? -(headerHeight + extra) : 0;
+      const dotsOffset = hidden ? -(headerHeight + dotsHeight + extra) : 0;
+      const searchOffset = hidden ? -(headerHeight + searchHeight + extra) : 0;
+
+      if (header) header.style.transform = `translate3d(0, ${headerOffset}px, 0)`;
+      if (search && search.classList.contains('show')) {
+        search.style.transform = `translate3d(0, ${searchOffset}px, 0)`;
+      }
+      if (dots) dots.style.transform = `translate3d(0, ${dotsOffset}px, 0)`;
+    }
+
+    function handleScroll() {
+      const y = window.scrollY || document.documentElement.scrollTop || 0;
+      const delta = y - lastY;
+
+      if (y <= 8) {
+        setChrome(false);
+      } else if (delta > 8) {
+        setChrome(true);
+      } else if (delta < -8) {
+        setChrome(false);
+      }
+
+      lastY = y;
+      chromeTicking = false;
+    }
+
+    window.addEventListener('scroll', () => {
+      if (!chromeTicking) {
+        chromeTicking = true;
+        requestAnimationFrame(handleScroll);
+      }
+    }, { passive: true });
+
+    function measureHeaderHeight() {
+      const header = document.getElementById('appHeader');
+      if (header) {
+        const h = Math.max(header.offsetHeight || 0, 81);
+        document.documentElement.style.setProperty('--header-h', h + 'px');
+      }
+      const dots = document.getElementById('sectionDots');
+      if (dots && dots.offsetHeight) {
+        document.documentElement.style.setProperty('--section-bar-h', dots.offsetHeight + 'px');
+      }
+    }
+
+    function resetChrome() {
+      lastY = window.scrollY || 0;
+      chromeHidden = false;
+      chromeTicking = false;
+      document.body.classList.remove('chrome-hidden');
+
+      const header = document.getElementById('appHeader');
+      const search = document.getElementById('searchBar');
+      const dots = document.getElementById('sectionDots');
+
+      if (header) header.style.transform = 'translate3d(0, 0, 0)';
+      if (search) search.style.transform = '';
+      if (dots) dots.style.transform = 'translate3d(0, 0, 0)';
+    }
+
+    // ========== INIT ==========
+    function initApp() {
+      document.addEventListener('gesturestart', e => e.preventDefault());
+      window.addEventListener('resize', measureHeaderHeight);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', measureHeaderHeight);
+      }
+      initNotesEditor();
+      // Same path as tapping Home — avoids first-paint jumble
+      showScreen('screenHome');
+      setHeader('LeMatic Inspection');
+      refreshHome();
+      measureHeaderHeight();
+      requestAnimationFrame(() => {
+        measureHeaderHeight();
+        window.scrollTo(0, 0);
+        resetChrome();
+      });
+    }
+
+    // Start
+    bootStorage().then(() => loadData()).catch(() => loadData());
+
+    // Register service worker (PWA) and keep drafts on device
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js?v=split-2').catch((err) => {
+          console.warn('Service worker registration failed:', err);
+        });
+      });
+    }
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(() => {});
+    }
+    function syncOfflineBanner() {
+      let bar = document.getElementById('offlineBanner');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'offlineBanner';
+        bar.setAttribute('role', 'status');
+        bar.style.cssText = 'display:none;position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:80;padding:10px 14px;border-radius:12px;background:#2a3036;color:#e8eef2;font-size:0.82rem;text-align:center;border:1px solid rgba(249,253,255,0.12)';
+        bar.textContent = 'Offline — reports and photos stay on this device.';
+        document.body.appendChild(bar);
+      }
+      const offline = (typeof navigator.onLine === 'boolean') ? !navigator.onLine : false;
+      bar.style.display = offline ? 'block' : 'none';
+    }
+    window.addEventListener('online', syncOfflineBanner);
+    window.addEventListener('offline', syncOfflineBanner);
+    syncOfflineBanner();
+    window.addEventListener('pagehide', () => { persistAllStores().catch(() => {}); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') persistAllStores().catch(() => {});
+    });
+
+  
+    // ========== PUNCHLIST ==========
+    (function punchlistModule() {
+const IDB_NAME = "FieldPunchlistDB";
+    const IDB_VERSION = 1;
+    const STORE_NAME = "appdata";
+    const LEGACY_KEY = "field_punchlist_v3";
+
+    const defaultData = {
+      currentJob: "Aryzta Australia",
+      jobs: {
+        "Aryzta Australia": [
+          { id:1, line:"LH", location:"Seal Unit", description:"Bad center seal heater", action:"Send new heater for warranty", department:"Service", responsible:"", dueDate:"", priority:"Normal", comments:"", status:"Not Started", photo:null },
+          { id:2, line:"Rh", location:"Basket loader", description:"Leaking regulator (through spring/screw)", action:"Send new regulator for warranty", department:"Service", responsible:"", dueDate:"", priority:"High", comments:"", status:"In Progress", photo:null },
+          { id:3, line:"LH", location:"Band slicer", description:"Missing complete set of band blade guides", action:"Send new blade guides", department:"Bakery", responsible:"", dueDate:"", priority:"Normal", comments:"Looked all over bakery – can't find.", status:"Not Started", photo:null },
+          { id:4, line:"both", location:"Band slicer", description:"Missing top conveyor and upper band adjust handles", action:"Send new handles (x4)", department:"Bakery", responsible:"", dueDate:"", priority:"Normal", comments:"Cannot find handles in bakery.", status:"Not Started", photo:null },
+          { id:5, line:"both", location:"Basket feed conveyors", description:"Infeed basket gate cycles too much", action:"Add timer to basket gate close", department:"Programming", responsible:"", dueDate:"", priority:"Normal", comments:"", status:"Complete", photo:null },
+          { id:6, line:"both", location:"Grouper", description:"Not enough lane coverage with grouper hold downs", action:"Need two more assemblies per machine", department:"Service", responsible:"", dueDate:"", priority:"High", comments:"", status:"Not Started", photo:null }
+        ],
+        "Epi": [
+          { id:1, line:"Epi", location:"Non-op vacuum header", description:"Very bent non-op vacuum header", action:"Repair or replace", department:"Engineering", responsible:"", dueDate:"", priority:"High", comments:"Film sucked into op vacuum header causing no seal on op side", status:"Not Started", photo:null },
+          { id:2, line:"Epi", location:"Air system", description:"Heavy water in airlines", action:"Inspect filters, drains, dryer; correct moisture source", department:"Maintenance", responsible:"", dueDate:"", priority:"High", comments:"Caused stuck Airbar solenoid", status:"Not Started", photo:null },
+          { id:3, line:"Epi", location:"X-ray interlock", description:"Auto-starts after safety reset; requires code entry", action:"Change logic so operator must manually start after reset", department:"Controls", responsible:"", dueDate:"", priority:"High", comments:"~2 min recovery + 2 people currently", status:"In Progress", photo:null },
+          { id:4, line:"Epi", location:"Top heater assembly", description:"Not level and binding", action:"Verify level and spring tension", department:"Engineering", responsible:"", dueDate:"", priority:"Normal", comments:"Re-leveled this visit; springs at 12 lbs with binding", status:"Complete", photo:null }
+        ]
+      }
+    };
+
+    let data = null;
+    let db = null;
+    let editingId = null;
+    let tempPhoto = null;
+    let filterField = "any";
+    let filterQuery = "";
+    let filterChipValue = "";
+
+    const CARD_FIELDS = ["description","line","location","action","department","status","priority","responsible","dueDate","createdAt","comments"];
+    const CHIP_FIELDS = {
+      status: ["Not Started", "In Progress", "Complete", "Waiting Parts"],
+      priority: ["High", "Normal", "Low"],
+      department: ["Service", "Bakery", "Programming", "Engineering", "Sales", "Other"],
+      line: null,
+      createdAt: null
+    };
+
+    function nowStamp() {
+      const d = new Date();
+      const pad = n => String(n).padStart(2, "0");
+      return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+    }
+    function stampDate(v) {
+      if (!v) return "";
+      const s = String(v);
+      return s.slice(0, 10);
+    }
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const database = e.target.result;
+          if (!database.objectStoreNames.contains(STORE_NAME)) database.createObjectStore(STORE_NAME);
+        };
+        req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+        req.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    function idbGet(key) {
+      return new Promise((resolve, reject) => {
+        if (!db) return reject(new Error("DB not open"));
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const req = tx.objectStore(STORE_NAME).get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    function idbSet(key, value) {
+      return new Promise((resolve, reject) => {
+        if (!db) return reject(new Error("DB not open"));
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const req = tx.objectStore(STORE_NAME).put(value, key);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function plLoadData() {
+      try {
+        await openDB();
+        let saved = await idbGet("main");
+        if (!saved) {
+          try {
+            const legacy = localStorage.getItem(LEGACY_KEY);
+            if (legacy) {
+              saved = JSON.parse(legacy);
+              await idbSet("main", saved);
+              toast("Data upgraded to larger storage");
+            }
+          } catch (e) {}
+        }
+        if (saved && saved.jobs && saved.currentJob) data = saved;
+        else { data = JSON.parse(JSON.stringify(defaultData)); await plSaveData(); }
+      } catch (e) {
+        data = JSON.parse(JSON.stringify(defaultData));
+        try { await openDB(); } catch (_) {}
+      }
+    }
+
+    async function plSaveData() {
+      try {
+        if (!db) await openDB();
+        await idbSet("main", data);
+        return true;
+      } catch (e) {
+        try {
+          localStorage.setItem(LEGACY_KEY, JSON.stringify(data));
+          toast("Saved (fallback mode)");
+          return true;
+        } catch (e2) {
+          toast("Storage full – remove photos or old jobs");
+          return false;
+        }
+      }
+    }
+
+    function updateOnlineStatus() {
+      const offline = !navigator.onLine;
+      const offEl = document.getElementById("offline-badge");
+      if (offEl) offEl.classList.toggle("show", offline);
+      const onEl = document.getElementById("online-badge");
+      if (onEl) onEl.style.display = "none";
+      if (offline) toast("You are offline – changes still save on this device");
+    }
+
+    window.addEventListener("online", () => { updateOnlineStatus(); toast("Back online"); });
+    window.addEventListener("offline", updateOnlineStatus);
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js?v=8").catch(() => {});
+      });
+    }
+
+    function getItems() { return data.jobs[data.currentJob] || []; }
+    function setItems(items) { data.jobs[data.currentJob] = items; plSaveData(); }
+
+    function punchlistShowToast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 2200);
+    }
+
+    function statusBadgeClass(s) {
+      if (s === "Not Started") return "badge-notstarted";
+      if (s === "In Progress") return "badge-inprogress";
+      if (s === "Complete") return "badge-complete";
+      return "badge-waiting";
+    }
+
+    function deptClass(d) {
+      const map = {
+        "Service": "dept-Service",
+        "Bakery": "dept-Bakery",
+        "Programming": "dept-Programming",
+        "Engineering": "dept-Engineering",
+        "Sales": "dept-Sales"
+      };
+      return map[d] || "dept-Other";
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
+
+    function populateJobSelect() {
+      const sel = document.getElementById("job-select");
+      if (!sel || !data) return;
+      // Prefer field-service jobs as the source of punchlist buckets
+      try {
+        const fieldJobs = (typeof loadJobs === "function" ? loadJobs() : []) || [];
+        fieldJobs.forEach(job => {
+          const key = (typeof punchlistKeyForJob === "function") ? punchlistKeyForJob(job) : (job.customer || job.id);
+          if (!data.jobs[key]) data.jobs[key] = [];
+          if (!data.jobIdByKey) data.jobIdByKey = {};
+          data.jobIdByKey[key] = job.id;
+        });
+      } catch (e) {}
+      const jobs = Object.keys(data.jobs);
+      if (!jobs.length) {
+        data.jobs["Default"] = [];
+        data.currentJob = "Default";
+        jobs.push("Default");
+      }
+      if (!data.currentJob || !data.jobs[data.currentJob]) data.currentJob = jobs[0];
+      sel.innerHTML = jobs.map(j =>
+        `<option value="${escapeHtml(j)}" ${j === data.currentJob ? "selected" : ""}>${escapeHtml(j)}</option>`
+      ).join("");
+    }
+
+    function itemMatchesFilter(item) {
+      const q = (filterQuery || "").trim().toLowerCase();
+      const chip = (filterChipValue || "").trim().toLowerCase();
+      if (!q && !chip) return true;
+
+      function fieldText(key) {
+        if (key === "createdAt") {
+          const raw = String(item.createdAt || "");
+          return (raw + " " + stampDate(raw)).toLowerCase();
+        }
+        return String(item[key] == null ? "" : item[key]).toLowerCase();
+      }
+
+      if (filterField === "any") {
+        const hay = CARD_FIELDS.map(fieldText).join(" ");
+        return (!q || hay.includes(q)) && (!chip || hay.includes(chip));
+      }
+
+      const value = fieldText(filterField);
+      if (chip && value !== chip) return false;
+      if (q && !value.includes(q)) return false;
+      return true;
+    }
+
+    function uniqueFieldValues(items, field) {
+      const seen = new Set();
+      const out = [];
+      items.forEach(item => {
+        const v = String(item[field] || "").trim();
+        if (!v) return;
+        const key = v.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push(v);
+      });
+      return out.sort((a, b) => a.localeCompare(b));
+    }
+
+    function chipValuesForField(field) {
+      const items = getItems();
+      let values = CHIP_FIELDS[field];
+      if (field === "line") values = uniqueFieldValues(items, "line");
+      else if (field === "createdAt") {
+        const seen = new Set();
+        values = [];
+        items.forEach(item => {
+          const d = stampDate(item.createdAt);
+          if (d && !seen.has(d)) { seen.add(d); values.push(d); }
+        });
+        values.sort().reverse();
+      }
+      else if (field === "department") {
+        values = (CHIP_FIELDS.department || []).slice();
+        uniqueFieldValues(items, "department").forEach(v => {
+          if (!values.includes(v)) values.push(v);
+        });
+      }
+      return values || [];
+    }
+
+    function updateFilterButton() {
+      const active = !!(filterQuery.trim() || filterChipValue);
+      document.getElementById("btn-filter").classList.toggle("active", active);
+      const countEl = document.getElementById("filter-count");
+      const items = getItems();
+      const filtered = items.filter(itemMatchesFilter);
+      if (active) {
+        countEl.classList.add("show");
+        countEl.textContent = filtered.length + " of " + items.length + " items";
+      } else {
+        countEl.classList.remove("show");
+        countEl.textContent = "";
+      }
+    }
+
+    function openFilterSheet() {
+      const tb = document.getElementById("modal-trash");
+      if (tb) tb.style.display = "none";
+      const cam = document.getElementById("modal-camera");
+      if (cam) cam.style.display = "none";
+      document.getElementById("modal-title").textContent = "Filter";
+      const chips = chipValuesForField(filterField);
+      document.getElementById("modal-body").innerHTML = `
+        <div class="form-group">
+          <label>Field</label>
+          <select id="f-filter-field">
+            <option value="any"${filterField === "any" ? " selected" : ""}>Any field</option>
+            <option value="description"${filterField === "description" ? " selected" : ""}>Description</option>
+            <option value="line"${filterField === "line" ? " selected" : ""}>Line</option>
+            <option value="location"${filterField === "location" ? " selected" : ""}>Location</option>
+            <option value="action"${filterField === "action" ? " selected" : ""}>Action</option>
+            <option value="department"${filterField === "department" ? " selected" : ""}>Department</option>
+            <option value="status"${filterField === "status" ? " selected" : ""}>Status</option>
+            <option value="priority"${filterField === "priority" ? " selected" : ""}>Priority</option>
+            <option value="responsible"${filterField === "responsible" ? " selected" : ""}>Responsible</option>
+            <option value="dueDate"${filterField === "dueDate" ? " selected" : ""}>Due date</option>
+            <option value="createdAt"${filterField === "createdAt" ? " selected" : ""}>Created date</option>
+            <option value="comments"${filterField === "comments" ? " selected" : ""}>Comments</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Contains</label>
+          <input type="text" id="f-filter-query" value="${escapeHtml(filterQuery)}" placeholder="Type to filter">
+        </div>
+        <div class="filter-chips" id="filter-chips">${chips.map(v =>
+          `<button type="button" class="filter-chip${filterChipValue === v ? " active" : ""}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`
+        ).join("")}</div>
+        <div class="btn-row">
+          <button class="btn btn-outline" type="button" id="btn-filter-reset">Clear</button>
+          <button class="btn btn-primary" type="button" id="btn-filter-apply">Apply</button>
+        </div>
+      `;
+      document.getElementById("pl-modal").classList.add("show");
+
+      const fieldSel = document.getElementById("f-filter-field");
+      fieldSel.addEventListener("change", () => {
+        filterField = fieldSel.value;
+        filterChipValue = "";
+        openFilterSheet();
+      });
+      document.getElementById("filter-chips").querySelectorAll(".filter-chip").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const val = btn.dataset.value;
+          filterChipValue = filterChipValue === val ? "" : val;
+          document.querySelectorAll("#filter-chips .filter-chip").forEach(b => b.classList.toggle("active", b.dataset.value === filterChipValue));
+        });
+      });
+      document.getElementById("btn-filter-apply").addEventListener("click", () => {
+        filterField = document.getElementById("f-filter-field").value;
+        filterQuery = document.getElementById("f-filter-query").value;
+        closeModal();
+        renderList();
+      });
+      document.getElementById("btn-filter-reset").addEventListener("click", () => {
+        filterField = "any";
+        filterQuery = "";
+        filterChipValue = "";
+        closeModal();
+        renderList();
+      });
+    }
+
+    function renderList() {
+      const items = getItems();
+      const list = document.getElementById("item-list");
+      const filtered = items.filter(itemMatchesFilter).slice().sort((a, b) => {
+        const rank = (item) => {
+          if (String(item.status || "") === "Complete") return 2;
+          if (String(item.priority || "") === "High") return 0;
+          return 1;
+        };
+        return rank(a) - rank(b);
+      });
+
+      document.getElementById("stat-open").innerHTML = `<strong>${items.filter(i => i.status === "Not Started").length}</strong> Open`;
+      document.getElementById("stat-progress").innerHTML = `<strong>${items.filter(i => i.status === "In Progress").length}</strong> In Progress`;
+      document.getElementById("stat-done").innerHTML = `<strong>${items.filter(i => i.status === "Complete").length}</strong> Done`;
+      updateFilterButton();
+
+      if (items.length === 0) {
+        list.innerHTML = `<div class="empty"><div class="empty-icon" style="display:flex;justify-content:center;margin-bottom:8px;color:var(--muted);opacity:0.85"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" aria-hidden="true"><rect x="4.2" y="3.2" width="15.6" height="17.6" rx="2.2" stroke="currentColor" stroke-width="0.9"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="0.9" stroke-linecap="round"/></svg></div><div>No items for this job</div></div>`;
+        return;
+      }
+
+      if (filtered.length === 0) {
+        list.innerHTML = `<div class="empty"><div class="empty-icon" style="display:flex;justify-content:center;margin-bottom:8px;color:var(--muted);opacity:0.85"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.2" stroke="currentColor" stroke-width="1.4"/><path d="M20 20l-3.6-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></div><div>No items match this filter</div><div style="margin-top:8px;font-size:13px;opacity:0.8">Clear the filter or pick another field</div></div>`;
+        return;
+      }
+
+      list.innerHTML = filtered.map(item => {
+        const classes = ["pl-item"];
+        if (item.status === "Complete") classes.push("list-complete");
+        else if (item.priority === "High") classes.push("priority-high");
+        return `
+        <div class="${classes.join(" ")}" data-id="${item.id}" onclick="toggleItem(${item.id}, event)">
+          <div class="list-item-main">
+            <div class="title">${escapeHtml(item.description)}</div>
+            <div class="sub">${escapeHtml(item.line)} · ${escapeHtml(item.location)}${item.dueDate ? " · " + item.dueDate : ""}${item.responsible ? " · " + escapeHtml(item.responsible) : ""}</div>
+            <div class="action-line">→ ${escapeHtml(item.action)}</div>
+            <span class="dept ${deptClass(item.department)}">${escapeHtml(item.department)}</span>
+          </div>
+          <div class="list-item-actions">
+            <span class="badge ${statusBadgeClass(item.status)}">${item.status}</span>
+            ${item.photo ? `<img class="list-item-photo" src="${item.photo}" alt="Item photo" onclick="openPunchlistPhoto(event, this.src)">` : ""}
+          </div>
+          <div class="list-item-detail">
+            ${item.comments ? `<div class="detail-row"><strong>Comments</strong>${escapeHtml(item.comments)}</div>` : ""}
+            ${item.responsible ? `<div class="detail-row"><strong>Responsible</strong>${escapeHtml(item.responsible)}</div>` : ""}
+            ${item.dueDate ? `<div class="detail-row"><strong>Due</strong>${escapeHtml(item.dueDate)}</div>` : ""}
+            ${item.photo ? `<img class="list-item-photo" src="${item.photo}" alt="Item photo" onclick="openPunchlistPhoto(event, this.src)">` : ""}
+
+          </div>
+        </div>
+      `}).join("");
+    }
+
+    function toggleItem(id, ev) {
+      if (ev && ev.target.closest("button, a, input, select, textarea, img.list-item-photo, .pl-photo-viewer")) return;
+      openDetail(id);
+    }
+
+    function openPunchlistPhoto(ev, src) {
+      if (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+      if (!src) return;
+      const viewer = document.getElementById("pl-photo-viewer");
+      const img = document.getElementById("pl-photo-viewer-img");
+      if (!viewer || !img) return;
+      img.src = src;
+      viewer.hidden = false;
+      viewer.setAttribute("aria-hidden", "false");
+    }
+
+    function closePunchlistPhoto(ev) {
+      if (ev) ev.stopPropagation();
+      const viewer = document.getElementById("pl-photo-viewer");
+      const img = document.getElementById("pl-photo-viewer-img");
+      if (img) img.removeAttribute("src");
+      if (viewer) {
+        viewer.hidden = true;
+        viewer.setAttribute("aria-hidden", "true");
+      }
+    }
+
+    document.getElementById("job-select").addEventListener("change", (e) => {
+      data.currentJob = e.target.value;
+      plSaveData();
+      filterChipValue = "";
+      renderList();
+      try {
+        if (typeof window.setLastPunchlistName === "function") window.setLastPunchlistName(data.currentJob);
+        else localStorage.setItem("lx8_last_punchlist", data.currentJob);
+      } catch (err) {}
+      toast("Switched to " + data.currentJob);
+    });
+
+    document.getElementById("btn-filter").addEventListener("click", openFilterSheet);
+
+    function openDetail(id) {
+      const item = getItems().find(i => i.id === id);
+      if (!item) return;
+      editingId = id;
+      tempPhoto = null;
+      showForm(item, false);
+    }
+
+    function showForm(item, isNew) {
+      document.getElementById("modal-title").textContent = isNew ? "New Item" : `Item #${item.id}`;
+      const trashBtn = document.getElementById("modal-trash");
+      if (trashBtn) {
+        trashBtn.style.display = "none";
+        trashBtn.onclick = null;
+      }
+      const camBtn = document.getElementById("modal-camera");
+      if (camBtn) camBtn.style.display = "grid";
+      document.getElementById("modal-body").innerHTML = `
+        <div class="pl-photo-block">
+          <div id="photo-preview-wrap" class="pl-photo-preview-wrap ${(item.photo || tempPhoto) ? '' : 'hidden'}">
+            <img id="photo-preview" class="photo-preview" src="${tempPhoto || item.photo || ''}" alt="preview" onclick="if (this.src) openPunchlistPhoto(event, this.src)">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Line</label>
+            <input type="text" id="f-line" value="${escapeHtml(item.line || '')}" placeholder="LH / RH / both">
+          </div>
+          <div class="form-group">
+            <label>Priority</label>
+            <select id="f-priority">
+              <option ${item.priority === "Normal" ? "selected" : ""}>Normal</option>
+              <option ${item.priority === "High" ? "selected" : ""}>High</option>
+              <option ${item.priority === "Low" ? "selected" : ""}>Low</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Location</label>
+          <input type="text" id="f-location" value="${escapeHtml(item.location || '')}" placeholder="e.g. Seal Unit">
+        </div>
+        <div class="form-group">
+          <label>Description *</label>
+          <textarea id="f-description" placeholder="What is the problem?">${escapeHtml(item.description || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label>Action</label>
+          <textarea id="f-action" placeholder="What needs to be done?">${escapeHtml(item.action || '')}</textarea>
+        </div>
+        <div class="form-row pl-status-dept-row">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="f-status" class="${statusBadgeClass(item.status || "Not Started")}">
+              <option ${item.status === "Not Started" ? "selected" : ""}>Not Started</option>
+              <option ${item.status === "In Progress" ? "selected" : ""}>In Progress</option>
+              <option ${item.status === "Complete" ? "selected" : ""}>Complete</option>
+              <option ${item.status === "Waiting Parts" ? "selected" : ""}>Waiting Parts</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Department</label>
+            <select id="f-department">
+              <option ${item.department === "Service" ? "selected" : ""}>Service</option>
+              <option ${item.department === "Bakery" ? "selected" : ""}>Bakery</option>
+              <option ${item.department === "Programming" ? "selected" : ""}>Programming</option>
+              <option ${item.department === "Engineering" ? "selected" : ""}>Engineering</option>
+              <option ${item.department === "Sales" ? "selected" : ""}>Sales</option>
+              <option ${item.department === "Other" ? "selected" : ""}>Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Responsible</label>
+            <input type="text" id="f-responsible" value="${escapeHtml(item.responsible || '')}" placeholder="Name">
+          </div>
+          <div class="form-group">
+            <label>Created</label>
+            <input type="date" id="f-createdAt" value="${escapeHtml(stampDate(item.createdAt || nowStamp()))}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Comments</label>
+          <textarea id="f-comments">${escapeHtml(item.comments || '')}</textarea>
+        </div>
+        <button type="button" class="btn btn-outline pl-item-delete" id="btn-delete-item">Delete item</button>
+        <div class="btn-row">
+          <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveItem()">${isNew ? 'Add Item' : 'Save'}</button>
+        </div>
+      `;
+      document.getElementById("pl-modal").classList.add("show");
+      const delBtn = document.getElementById("btn-delete-item");
+      if (delBtn) {
+        const idToDelete = item && item.id != null ? item.id : editingId;
+        delBtn.addEventListener("click", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          deleteItem(idToDelete);
+        });
+      }
+      const statusEl = document.getElementById("f-status");
+      if (statusEl) {
+        const paintStatus = () => {
+          statusEl.classList.remove("badge-notstarted", "badge-inprogress", "badge-complete", "badge-waiting");
+          statusEl.classList.add(statusBadgeClass(statusEl.value));
+        };
+        statusEl.addEventListener("change", paintStatus);
+        statusEl.addEventListener("input", paintStatus);
+        paintStatus();
+      }
+    }
+
+    function handlePhoto(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        tempPhoto = ev.target.result;
+        const preview = document.getElementById("photo-preview");
+        const wrap = document.getElementById("photo-preview-wrap");
+        if (preview) {
+          preview.src = tempPhoto;
+          preview.classList.remove("hidden");
+        }
+        if (wrap) wrap.classList.remove("hidden");
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function removePhoto() {
+      tempPhoto = null;
+      const preview = document.getElementById("photo-preview");
+      const wrap = document.getElementById("photo-preview-wrap");
+      if (preview) {
+        preview.src = "";
+        preview.classList.add("hidden");
+      }
+      if (wrap) wrap.classList.add("hidden");
+      if (editingId) {
+        const item = getItems().find(i => i.id === editingId);
+        if (item) item.photo = null;
+      }
+    }
+
+    document.getElementById("fab-add").addEventListener("click", () => {
+      if (document.body.classList.contains("on-jobs-list")) {
+        if (typeof openNewJob === "function") openNewJob();
+        return;
+      }
+      editingId = null;
+      tempPhoto = null;
+      showForm({ line:"", location:"", description:"", action:"", department:"Service", responsible:"", dueDate:"", createdAt: nowStamp(), priority:"Normal", comments:"", status:"Not Started", photo:null }, true);
+    });
+
+    function saveItem() {
+      const formData = {
+        line: document.getElementById("f-line").value.trim(),
+        location: document.getElementById("f-location").value.trim(),
+        description: document.getElementById("f-description").value.trim(),
+        action: document.getElementById("f-action").value.trim(),
+        department: document.getElementById("f-department").value,
+        responsible: document.getElementById("f-responsible").value.trim(),
+        dueDate: editingId ? ((getItems().find(i => i.id === editingId) || {}).dueDate || "") : "",
+        priority: document.getElementById("f-priority").value,
+        comments: document.getElementById("f-comments").value.trim(),
+        createdAt: (document.getElementById("f-createdAt") && document.getElementById("f-createdAt").value) || nowStamp(),
+        status: document.getElementById("f-status").value,
+        photo: tempPhoto !== null ? tempPhoto : (editingId ? (getItems().find(i => i.id === editingId)?.photo || null) : null)
+      };
+      if (!formData.description) { alert("Description is required"); return; }
+
+      let items = getItems();
+      if (editingId) {
+        const idx = items.findIndex(i => i.id === editingId);
+        items[idx] = { ...items[idx], ...formData };
+        toast("Item updated");
+      } else {
+        const newId = items.length ? Math.max(...items.map(i => i.id)) + 1 : 1;
+        items.push({ id: newId, ...formData });
+        toast("Item added");
+      }
+      setItems(items);
+      closeModal();
+      renderList();
+    }
+
+    function deleteItem(id) {
+      const targetId = (id !== undefined && id !== null && id !== "") ? id : editingId;
+      if (targetId === undefined || targetId === null || targetId === "") {
+        closeModal();
+        toast("Item discarded");
+        return;
+      }
+      pendingDeleteId = targetId;
+      pendingDeleteKind = "punchlist-item";
+      document.getElementById("deleteModalTitle").textContent = "Delete item?";
+      document.getElementById("deleteModalLabel").textContent =
+        "This punchlist item will be permanently deleted.";
+      const modal = document.getElementById("deleteModal");
+      modal.classList.remove("hidden");
+      modal.classList.add("show");
+      modal.setAttribute("aria-hidden", "false");
+    }
+
+    function performDeletePunchlistItem(id) {
+      const targetId = (id !== undefined && id !== null && id !== "") ? id : editingId;
+      if (targetId === undefined || targetId === null || targetId === "") {
+        closeDeleteModal();
+        return;
+      }
+      const items = getItems();
+      const next = items.filter(i => String(i.id) !== String(targetId));
+      setItems(next);
+      closeDeleteModal();
+      closeModal();
+      renderList();
+      toast("Item deleted");
+    }
+    window.performDeletePunchlistItem = performDeletePunchlistItem;
+    window.deleteItem = deleteItem;
+
+    function closeModal() {
+      const overlay = document.getElementById("pl-modal");
+      const sheet = document.getElementById("modal-sheet");
+      overlay.classList.remove("show");
+      if (sheet) {
+        sheet.style.transform = "";
+        sheet.classList.remove("dragging");
+      }
+      overlay.style.background = "";
+      editingId = null;
+      tempPhoto = null;
+      const tb = document.getElementById("modal-trash");
+      if (tb) tb.style.display = "none";
+    }
+
+    document.getElementById("pl-modal").addEventListener("click", (e) => { if (e.target.id === "pl-modal") closeModal(); });
+
+    // Trash button uses onclick set in showForm (avoids double-binding)
+
+    // Swipe down to close modal sheet
+    (function setupSwipeClose() {
+      const sheet = document.getElementById("modal-sheet");
+      const overlay = document.getElementById("pl-modal");
+      if (!sheet || !overlay) return;
+
+      let startY = 0;
+      let currentY = 0;
+      let dragging = false;
+
+      function onStart(y) {
+        // Only start drag near the top of the sheet (handle / header area)
+        startY = y;
+        currentY = 0;
+        dragging = true;
+        sheet.classList.add("dragging");
+      }
+
+      function onMove(y) {
+        if (!dragging) return;
+        currentY = Math.max(0, y - startY);
+        sheet.style.transform = `translateY(${currentY}px)`;
+        overlay.style.background = `rgba(0,0,0,${Math.max(0.25, 0.72 - currentY / 600)})`;
+      }
+
+      function onEnd() {
+        if (!dragging) return;
+        dragging = false;
+        sheet.classList.remove("dragging");
+        if (currentY > 120) {
+          sheet.style.transform = "translateY(100%)";
+          setTimeout(() => {
+            closeModal();
+            sheet.style.transform = "";
+            overlay.style.background = "";
+          }, 180);
+        } else {
+          sheet.style.transform = "";
+          overlay.style.background = "";
+        }
+        currentY = 0;
+      }
+
+      sheet.addEventListener("touchstart", (e) => {
+        const t = e.touches[0];
+        const rect = sheet.getBoundingClientRect();
+        // Allow swipe from top 80px of sheet
+        if (t.clientY - rect.top < 80) onStart(t.clientY);
+      }, { passive: true });
+
+      sheet.addEventListener("touchmove", (e) => {
+        if (!dragging) return;
+        onMove(e.touches[0].clientY);
+      }, { passive: true });
+
+      sheet.addEventListener("touchend", onEnd);
+      sheet.addEventListener("touchcancel", onEnd);
+    })();
+
+    const btnJobs = document.getElementById("btn-jobs");
+    if (btnJobs) btnJobs.addEventListener("click", () => {
+      const jobNames = Object.keys(data.jobs);
+      document.getElementById("modal-title").textContent = "Manage Jobs";
+      const tb = document.getElementById("modal-trash"); if (tb) tb.style.display = "none";
+      const cam = document.getElementById("modal-camera"); if (cam) cam.style.display = "none";
+      document.getElementById("modal-body").innerHTML = `
+        <div class="job-manage-list">
+          ${jobNames.map(j => `
+            <div class="job-manage-item">
+              <span>${escapeHtml(j)} ${j === data.currentJob ? "(current)" : ""}</span>
+              ${jobNames.length > 1 ? `
+                <button type="button" class="icon-btn danger" data-job="${escapeHtml(j)}" title="Delete job">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M10 11v6M14 11v6"/></svg>
+                </button>` : ''}
+            </div>
+          `).join("")}
+        </div>
+        <div class="form-group">
+          <label>New Job Name</label>
+          <input type="text" id="new-job-name" placeholder="e.g. Customer / Line name">
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-outline" onclick="closeModal()">Close</button>
+          <button class="btn btn-primary" onclick="addJob()">Add Job</button>
+        </div>
+      `;
+      document.getElementById("pl-modal").classList.add("show");
+      document.querySelectorAll("#modal-body [data-job]").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const name = btn.getAttribute("data-job");
+          if (name) deleteJob(name);
+        });
+      });
+    });
+
+    function addJob() {
+      const name = document.getElementById("new-job-name").value.trim();
+      if (!name) { alert("Enter a job name"); return; }
+      if (data.jobs[name]) { alert("A job with that name already exists"); return; }
+      data.jobs[name] = [];
+      data.currentJob = name;
+      plSaveData();
+      populateJobSelect();
+      closeModal();
+      renderList();
+      toast("Job created: " + name);
+    }
+
+    function deleteJob(name) {
+      if (!name || !data.jobs[name]) {
+        toast("Job not found");
+        return;
+      }
+      if (!confirm("Delete job \"" + name + "\" and all its items?")) return;
+      delete data.jobs[name];
+      if (data.currentJob === name) {
+        const remaining = Object.keys(data.jobs);
+        data.currentJob = remaining[0] || "";
+      }
+      plSaveData();
+      populateJobSelect();
+      closeModal();
+      renderList();
+      toast("Job deleted");
+    }
+    window.deleteJob = deleteJob;
+    window.deleteItem = deleteItem;
+    window.handlePhoto = handlePhoto;
+    window.removePhoto = removePhoto;
+    window.openPunchlistPhoto = openPunchlistPhoto;
+    window.closePunchlistPhoto = closePunchlistPhoto;
+    window.closeModal = closeModal;
+    window.saveItem = saveItem;
+    window.openDetail = openDetail;
+    window.addJob = addJob;
+    window.toggleItem = toggleItem;
+    window.renderList = renderList;
+    window.plRenderList = renderList;
+    window.plLoadData = plLoadData;
+    window.populateJobSelect = populateJobSelect;
+    window.openPunchlistForJob = async function(job) {
+      await plLoadData();
+      if (!data) data = { jobs: {}, currentJob: '' };
+      if (!data.jobs) data.jobs = {};
+      if (job) {
+        const site = (job.site || '').trim();
+        const key = site ? ((job.customer || 'Job') + ' – ' + site) : (job.customer || 'Job');
+        if (!data.jobs[key]) data.jobs[key] = [];
+        data.currentJob = key;
+        if (!data.jobIdByKey) data.jobIdByKey = {};
+        data.jobIdByKey[key] = job.id;
+        if (!data.keyByJobId) data.keyByJobId = {};
+        data.keyByJobId[job.id] = key;
+      } else {
+        const key = 'General';
+        if (!data.jobs[key]) data.jobs[key] = [];
+        data.currentJob = key;
+      }
+      await plSaveData();
+      populateJobSelect();
+      renderList();
+      try {
+        if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(data.currentJob);
+        else localStorage.setItem('lx8_last_punchlist', data.currentJob);
+      } catch (e) {}
+      return data.currentJob;
+    };
+    window.getPunchlistSummaries = async function() {
+      await plLoadData();
+      if (!data || !data.jobs) return [];
+      return Object.keys(data.jobs).map(name => {
+        const items = data.jobs[name] || [];
+        const complete = items.filter(i => i && i.status === 'Complete').length;
+        return { name, total: items.length, complete };
+      }).sort((a, b) => {
+        // Prefer non-empty, then alpha
+        if ((b.total > 0) !== (a.total > 0)) return b.total > 0 ? 1 : -1;
+        return String(a.name).localeCompare(String(b.name));
+      });
+    };
+    window.openPunchlistByName = async function(name) {
+      await plLoadData();
+      if (!data) data = { jobs: {}, currentJob: '' };
+      if (!data.jobs) data.jobs = {};
+      if (!data.jobs[name]) data.jobs[name] = [];
+      data.currentJob = name;
+      await plSaveData();
+      populateJobSelect();
+      renderList();
+      try {
+        if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(name);
+        else localStorage.setItem('lx8_last_punchlist', name);
+      } catch (e) {}
+      return name;
+    };
+    window.getPunchlistBackup = function() {
+      return JSON.parse(JSON.stringify(data));
+    };
+    window.setPunchlistBackup = async function(saved) {
+      if (!saved || !saved.jobs) throw new Error('bad-punchlist');
+      data = saved;
+      if (!data.currentJob || !data.jobs[data.currentJob]) {
+        const names = Object.keys(data.jobs);
+        data.currentJob = names[0] || "Default";
+        if (!data.jobs[data.currentJob]) data.jobs[data.currentJob] = [];
+      }
+      await plSaveData();
+      populateJobSelect();
+      renderList();
+      return true;
+    };
+
+    const PUNCHLIST_TEMPLATE_B64 = "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";
+
+    function b64ToArrayBuffer(b64) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes.buffer;
+    }
+
+    async function getStoredTemplateBuffer() {
+      const buf = b64ToArrayBuffer(PUNCHLIST_TEMPLATE_B64);
+      try { await idbSet("templateXlsx", buf); } catch (e) {}
+      return buf;
+    }
+
+    function loadScriptOnce(src) {
+      return new Promise((resolve, reject) => {
+        const existing = document.querySelector('script[data-lib-src="' + src + '"]');
+        if (existing) {
+          if (existing.getAttribute('data-loaded') === '1') return resolve();
+          existing.addEventListener('load', () => resolve());
+          existing.addEventListener('error', () => reject(new Error('Failed ' + src)));
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.setAttribute('data-lib-src', src);
+        s.onload = () => { s.setAttribute('data-loaded', '1'); resolve(); };
+        s.onerror = () => reject(new Error('Failed ' + src));
+        document.head.appendChild(s);
+      });
+    }
+
+    async function ensureExcelLibs() {
+      if (typeof ExcelJS !== 'undefined') return;
+      const urls = [
+        'vendor/exceljs.min.js',
+        'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js'
+      ];
+      for (const url of urls) {
+        try {
+          await loadScriptOnce(url);
+          if (typeof ExcelJS !== 'undefined') return;
+        } catch (e) {}
+      }
+    }
+
+    async function downloadBlob(blob, filename) {
+      const type = blob.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      const file = new File([blob], filename, { type });
+      try {
+        if (navigator.share) {
+          if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: filename });
+            return true;
+          }
+        }
+      } catch (e) {
+        if (e && e.name === "AbortError") return true;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} a.remove(); }, 4000);
+      return true;
+    }
+
+
+    function exportPunchlistPdf() {
+      if (typeof window.jspdf === 'undefined') {
+        toast('PDF library still loading… try again in a moment');
+        return;
+      }
+      const items = getItems();
+      const jobName = data.currentJob || 'Punchlist';
+      const jobs = (typeof loadJobs === 'function') ? loadJobs() : [];
+      const job = jobs.find(j => j && (j.id === jobName || jobDisplayName(j) === jobName || j.customer === jobName)) || jobs.find(j => !isPastJobByDate(j)) || null;
+      const customer = (job && job.customer) || jobName || 'Customer';
+      const site = (job && job.site) || '';
+      const tech = (job && job.technician) || '';
+      const dateRange = (typeof formatJobDateRange === 'function' && job) ? formatJobDateRange(job) : '';
+      const so = (job && job.so) || '';
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      const L = 14;
+      const usable = W - 28;
+      let y = 14;
+
+      function paintChrome() {
+        doc.setFillColor(20, 20, 24);
+        doc.rect(0, 0, W, 10, 'F');
+        doc.setFillColor(212, 34, 59);
+        doc.rect(0, 0, 3.2, 10, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.text('LeMatic  ·  Field Service Report', 8, 6.6);
+        doc.setFont('helvetica', 'normal');
+        doc.text((customer + (dateRange ? '  ·  ' + dateRange : '')).substring(0, 48), W - 8, 6.6, { align: 'right' });
+        doc.setFillColor(244, 245, 247);
+        doc.rect(0, H - 12, W, 12, 'F');
+        doc.setTextColor(92, 101, 112);
+        doc.setFontSize(7);
+        doc.text('Punchlist  ·  Customer copy', 8, H - 5);
+        const page = doc.internal.getCurrentPageInfo().pageNumber;
+        doc.text('Page ' + page, W - 8, H - 5, { align: 'right' });
+      }
+      function newPage() { doc.addPage(); paintChrome(); y = 16; }
+      function need(h) { if (y + h > H - 16) newPage(); }
+
+      paintChrome();
+      doc.setFillColor(20, 20, 24);
+      doc.rect(L, y, usable, 36, 'F');
+      doc.setTextColor(243, 179, 188);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text('FIELD SERVICE TRIP REPORT', L + 6, y + 8);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text(String(customer).substring(0, 42), L + 6, y + 17);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(208, 213, 219);
+      const line2 = [site, job && job.machine].filter(Boolean).join('  ·  ');
+      const line3 = [dateRange, tech].filter(Boolean).join('  ·  ');
+      if (line2) doc.text(line2, L + 6, y + 25);
+      if (line3) doc.text(line3, L + 6, y + 31);
+      try {
+        if (typeof LEMATIC_LOGO_JPG === 'string' && LEMATIC_LOGO_JPG) {
+          const lw = 34, lh = 11.5;
+          const R = W - 14;
+          doc.setFillColor(255, 255, 255);
+          doc.roundedRect(R - 8 - lw, y + 6, lw, lh, 1.2, 1.2, 'F');
+          doc.addImage('data:image/jpeg;base64,' + LEMATIC_LOGO_JPG, 'JPEG', R - 8 - lw + 1.1, y + 6.9, lw - 2.2, lh - 1.8);
+        }
+      } catch (e) {}
+      y += 42;
+      if (so) {
+        doc.setTextColor(92, 101, 112);
+        doc.setFontSize(8);
+        doc.text('Sales order  ' + so, L, y);
+        y += 6;
+      }
+      doc.setTextColor(20, 20, 24);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text('Punchlist', L, y);
+      y += 4;
+      doc.setDrawColor(212, 34, 59);
+      doc.setLineWidth(0.6);
+      doc.line(L, y, L + 28, y);
+      y += 8;
+
+      if (!items.length) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(92, 101, 112);
+        doc.text('No punchlist items.', L, y);
+      }
+
+      function statusColor(s) {
+        const v = String(s || '').toLowerCase();
+        if (v === 'complete' || v === 'done' || v === 'completed') return [27, 122, 74];
+        if (v === 'in progress' || v === 'progress') return [10, 132, 255];
+        if (v.indexOf('waiting') >= 0 || v.indexOf('parts') >= 0) return [184, 134, 11];
+        return [92, 101, 112];
+      }
+      items.forEach((item, idx) => {
+        const desc = String(item.description || item.action || 'Item');
+        const pri = String(item.priority || '').toLowerCase();
+        const critical = pri === 'high' || pri === 'critical';
+        const status = String(item.status || 'Not Started');
+        const meta = [item.line, item.location, item.department].filter(Boolean).join('  ·  ');
+        const comments = String(item.comments || '');
+        const photo = item.photo;
+        const boxH = photo ? 58 : 28;
+        need(boxH + 6);
+        if (critical) doc.setFillColor(252, 232, 234);
+        else doc.setFillColor(244, 245, 247);
+        doc.roundedRect(L, y, usable, boxH, 2, 2, 'F');
+        if (critical) {
+          doc.setFillColor(212, 34, 59);
+          doc.rect(L, y, 2.4, boxH, 'F');
+        }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(critical ? 212 : 92, critical ? 34 : 101, critical ? 59 : 112);
+        doc.text(String(idx + 1).padStart(2, '0'), L + 5, y + 6);
+        doc.setTextColor(20, 20, 24);
+        doc.setFontSize(10);
+        const textW = usable - (photo ? 52 : 8) - 38;
+        const titleLines = doc.splitTextToSize(desc, Math.max(40, textW));
+        doc.text(titleLines.slice(0, 2), L + 12, y + 6);
+        const sc = statusColor(status);
+        doc.setFillColor(sc[0], sc[1], sc[2]);
+        const pill = status.toUpperCase();
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        const pw = Math.min(36, doc.getTextWidth(pill) + 6);
+        const px = L + usable - (photo ? 42 : 4) - pw;
+        doc.roundedRect(px, y + 2.2, pw, 6.2, 1.2, 1.2, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.text(pill, px + pw / 2, y + 6.4, { align: 'center' });
+        if (critical) {
+          doc.setTextColor(212, 34, 59);
+          doc.setFontSize(7);
+          doc.text('CRITICAL', L + 12, y + 14);
+        }
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(92, 101, 112);
+        const metaY = y + (critical ? 20 : 14);
+        if (meta) doc.text(meta, L + 12, metaY);
+        if (comments) {
+          const cl = doc.splitTextToSize(comments, Math.max(40, textW));
+          doc.text(cl.slice(0, 2), L + 12, metaY + 6);
+        }
+        if (photo && typeof photo === 'string' && photo.indexOf('data:image') === 0) {
+          try {
+            const fmt = photo.indexOf('png') >= 0 ? 'PNG' : 'JPEG';
+            doc.addImage(photo, fmt, W - 14 - 36, y + 10, 34, 34);
+          } catch (e) {}
+        }
+        y += boxH + 4;
+      });
+
+      const safe = String(jobName).replace(/[\\/:*?"<>|]/g, '-').trim() || 'Punchlist';
+      doc.save(safe + ' Punchlist.pdf');
+      toast('Punchlist PDF downloaded');
+    }
+
+    async function exportPunchlistExcel() {
+      const items = getItems();
+      const jobName = data.currentJob || "Punchlist";
+      const safeName = jobName.replace(/[\\/:*?"<>|]/g, "-").trim() || "Punchlist";
+      const filename = safeName + " Punchlist.xlsx";
+
+      function normStatus(s) {
+        const v = String(s || "").trim().toLowerCase();
+        if (v === "complete" || v === "done" || v === "completed") return "Complete";
+        if (v === "in progress" || v === "progress") return "In Progress";
+        if (v === "waiting parts" || v === "waiting part" || v === "parts") return "Waiting Parts";
+        if (v === "not started" || v === "open") return "Not Started";
+        return String(s || "").trim() || "Not Started";
+      }
+
+      await ensureExcelLibs();
+      try {
+        if (typeof ExcelJS === "undefined") throw new Error("ExcelJS missing");
+        const templateBuf = await getStoredTemplateBuffer();
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(templateBuf);
+        const ws = wb.worksheets[0];
+
+        const firstDataRow = 6;
+        const lastTemplateRow = 50;
+        const count = Math.min(items.length, lastTemplateRow - firstDataRow + 1);
+
+        for (let idx = 0; idx < count; idx++) {
+          const item = items[idx];
+          const row = ws.getRow(firstDataRow + idx);
+          row.getCell(1).value = idx + 1;
+          row.getCell(2).value = item.line || "";
+          row.getCell(3).value = item.location || "";
+          row.getCell(4).value = item.description || "";
+          row.getCell(5).value = item.action || "";
+          row.getCell(6).value = item.department || "";
+          row.getCell(7).value = item.comments || "";
+          row.getCell(8).value = normStatus(item.status);
+        }
+
+        const out = await wb.xlsx.writeBuffer();
+        await downloadBlob(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
+        toast("Excel ready — use Save to Files if asked");
+        return;
+      } catch (err) {
+        console.warn("Template export failed", err);
+        try {
+          const wb = new ExcelJS.Workbook();
+          const ws = wb.addWorksheet('Punchlist');
+          ws.columns = [{width:8},{width:16},{width:18},{width:36},{width:28},{width:16},{width:28},{width:16}];
+          const head = ws.getRow(1);
+          ['#','Line','Location','Description','Action','Department','Comments','Status'].forEach((h,i)=>{
+            head.getCell(i+1).value=h;
+            head.getCell(i+1).font={bold:true};
+          });
+          items.forEach((item, idx) => {
+            const row = ws.getRow(2+idx);
+            row.getCell(1).value = idx+1;
+            row.getCell(2).value = item.line || '';
+            row.getCell(3).value = item.location || '';
+            row.getCell(4).value = item.description || '';
+            row.getCell(5).value = item.action || '';
+            row.getCell(6).value = item.department || '';
+            row.getCell(7).value = item.comments || '';
+            row.getCell(8).value = normStatus(item.status);
+          });
+          const out = await wb.xlsx.writeBuffer();
+          await downloadBlob(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
+          toast("Excel ready");
+          return;
+        } catch (err2) {
+          toast("Could not write the Excel file");
+        }
+      }
+    }
+
+    document.getElementById("btn-export").addEventListener("click", () => {
+      const sheet = document.getElementById('plExportSheet');
+      if (sheet) sheet.removeAttribute('hidden');
+    });
+    const plExportPdf = document.getElementById('plExportPdf');
+    if (plExportPdf) plExportPdf.addEventListener('click', () => {
+      const sheet = document.getElementById('plExportSheet');
+      if (sheet) sheet.setAttribute('hidden', '');
+      exportPunchlistPdf();
+    });
+    const plExportXlsx = document.getElementById('plExportXlsx');
+    if (plExportXlsx) plExportXlsx.addEventListener('click', () => {
+      const sheet = document.getElementById('plExportSheet');
+      if (sheet) sheet.setAttribute('hidden', '');
+      exportPunchlistExcel().catch(err => {
+        console.warn(err);
+        toast("Could not build Excel file");
+      });
+    });
+    const plExportCancel = document.getElementById('plExportCancel');
+    if (plExportCancel) plExportCancel.addEventListener('click', () => {
+      const sheet = document.getElementById('plExportSheet');
+      if (sheet) sheet.setAttribute('hidden', '');
+    });
+
+    async function initPunchlist() {
+      await plLoadData();
+      populateJobSelect();
+      renderList();
+      updateOnlineStatus();
+      try {
+        if (data && data.currentJob) {
+          if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(data.currentJob);
+          else localStorage.setItem('lx8_last_punchlist', JSON.stringify(data.currentJob));
+        }
+      } catch (e) {}
+    }
+    window.initPunchlist = initPunchlist;
+    initPunchlist().catch(err => console.warn('Punchlist init', err));
+  
+    })();
+  
