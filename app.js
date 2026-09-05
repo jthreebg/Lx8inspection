@@ -5431,67 +5431,97 @@ const IDB_NAME = "FieldPunchlistDB";
         if (v === "not started" || v === "open") return "Not Started";
         return String(s || "").trim() || "Not Started";
       }
+      function statusFill(s) {
+        const v = String(s || "").toLowerCase();
+        if (v === "complete") return "C6EFCE";
+        if (v === "in progress") return "BDD7EE";
+        if (v === "waiting parts") return "FFE699";
+        return "FF6B6B";
+      }
+      function statusFont(s) {
+        const v = String(s || "").toLowerCase();
+        if (v === "complete") return "006100";
+        if (v === "in progress") return "1F4E79";
+        if (v === "waiting parts") return "7F6000";
+        return "FFFFFF";
+      }
 
       await ensureExcelLibs();
-      try {
-        if (typeof ExcelJS === "undefined") throw new Error("ExcelJS missing");
-        const templateBuf = await getStoredTemplateBuffer();
-        const wb = new ExcelJS.Workbook();
-        await wb.xlsx.load(templateBuf);
-        const ws = wb.worksheets[0];
-
-        const firstDataRow = 6;
-        const lastTemplateRow = 50;
-        const count = Math.min(items.length, lastTemplateRow - firstDataRow + 1);
-
-        for (let idx = 0; idx < count; idx++) {
-          const item = items[idx];
-          const row = ws.getRow(firstDataRow + idx);
-          row.getCell(1).value = idx + 1;
-          row.getCell(2).value = item.line || "";
-          row.getCell(3).value = item.location || "";
-          row.getCell(4).value = item.description || "";
-          row.getCell(5).value = item.action || "";
-          row.getCell(6).value = item.department || "";
-          row.getCell(7).value = item.comments || "";
-          row.getCell(8).value = normStatus(item.status);
-        }
-
-        const out = await wb.xlsx.writeBuffer();
-        await downloadBlob(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
-        toast("Excel ready — use Save to Files if asked");
+      if (typeof ExcelJS === "undefined") {
+        toast("Excel library not available");
         return;
-      } catch (err) {
-        console.warn("Template export failed", err);
-        try {
-          const wb = new ExcelJS.Workbook();
-          const ws = wb.addWorksheet('Punchlist');
-          ws.columns = [{width:8},{width:16},{width:18},{width:36},{width:28},{width:16},{width:28},{width:16}];
-          const head = ws.getRow(1);
-          ['#','Line','Location','Description','Action','Department','Comments','Status'].forEach((h,i)=>{
-            head.getCell(i+1).value=h;
-            head.getCell(i+1).font={bold:true};
-          });
-          items.forEach((item, idx) => {
-            const row = ws.getRow(2+idx);
-            row.getCell(1).value = idx+1;
-            row.getCell(2).value = item.line || '';
-            row.getCell(3).value = item.location || '';
-            row.getCell(4).value = item.description || '';
-            row.getCell(5).value = item.action || '';
-            row.getCell(6).value = item.department || '';
-            row.getCell(7).value = item.comments || '';
-            row.getCell(8).value = normStatus(item.status);
-          });
-          const out = await wb.xlsx.writeBuffer();
-          await downloadBlob(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
-          toast("Excel ready");
-          return;
-        } catch (err2) {
-          toast("Could not write the Excel file");
-        }
       }
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "LeMatic Field Service";
+      const ws = wb.addWorksheet("Punchlist", {
+        views: [{ state: "frozen", ySplit: 1, showGridLines: true }]
+      });
+      ws.columns = [
+        { header: "Item", key: "item", width: 8 },
+        { header: "Line", key: "line", width: 14 },
+        { header: "Location", key: "location", width: 18 },
+        { header: "Description", key: "description", width: 36 },
+        { header: "Action", key: "action", width: 32 },
+        { header: "Department", key: "department", width: 16 },
+        { header: "Comments", key: "comments", width: 36 },
+        { header: "Status", key: "status", width: 16 }
+      ];
+      const head = ws.getRow(1);
+      head.height = 22;
+      head.eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" }, name: "Calibri", size: 11 };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF141418" } };
+        cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFB0B0B0" } },
+          left: { style: "thin", color: { argb: "FFB0B0B0" } },
+          bottom: { style: "thin", color: { argb: "FFB0B0B0" } },
+          right: { style: "thin", color: { argb: "FFB0B0B0" } }
+        };
+      });
+
+      const rows = items.length ? items : [{}];
+      rows.forEach((item, idx) => {
+        const status = normStatus(item.status);
+        const row = ws.addRow([
+          idx + 1,
+          item.line || "",
+          item.location || "",
+          item.description || "",
+          item.action || "",
+          item.department || "",
+          item.comments || "",
+          status
+        ]);
+        row.height = 28;
+        row.eachCell((cell, col) => {
+          cell.font = { name: "Calibri", size: 11, color: { argb: "FF222222" } };
+          cell.alignment = { vertical: "middle", wrapText: true, horizontal: col === 1 || col === 8 ? "center" : "left" };
+          cell.border = {
+            top: { style: "thin", color: { argb: "FFD0D0D0" } },
+            left: { style: "thin", color: { argb: "FFD0D0D0" } },
+            bottom: { style: "thin", color: { argb: "FFD0D0D0" } },
+            right: { style: "thin", color: { argb: "FFD0D0D0" } }
+          };
+          if (col === 8) {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + statusFill(status) } };
+            cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF" + statusFont(status) } };
+          }
+        });
+      });
+
+      const out = await wb.xlsx.writeBuffer();
+      const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+      toast("Excel ready — use Save to Files if asked");
     }
+
 
     function openPlExportSheet() {
       const sheet = document.getElementById('plExportSheet');
