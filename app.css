@@ -215,7 +215,9 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 12px;
-      padding: 16px 16px 12px;
+      row-gap: 12px;
+      column-gap: 12px;
+      padding: 0 16px 16px;
       position: relative;
       z-index: 1;
     }
@@ -498,7 +500,7 @@
       background: rgba(255, 255, 255, 0.16);
     }
     .header-actions {
-      display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+      display: flex; align-items: center; gap: 12px; flex-shrink: 0;
     }
     #btnHeaderBack { display: none; }
     #btnInspectHome { display: none; }
@@ -3218,7 +3220,7 @@
       margin: 8px 16px 0;
     }
     #homeCurrentJobCard {
-      margin: 8px 16px 4px;
+      margin: 0 16px 12px;
     }
 
     .header-logo { order: 0; }

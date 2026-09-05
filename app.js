@@ -1171,6 +1171,7 @@
 
     let jobSerialsDraft = [];
     let machineModalMode = 'job';
+    let pendingInspectJobId = null;
 
     function updateJobMachineSummary() {
       const el = document.getElementById('jobMachineSummaryText');
@@ -1507,16 +1508,43 @@
     }
 
     function startInspectionFromMachinePopup() {
-      const job = loadJobs().find(j => j.id === detailJobId);
-      if (!job) { toast('Job not found'); closeMachineModal(); return; }
+      const jobId = pendingInspectJobId || detailJobId;
+      const job = jobId ? loadJobs().find(j => j.id === jobId) : null;
       const serial = readJobSerial();
-      const model = readInspectMachine() || job.machine || 'LX-8';
+      const model = (typeof readInspectMachine === 'function' && readInspectMachine()) || (job && job.machine) || 'LX-8';
+      if (!job) {
+        closeMachineModal();
+        machineModalMode = 'job';
+        pendingInspectJobId = null;
+        if (typeof setActiveMachine === 'function') setActiveMachine(model);
+        currentInspection = {
+          id: 'ins_' + Date.now(),
+          customer: '',
+          model,
+          serial: serial || 'TBD',
+          technician: '',
+          date: new Date().toISOString().slice(0, 10),
+          po: '',
+          status: 'Draft',
+          results: {},
+          findings: [],
+          currentSectionIndex: 0,
+          createdAt: new Date().toISOString()
+        };
+        saveCurrentDraft();
+        renderSection();
+        showScreen('screenInspect');
+        setHeader('Inspecting');
+        toast('Inspection started');
+        return;
+      }
       if (serial) {
         if (!jobSerialsDraft.some(s => String(s).toLowerCase() === serial.toLowerCase())) jobSerialsDraft.push(serial);
         rememberJobSerial(job.id, serial);
       }
       closeMachineModal();
       machineModalMode = 'job';
+      pendingInspectJobId = null;
       currentInspection = null;
       editingInspectionId = null;
       results = {};
@@ -2337,6 +2365,7 @@
       return (list && list[0]) || null;
     }
     function startInspectionForJob(job) {
+      pendingInspectJobId = job ? job.id : null;
       currentInspection = null;
       editingInspectionId = null;
       results = {};
@@ -2346,38 +2375,22 @@
       if (beginBtn) beginBtn.textContent = 'Begin Inspection';
       const delBtn = document.getElementById('btnDeleteInspection');
       if (delBtn) delBtn.classList.add('hidden');
-      if (job) {
-        const model = job.machine || 'LX-8';
-        setActiveMachine(model);
-        currentInspection = {
-          id: 'ins_' + Date.now(),
-          customer: job.customer || '',
-          model,
-          serial: (job.serials && job.serials[0]) || (job.site || '').trim() || 'TBD',
-          technician: job.technician || '',
-          date: job.date || new Date().toISOString().slice(0, 10),
-          po: job.po || job.salesOrder || '',
-          jobId: job.id,
-          status: 'Draft',
-          results: {},
-          findings: [],
-          currentSectionIndex: 0,
-          createdAt: new Date().toISOString()
-        };
-        linkedJobIdForStart = null;
-        saveCurrentDraft();
-        renderSection();
-        showScreen('screenInspect');
-        setHeader('Inspecting');
-        toast('Inspection started — ' + jobDisplayName(job));
-        return;
-      }
-      initStartForm();
-      applyJobToInspectionForm(null);
-      const ex = document.getElementById('exampleInspectCard');
-      if (ex) ex.classList.remove('hidden');
-      showScreen('screenStart');
-      setHeader('New Inspection');
+      if (job) applyJobToInspectionForm(job);
+      else applyJobToInspectionForm(null);
+      const model = (job && job.machine) || 'LX-8';
+      const modelEl = document.getElementById('inpModel');
+      if (modelEl) modelEl.value = model;
+      jobSerialsDraft = (job && Array.isArray(job.serials)) ? job.serials.slice() : [];
+      if (typeof fillInspectionSerialOptions === 'function' && job) fillInspectionSerialOptions(job);
+      machineModalMode = 'startInspect';
+      const title = document.getElementById('machineModalTitle');
+      const done = document.getElementById('machineModalDone');
+      if (title) title.textContent = 'Machine & serial';
+      if (done) done.textContent = 'Start inspection';
+      if (typeof setInspectMachineFields === 'function') setInspectMachineFields(model);
+      if (typeof populateJobSerialSelect === 'function') populateJobSerialSelect(jobSerialsDraft, jobSerialsDraft[0] || '');
+      openMachineModal();
+      toast('Add machine type and serial number to start inspection');
     }
     async function startPunchlistForCurrentJob(job) {
       try {
