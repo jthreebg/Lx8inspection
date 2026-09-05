@@ -1724,6 +1724,7 @@
       if (kind === 'visit') performDeleteVisit(id);
       else if (kind === 'job') performDeleteJob(id);
       else if (kind === 'punchlist-item') performDeletePunchlistItem(id);
+      else if (kind === 'punchlist-photo') { removePhoto(); closePunchlistPhoto(); closeDeleteModal(); }
       else performDeleteInspection(id);
     });
 
@@ -4847,6 +4848,17 @@ const IDB_NAME = "FieldPunchlistDB";
       reader.readAsDataURL(file);
     }
 
+
+    function requestDeletePunchlistPhoto(ev) {
+      if (ev) ev.stopPropagation();
+      pendingDeleteId = editingId || 'photo';
+      pendingDeleteKind = 'punchlist-photo';
+      document.getElementById('deleteModalTitle').textContent = 'Delete photo?';
+      document.getElementById('deleteModalLabel').textContent = 'This photo will be removed from the item.';
+      const modal = document.getElementById('deleteModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('show');
+    }
     function removePhoto() {
       tempPhoto = null;
       const preview = document.getElementById("photo-preview");
@@ -5089,6 +5101,7 @@ const IDB_NAME = "FieldPunchlistDB";
     window.deleteItem = deleteItem;
     window.handlePhoto = handlePhoto;
     window.removePhoto = removePhoto;
+    window.requestDeletePunchlistPhoto = requestDeletePunchlistPhoto;
     window.openPunchlistPhoto = openPunchlistPhoto;
     window.closePunchlistPhoto = closePunchlistPhoto;
     window.closeModal = closeModal;
@@ -5488,30 +5501,38 @@ const IDB_NAME = "FieldPunchlistDB";
       }
     }
 
-    document.getElementById("btn-export").addEventListener("click", () => {
+    function openPlExportSheet() {
       const sheet = document.getElementById('plExportSheet');
-      if (sheet) sheet.removeAttribute('hidden');
+      if (!sheet) return;
+      sheet.hidden = false;
+      sheet.removeAttribute('hidden');
+      sheet.classList.add('show');
+    }
+    function closePlExportSheet() {
+      const sheet = document.getElementById('plExportSheet');
+      if (!sheet) return;
+      sheet.classList.remove('show');
+      sheet.hidden = true;
+      sheet.setAttribute('hidden', '');
+    }
+    document.getElementById("btn-export").addEventListener("click", () => {
+      openPlExportSheet();
     });
     const plExportPdf = document.getElementById('plExportPdf');
     if (plExportPdf) plExportPdf.addEventListener('click', () => {
-      const sheet = document.getElementById('plExportSheet');
-      if (sheet) sheet.setAttribute('hidden', '');
+      closePlExportSheet();
       exportPunchlistPdf();
     });
     const plExportXlsx = document.getElementById('plExportXlsx');
     if (plExportXlsx) plExportXlsx.addEventListener('click', () => {
-      const sheet = document.getElementById('plExportSheet');
-      if (sheet) sheet.setAttribute('hidden', '');
+      closePlExportSheet();
       exportPunchlistExcel().catch(err => {
         console.warn(err);
         toast("Could not build Excel file");
       });
     });
     const plExportCancel = document.getElementById('plExportCancel');
-    if (plExportCancel) plExportCancel.addEventListener('click', () => {
-      const sheet = document.getElementById('plExportSheet');
-      if (sheet) sheet.setAttribute('hidden', '');
-    });
+    if (plExportCancel) plExportCancel.addEventListener('click', closePlExportSheet);
 
     async function initPunchlist() {
       await plLoadData();
