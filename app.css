@@ -28,7 +28,9 @@
       --field-selected-border: #f9fdff;
       --field-selected-ring: 0 0 0 1px #f9fdff;
       --safe-top: env(safe-area-inset-top);
-      --safe-bottom: env(safe-area-inset-bottom);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --bar-pad-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+      --locked-bar-space: calc(58px + env(safe-area-inset-bottom, 0px));
       --radius: 20px;
       --radius-sm: 14px;
       --radius-pill: 999px;
@@ -177,6 +179,7 @@
       flex-direction: column;
       min-height: calc(100dvh - var(--header-h));
       min-height: calc(100svh - var(--header-h));
+      min-height: calc(var(--app-vh, 100dvh) - var(--header-h));
     }
     #screenHome.screen.active {
       display: flex !important;
@@ -635,7 +638,7 @@
       display: none;
       min-height: calc(100dvh - 60px - var(--safe-top));
       min-height: calc(100svh - 60px - var(--safe-top));
-      padding-bottom: calc(24px + var(--safe-bottom));
+      padding-bottom: calc(16px + var(--safe-bottom));
     }
     .screen.active { display: block; }
     #screenHome.active {
@@ -650,7 +653,7 @@
     #screenInspectPreview.active,
     #screenVisit.active,
     #screenVisitPreview.active {
-      padding-bottom: calc(88px + var(--safe-bottom));
+      padding-bottom: var(--locked-bar-space);
     }
     #screenNotes.active {
       display: flex;
@@ -659,6 +662,7 @@
       padding-bottom: env(safe-area-inset-bottom, 0px);
       min-height: calc(100dvh - var(--header-h));
       min-height: calc(100svh - var(--header-h));
+      min-height: calc(var(--app-vh, 100dvh) - var(--header-h));
     }
     body.on-notes #screenNotes.active {
       padding-top: 0;
@@ -1015,7 +1019,7 @@
       border: 0.5px solid var(--border);
       border-bottom: none;
       background: var(--surface, #1a1a1b);
-      padding: 8px 22px max(8px, env(safe-area-inset-bottom, 0px));
+      padding: 8px 22px var(--bar-pad-bottom);
       animation: plSlideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
     }
     #jobDatesModal .modal-handle {
@@ -1052,7 +1056,7 @@
       border: 0.5px solid var(--border);
       border-bottom: none;
       background: var(--surface, #1a1a1b);
-      padding: 0 18px max(8px, env(safe-area-inset-bottom, 0px));
+      padding: 0 18px var(--bar-pad-bottom);
       animation: plSlideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
     }
     #machineModal .modal-handle {
@@ -1102,7 +1106,7 @@
       font-size: 15px;
     }
     #screenStart {
-      padding-bottom: calc(168px + var(--safe-bottom, 0px));
+      padding-bottom: var(--locked-bar-space);
     }
     #screenStart .btn-row {
       position: fixed;
@@ -1114,7 +1118,7 @@
       margin: 0 auto;
       display: flex;
       gap: 10px;
-      padding: 10px 18px max(6px, var(--safe-bottom, 0px));
+      padding: 10px 18px var(--bar-pad-bottom);
       background: #000000;
       border-top: 0.5px solid rgba(255,255,255,0.12);
       z-index: 200;
@@ -1146,7 +1150,7 @@
     #screenStart #btnDeleteInspection.hidden { display: none !important; }
     #screenStart #btnDeleteInspection:not(.hidden) { display: flex !important; }
     #screenJobForm {
-      padding-bottom: calc(168px + var(--safe-bottom, 0px));
+      padding-bottom: var(--locked-bar-space);
     }
     #screenJobForm #btnDeleteJob {
       display: flex;
@@ -1192,7 +1196,7 @@
       margin: 0 auto;
       display: flex;
       gap: 10px;
-      padding: 10px 18px max(6px, var(--safe-bottom, 0px));
+      padding: 10px 18px var(--bar-pad-bottom);
       background: #000000;
       border-top: 0.5px solid rgba(255,255,255,0.12);
       z-index: 200;
@@ -1457,7 +1461,7 @@
     }
     .save-sheet-card {
       margin: 0;
-      padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+      padding: 10px 16px var(--bar-pad-bottom);
       background: #1a1a1b;
       border: none;
       border-top: 1px solid var(--border);
@@ -1484,7 +1488,7 @@
       background: #000000;
       border-top: 1px solid var(--border);
       padding: 12px 16px;
-      padding-bottom: max(6px, env(safe-area-inset-bottom, 0px));
+      padding-bottom: var(--bar-pad-bottom);
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
       display: flex; gap: 10px; z-index: 90;
@@ -1575,6 +1579,7 @@
       flex-direction: column;
       min-height: calc(100dvh - var(--header-h));
       min-height: calc(100svh - var(--header-h));
+      min-height: calc(var(--app-vh, 100dvh) - var(--header-h));
     }
     #screenVisitPreview #vrPreviewSheet {
       flex: 1 1 auto;
@@ -2093,7 +2098,7 @@
     body.on-punchlist #fab-add,
     body.on-jobs-list #fab-add { display: flex; }
     #screenPunchlist {
-      padding-bottom: calc(88px + var(--safe-bottom));
+      padding-bottom: var(--locked-bar-space);
     }
     #screenPunchlist .pl-toolbar {
       padding: 8px 14px 4px;
@@ -2445,7 +2450,7 @@
       border: 0.5px solid var(--border);
       border-bottom: none;
       overflow-y: auto;
-      padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+      padding-bottom: var(--bar-pad-bottom);
       animation: plSlideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
     }
     #jobPickerModal .modal-handle {
@@ -2483,7 +2488,7 @@
       z-index: 1;
       display: flex;
       gap: 10px;
-      padding: 12px 16px max(10px, env(safe-area-inset-bottom, 0px));
+      padding: 10px 16px var(--bar-pad-bottom);
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
       border-top: 0.5px solid rgba(255,255,255,0.12);
@@ -2882,7 +2887,7 @@
       overflow-y: auto;
       flex: 1;
       min-height: 0;
-      padding-bottom: calc(168px + var(--safe-bottom));
+      padding-bottom: var(--locked-bar-space);
     }
     #pl-modal .form-group { margin-bottom: 14px; }
     #pl-modal .form-group label {
@@ -3085,7 +3090,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      padding: 10px 18px max(6px, var(--safe-bottom));
+      padding: 10px 18px var(--bar-pad-bottom);
       background: #000000;
       border-top: 0.5px solid rgba(255,255,255,0.12);
       z-index: 415;
@@ -3110,4 +3115,56 @@
     }
     #pl-modal .icon-btn.danger { color: var(--danger); }
     #homeTilePunchlist .home-tile-icon svg { width: 30px; height: 30px; }
-  
+
+    /* Responsive shell — phone, Android, iPad */
+    html, body {
+      min-height: 100%;
+      min-height: 100dvh;
+      min-height: var(--app-vh, 100dvh);
+    }
+    .app-header,
+    .bottom-bar,
+    .save-sheet,
+    .btn-row[style],
+    #pl-modal .btn-row,
+    #screenJobForm .btn-row,
+    #screenStart .btn-row {
+      max-width: min(560px, 100%);
+      margin-left: auto;
+      margin-right: auto;
+    }
+    @media (min-width: 768px) {
+      :root { --header-h: calc(70px + env(safe-area-inset-top, 0px)); }
+      .home-tile {
+        height: 96px;
+        min-height: 96px;
+        max-height: 96px;
+      }
+      #screenHome > #homeAmbientGlow + .hero { margin-top: 96px; }
+      .app-header,
+      .bottom-bar,
+      #pl-modal .btn-row,
+      #screenJobForm .btn-row,
+      #screenStart .btn-row,
+      #jobPickerModal .modal,
+      #jobDatesModal .machine-sheet,
+      #machineModal .machine-sheet {
+        max-width: min(640px, 100%);
+      }
+    }
+    @media (min-width: 1024px) {
+      .app-header,
+      .bottom-bar,
+      #pl-modal .btn-row,
+      #screenJobForm .btn-row,
+      #screenStart .btn-row,
+      #jobPickerModal .modal,
+      #jobDatesModal .machine-sheet,
+      #machineModal .machine-sheet {
+        max-width: min(720px, 100%);
+      }
+    }
+    @media (max-height: 700px) {
+      #screenHome > #homeAmbientGlow + .hero { margin-top: 56px; }
+      .home-tile { height: 72px; min-height: 72px; max-height: 72px; }
+    }
