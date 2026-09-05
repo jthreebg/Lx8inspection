@@ -4245,7 +4245,7 @@
     // Register service worker (PWA) and keep drafts on device
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=split-2').catch((err) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-1').catch((err) => {
           console.warn('Service worker registration failed:', err);
         });
       });

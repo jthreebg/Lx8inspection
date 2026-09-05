@@ -1,36 +1,26 @@
-const CACHE = 'lematic-fs-split-v2';
+const CACHE = 'lematic-fs-flat-v1';
 const PRECACHE = [
   './',
   './index.html',
-  './css/app.css',
-  './js/app.js',
-  './js/templates.js',
-  './js/pdf-fallback.js',
+  './app.css',
+  './app.js',
+  './templates.js',
+  './pdf-fallback.js',
   './manifest.webmanifest',
   './apple-touch-icon.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/icon-512-maskable.png',
-  './icons/apple-touch-icon.png',
-  './vendor/exceljs.min.js',
-  './vendor/jspdf.umd.min.js',
-  './vendor/jspdf.plugin.autotable.min.js'
+  './icon-192.png',
+  './icon-512.png',
+  './icon-512-maskable.png',
+  './exceljs.min.js',
+  './jspdf.umd.min.js',
+  './jspdf.plugin.autotable.min.js'
 ];
-
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(PRECACHE).catch(() => {})).then(() => self.skipWaiting())
-  );
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE).catch(() => {})).then(() => self.skipWaiting()));
 });
-
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
-
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
