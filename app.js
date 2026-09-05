@@ -3669,6 +3669,10 @@
         row.getCell(5).value = f ? (f.notes || f.item_name || '') : '';
       });
       const safe = String(customer).replace(/[\\/:*?"<>|]/g, '-').trim() || 'Inspection';
+      for (let r = firstDataRow + items.length; r <= lastTemplateRow; r++) {
+        clearUnusedRow(ws.getRow(r));
+      }
+
       const out = await wb.xlsx.writeBuffer();
       const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const a = document.createElement('a');
@@ -5454,9 +5458,18 @@ const IDB_NAME = "FieldPunchlistDB";
       const firstDataRow = 6;
       const lastTemplateRow = 50;
 
+      function clearUnusedRow(row) {
+        for (let c = 1; c <= 8; c++) {
+          const cell = row.getCell(c);
+          cell.value = null;
+          if (c === 6 || c === 8) {
+            cell.fill = { type: "pattern", pattern: "none" };
+            cell.font = { name: "Calibri", size: 10, color: { argb: "FF000000" } };
+          }
+        }
+      }
       for (let r = firstDataRow; r <= lastTemplateRow; r++) {
-        const row = ws.getRow(r);
-        for (let c = 1; c <= 8; c++) row.getCell(c).value = null;
+        clearUnusedRow(ws.getRow(r));
       }
 
       items.forEach((item, idx) => {

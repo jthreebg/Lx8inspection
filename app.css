@@ -3175,3 +3175,7 @@
       #screenHome > #homeAmbientGlow + .hero { margin-top: 56px; }
       .home-tile { height: 72px; min-height: 72px; max-height: 72px; }
     }
+
+    #homeStorageCard {
+      margin: 12px 16px calc(20px + var(--safe-bottom, 0px));
+    }
