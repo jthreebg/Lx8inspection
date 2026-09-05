@@ -408,9 +408,13 @@
       return true;
     }
     function loadInspections() {
-      if (storeMem.inspections) return storeMem.inspections;
+      if (storeMem.inspections) {
+        storeMem.inspections = ensureSampleInspection(storeMem.inspections);
+        return storeMem.inspections;
+      }
       const raw = lsRead('lx8_inspections', []);
-      storeMem.inspections = Array.isArray(raw) ? raw : [];
+      storeMem.inspections = ensureSampleInspection(Array.isArray(raw) ? raw : []);
+      try { saveInspections(storeMem.inspections); } catch (e) {}
       return storeMem.inspections;
     }
     function saveCurrentDraft() {
@@ -452,6 +456,7 @@
       }
       // Header red glow only on home
       document.body.classList.toggle('on-home', id === 'screenHome');
+      document.body.classList.toggle('on-settings', id === 'screenSettings');
       document.body.classList.toggle('on-punchlist', id === 'screenPunchlist');
       document.body.classList.toggle('on-jobs-list', id === 'screenJobsList');
       const fab = document.getElementById('fab-add');
@@ -677,13 +682,40 @@
         else classes.push('job-planned');
         item.className = classes.join(' ');
         const siteLine = [job.site, job.technician].filter(Boolean).join(' · ');
+        const jobInspects = loadInspections().filter(i => i && i.jobId === job.id);
+        const inspectCount = jobInspects.length;
+        let openItems = 0, doneItems = 0;
+        try {
+          if (typeof window.getPunchlistSummaries === 'function') {
+            /* filled below if summaries already loaded */
+          }
+        } catch (e) {}
         item.innerHTML = `
           <div class="hj-top">
             <span class="hj-label">Current job</span>
             <button type="button" class="hj-dates" id="homeCurrentJobDates">${dateRange ? jobEsc(dateRange) : 'Set dates'}</button>
           </div>
           <div class="hj-name">${jobEsc(job.customer || 'Untitled job')}</div>
-          ${siteLine ? `<div class="hj-meta">${jobEsc(siteLine)}</div>` : ''}`;
+          ${siteLine ? `<div class="hj-meta">${jobEsc(siteLine)}</div>` : ''}
+          <div class="hj-stats" id="homeCurrentJobStats"><span><b class="n-open">0</b> Open</span><span><b class="n-done">0</b> Complete</span><span><b class="n-ins">${inspectCount}</b> Inspection${inspectCount===1?'':'s'}</span></div>`;
+        const statsEl = item.querySelector('#homeCurrentJobStats');
+        const fillStats = (openN, doneN) => {
+          if (!statsEl) return;
+          statsEl.innerHTML = `<span><b class="n-open">${openN}</b> Open</span><span><b class="n-done">${doneN}</b> Complete</span><span><b class="n-ins">${inspectCount}</b> Inspection${inspectCount===1?'':'s'}</span>`;
+        };
+        const key = jobDisplayName(job);
+        if (typeof window.searchPunchlistItems === 'function') {
+          window.searchPunchlistItems(' ').catch(() => []);
+        }
+        if (typeof window.getPunchlistStatsForJob === 'function') {
+          window.getPunchlistStatsForJob(job).then(s => fillStats(s.open || 0, s.complete || 0)).catch(() => fillStats(0, 0));
+        } else if (typeof window.getPunchlistSummaries === 'function') {
+          window.getPunchlistSummaries().then(rows => {
+            const row = (rows || []).find(r => r.name === key || r.name === job.customer);
+            if (!row) { fillStats(0, 0); return; }
+            fillStats(Math.max(0, (row.total || 0) - (row.complete || 0)), row.complete || 0);
+          }).catch(() => fillStats(0, 0));
+        }
       }
       card.onclick = (e) => {
         if (e.target.closest('.hj-dates')) return;
@@ -960,6 +992,45 @@
         updatedAt: new Date().toISOString(),
         isSample: true
       };
+    }
+    const SAMPLE_INSPECTION_ID = 'ins_example_orangeburg';
+    function getSampleInspectionRecord() {
+      const exampleResults = {1:{condition:'N/A'},2:{condition:'N/A'},3:{condition:'N/A'},4:{condition:'N/A'},5:{condition:'N/A'},6:{condition:'Good'},7:{condition:'Fair',notes:'Belting is stretched.'},8:{condition:'Good'},9:{condition:'Good'},10:{condition:'Fair',notes:'Some wear but can be adjusted.'},11:{condition:'Fair',notes:'Missing 4 but not needed on clusters.'},12:{condition:'Pass'},13:{condition:'Good'},14:{condition:'Fair',notes:'Belting is stretched.'},15:{condition:'Fair'},16:{condition:'Good',impacts:['Performance']},17:{condition:'Poor',notes:'Both are worn. Infeed is worn a lot.',impacts:['Performance'],severity:2},18:{condition:'Good'},19:{condition:'Fair',notes:'Circuit breaker tripped.'},20:{condition:'Good'},21:{condition:'Good'},22:{condition:'Poor',notes:'Worn smooth, should replace.',impacts:['Performance'],severity:2},23:{condition:'Fair',notes:'Center support bushings gone.'},24:{condition:'Fair',notes:'Play in base, pin, and clevis.'},25:{condition:'Fair',notes:'Broken top corner, op side gate.'},26:{condition:'Good'},27:{condition:'Good'},28:{condition:'Good'},29:{condition:'Good'},30:{condition:'Pass'},31:{condition:'Fair',notes:'Belting new but lane guides have worn grooves in rubber grip top.'},32:{condition:'Good'},33:{condition:'Poor',notes:'Infeed nose bar worn and transition gap is large.',impacts:['Performance'],severity:2},34:{condition:'Good'},35:{condition:'Good'},36:{condition:'Pass'},37:{condition:'Pass'},38:{condition:'Pass',notes:'Blade break prox cable has been cut and taped back together.'},39:{condition:'Good'},40:{condition:'Fair',notes:'Guides showing wear. Mix of old and new belts. Belts should be replaced in sets.'},41:{condition:'Good'},42:{condition:'N/A'},43:{condition:'Good'},44:{condition:'Poor',notes:'Missing blade guides. Blade wipers are broken.',impacts:['Downtime', 'Performance'],severity:2},45:{condition:'Poor',notes:'Bearings are bad, need to be replaced.',impacts:['Downtime', 'Performance'],severity:2},46:{condition:'Fair',notes:'Idler pulley new, drive pulley is worn.'},47:{condition:'Good',notes:'One bad hub, LeMatic and maintenance replaced.'},48:{condition:'Pass'},49:{condition:'Good',notes:'We installed a new blade, old blade had a lot of crumb build up.'},50:{condition:'Good'},51:{condition:'Good'},52:{condition:'Pass'},53:{condition:'Good'},54:{condition:'Good'},55:{condition:'Poor',notes:'Missing tensioner assembly.',impacts:['Downtime', 'Performance'],severity:2},56:{condition:'Good'},57:{condition:'Within Spec'},58:{condition:'Good'},59:{condition:'Good'},60:{condition:'Good'},61:{condition:'N/A'},62:{condition:'Good'},63:{condition:'Good'},65:{condition:'Pass'},66:{condition:'Pass',notes:'Prox is ok but linkage is worn and turning off prox.'},67:{condition:'Poor',notes:'Linkage worn out and needs to be replaced.',impacts:['Downtime', 'Performance'],severity:2},68:{condition:'Good'},69:{condition:'Good'},70:{condition:'Good'},71:{condition:'Good'},72:{condition:'Pass'},73:{condition:'Good'},75:{condition:'Pass'},76:{condition:'Good'},77:{condition:'Good'},78:{condition:'Poor',notes:'Blades are very rusty.',severity:2},79:{condition:'Pass'},81:{condition:'Good'},82:{condition:'Good'},83:{condition:'Fair',notes:'Track is showing some wear.',impacts:['Downtime']},84:{condition:'Good'},85:{condition:'Within Spec'},86:{condition:'Within Spec'},87:{condition:'Good'},88:{condition:'Good'},90:{condition:'Pass'},91:{condition:'Pass'},92:{condition:'Good'},93:{condition:'Good'},94:{condition:'Pass'},95:{condition:'Good'},96:{condition:'Fair',notes:'Non op bagger guides missing bolts.',impacts:['Performance']},97:{condition:'Poor',notes:'Transfer grate is bent, should be replaced.',impacts:['Performance'],severity:2},98:{condition:'Fair',notes:'Friction top is worn smooth, buns may slide.'},99:{condition:'Good'},100:{condition:'Good'},101:{condition:'Pass'},102:{condition:'Good'},103:{condition:'Fair',notes:'Dead plate is slightly bent.'},104:{condition:'Fair',notes:'Some play in clevis.'},105:{condition:'Good'},106:{condition:'Fair',notes:'Brackets were bent, LeMatic and maintenance fixed.'},107:{condition:'Fair',notes:'Some play in clevis'},108:{condition:'Poor',notes:'Bearings feel tight.',impacts:['Downtime'],severity:2},109:{condition:'Good'},110:{condition:'Fail',notes:'Lower drive belt cover is missing',impacts:['Safety'],severity:2},111:{condition:'Fair'},112:{condition:'Fair',notes:'Lift screws slightly noisy needs a little lube.'},113:{condition:'Poor',notes:'Broken tab.',impacts:['Performance'],severity:2},114:{condition:'Good'},115:{condition:'Within Spec'},116:{condition:'Fair',notes:'Should be cleaned.'},117:{condition:'Good'},118:{condition:'Good'},119:{condition:'Good'},120:{condition:'Good'},121:{condition:'Fair',notes:'Belt is slightly old but ok.'},122:{condition:'Good'},123:{condition:'Good'},124:{condition:'Good'},125:{condition:'Good'},126:{condition:'Good'},127:{condition:'Good'},128:{condition:'Within Spec'},129:{condition:'Good'},130:{condition:'Good'},131:{condition:'Out of Spec',notes:'Timing belts are getting loose.',severity:2},132:{condition:'Good'},133:{condition:'Good'},134:{condition:'Good'},135:{condition:'Pass'}};
+      return {
+        id: SAMPLE_INSPECTION_ID,
+        jobId: SAMPLE_JOB_ID,
+        customer: 'BBU Sample Bakery',
+        site: 'Orangeburg',
+        model: 'LX-8',
+        serial: '44621019 Line 1',
+        technician: 'Josh Denig',
+        date: '2026-02-22',
+        po: 'PO-DEMO-1001',
+        status: 'Draft',
+        results: exampleResults,
+        findings: [],
+        currentSectionIndex: 1,
+        createdAt: new Date().toISOString(),
+        overallCondition: 'Needs Attention',
+        coverCards: [
+          { tag: 'Safety', title: 'Missing elevator drive belt cover', body: 'Lower drive-belt cover is off. Put it on before Monday.' },
+          { tag: 'Uptime', title: 'Hinge tensioners', body: 'All three lines. Line 2 is worst. Order the full assembly.' },
+          { tag: 'Slice', title: 'Bottom-slicer linkage', body: 'Worn on all three. Order LH sleeves and clevises.' }
+        ],
+        summaryNotes: "The baggers are in much better condition now than they were a year ago. The bottom slicer linkage and the hinge slicer drive chain tensioners should be the immediate focus for improvement as both of those items can lead to a loss in efficiency and an increase in downtime.\n\nThe horizontal blades in the hinge slicer are the double notch design. They should be swapped for single notch blades as it is very easy to install blades incorrectly, this will lead to a poor slice and/or damage to the machine.\n\nBlade scrapers for the band slicers could increase the life of the blades and decrease down time due to blades coming off."
+      };
+    }
+    function ensureSampleInspection(list) {
+      const arr = Array.isArray(list) ? list.slice() : [];
+      const idx = arr.findIndex(i => i && i.id === SAMPLE_INSPECTION_ID);
+      if (idx < 0) {
+        const full = (typeof window !== 'undefined' && window.__SAMPLE_INSPECTION_FULL) || getSampleInspectionRecord();
+        arr.unshift(full);
+      } else {
+        arr[idx].jobId = SAMPLE_JOB_ID;
+        if (!arr[idx].customer) arr[idx].customer = 'BBU Sample Bakery';
+      }
+      return arr;
     }
     function ensureSampleJob(list) {
       const arr = Array.isArray(list) ? list.slice() : [];
@@ -1822,12 +1893,14 @@
       const exampleResults = {1:{condition:'N/A'},2:{condition:'N/A'},3:{condition:'N/A'},4:{condition:'N/A'},5:{condition:'N/A'},6:{condition:'Good'},7:{condition:'Fair',notes:'Belting is stretched.'},8:{condition:'Good'},9:{condition:'Good'},10:{condition:'Fair',notes:'Some wear but can be adjusted.'},11:{condition:'Fair',notes:'Missing 4 but not needed on clusters.'},12:{condition:'Pass'},13:{condition:'Good'},14:{condition:'Fair',notes:'Belting is stretched.'},15:{condition:'Fair'},16:{condition:'Good',impacts:['Performance']},17:{condition:'Poor',notes:'Both are worn. Infeed is worn a lot.',impacts:['Performance'],severity:2},18:{condition:'Good'},19:{condition:'Fair',notes:'Circuit breaker tripped.'},20:{condition:'Good'},21:{condition:'Good'},22:{condition:'Poor',notes:'Worn smooth, should replace.',impacts:['Performance'],severity:2},23:{condition:'Fair',notes:'Center support bushings gone.'},24:{condition:'Fair',notes:'Play in base, pin, and clevis.'},25:{condition:'Fair',notes:'Broken top corner, op side gate.'},26:{condition:'Good'},27:{condition:'Good'},28:{condition:'Good'},29:{condition:'Good'},30:{condition:'Pass'},31:{condition:'Fair',notes:'Belting new but lane guides have worn grooves in rubber grip top.'},32:{condition:'Good'},33:{condition:'Poor',notes:'Infeed nose bar worn and transition gap is large.',impacts:['Performance'],severity:2},34:{condition:'Good'},35:{condition:'Good'},36:{condition:'Pass'},37:{condition:'Pass'},38:{condition:'Pass',notes:'Blade break prox cable has been cut and taped back together.'},39:{condition:'Good'},40:{condition:'Fair',notes:'Guides showing wear. Mix of old and new belts. Belts should be replaced in sets.'},41:{condition:'Good'},42:{condition:'N/A'},43:{condition:'Good'},44:{condition:'Poor',notes:'Missing blade guides. Blade wipers are broken.',impacts:['Downtime', 'Performance'],severity:2},45:{condition:'Poor',notes:'Bearings are bad, need to be replaced.',impacts:['Downtime', 'Performance'],severity:2},46:{condition:'Fair',notes:'Idler pulley new, drive pulley is worn.'},47:{condition:'Good',notes:'One bad hub, LeMatic and maintenance replaced.'},48:{condition:'Pass'},49:{condition:'Good',notes:'We installed a new blade, old blade had a lot of crumb build up.'},50:{condition:'Good'},51:{condition:'Good'},52:{condition:'Pass'},53:{condition:'Good'},54:{condition:'Good'},55:{condition:'Poor',notes:'Missing tensioner assembly.',impacts:['Downtime', 'Performance'],severity:2},56:{condition:'Good'},57:{condition:'Within Spec'},58:{condition:'Good'},59:{condition:'Good'},60:{condition:'Good'},61:{condition:'N/A'},62:{condition:'Good'},63:{condition:'Good'},65:{condition:'Pass'},66:{condition:'Pass',notes:'Prox is ok but linkage is worn and turning off prox.'},67:{condition:'Poor',notes:'Linkage worn out and needs to be replaced.',impacts:['Downtime', 'Performance'],severity:2},68:{condition:'Good'},69:{condition:'Good'},70:{condition:'Good'},71:{condition:'Good'},72:{condition:'Pass'},73:{condition:'Good'},75:{condition:'Pass'},76:{condition:'Good'},77:{condition:'Good'},78:{condition:'Poor',notes:'Blades are very rusty.',severity:2},79:{condition:'Pass'},81:{condition:'Good'},82:{condition:'Good'},83:{condition:'Fair',notes:'Track is showing some wear.',impacts:['Downtime']},84:{condition:'Good'},85:{condition:'Within Spec'},86:{condition:'Within Spec'},87:{condition:'Good'},88:{condition:'Good'},90:{condition:'Pass'},91:{condition:'Pass'},92:{condition:'Good'},93:{condition:'Good'},94:{condition:'Pass'},95:{condition:'Good'},96:{condition:'Fair',notes:'Non op bagger guides missing bolts.',impacts:['Performance']},97:{condition:'Poor',notes:'Transfer grate is bent, should be replaced.',impacts:['Performance'],severity:2},98:{condition:'Fair',notes:'Friction top is worn smooth, buns may slide.'},99:{condition:'Good'},100:{condition:'Good'},101:{condition:'Pass'},102:{condition:'Good'},103:{condition:'Fair',notes:'Dead plate is slightly bent.'},104:{condition:'Fair',notes:'Some play in clevis.'},105:{condition:'Good'},106:{condition:'Fair',notes:'Brackets were bent, LeMatic and maintenance fixed.'},107:{condition:'Fair',notes:'Some play in clevis'},108:{condition:'Poor',notes:'Bearings feel tight.',impacts:['Downtime'],severity:2},109:{condition:'Good'},110:{condition:'Fail',notes:'Lower drive belt cover is missing',impacts:['Safety'],severity:2},111:{condition:'Fair'},112:{condition:'Fair',notes:'Lift screws slightly noisy needs a little lube.'},113:{condition:'Poor',notes:'Broken tab.',impacts:['Performance'],severity:2},114:{condition:'Good'},115:{condition:'Within Spec'},116:{condition:'Fair',notes:'Should be cleaned.'},117:{condition:'Good'},118:{condition:'Good'},119:{condition:'Good'},120:{condition:'Good'},121:{condition:'Fair',notes:'Belt is slightly old but ok.'},122:{condition:'Good'},123:{condition:'Good'},124:{condition:'Good'},125:{condition:'Good'},126:{condition:'Good'},127:{condition:'Good'},128:{condition:'Within Spec'},129:{condition:'Good'},130:{condition:'Good'},131:{condition:'Out of Spec',notes:'Timing belts are getting loose.',severity:2},132:{condition:'Good'},133:{condition:'Good'},134:{condition:'Good'},135:{condition:'Pass'}};
       currentInspection = {
         id: 'ins_example_orangeburg',
-        customer: 'BBU Orangeburg',
+        jobId: (typeof SAMPLE_JOB_ID !== 'undefined' ? SAMPLE_JOB_ID : 'job_sample_demo'),
+        customer: 'BBU Sample Bakery',
+        site: 'Orangeburg',
         model: 'LX-8',
         serial: '44621019 Line 1',
         technician: 'Josh Denig',
         date: '2026-02-22',
-        po: '',
+        po: 'PO-DEMO-1001',
         status: 'Draft',
         results: exampleResults,
         findings: [],
@@ -1841,6 +1914,9 @@
         ],
         summaryNotes: "The baggers are in much better condition now than they were a year ago. The bottom slicer linkage and the hinge slicer drive chain tensioners should be the immediate focus for improvement as both of those items can lead to a loss in efficiency and an increase in downtime.\n\nThe horizontal blades in the hinge slicer are the double notch design. They should be swapped for single notch blades as it is very easy to install blades incorrectly, this will lead to a poor slice and/or damage to the machine.\n\nBlade scrapers for the band slicers could increase the life of the blades and decrease down time due to blades coming off."
       };
+      currentInspection.jobId = SAMPLE_JOB_ID;
+      currentInspection.results = exampleResults;
+      try { window.__SAMPLE_INSPECTION_FULL = JSON.parse(JSON.stringify(currentInspection)); } catch (e) {}
       results = exampleResults;
       findings = [];
       currentSectionIndex = 1;
@@ -1919,7 +1995,12 @@
       resumeLastPunchlistOrList();
     });
 
-    document.getElementById('btnPunchlistAllLists').addEventListener('click', () => {
+    const btnHeaderPunchlist = document.getElementById('btnHeaderPunchlist');
+    if (btnHeaderPunchlist) btnHeaderPunchlist.addEventListener('click', () => {
+      openPunchlistRecentList();
+    });
+    const btnPunchlistAllLists = document.getElementById('btnPunchlistAllLists');
+    if (btnPunchlistAllLists) btnPunchlistAllLists.addEventListener('click', () => {
       openPunchlistRecentList();
     });
     document.getElementById('homeTileJobs').addEventListener('click', () => {
@@ -2251,13 +2332,76 @@
       if (file) importBackupZip(file);
     });
 
+    function getActiveCurrentJob() {
+      const list = (typeof getCurrentJobs === 'function') ? getCurrentJobs() : [];
+      return (list && list[0]) || null;
+    }
+    function startInspectionForJob(job) {
+      currentInspection = null;
+      editingInspectionId = null;
+      results = {};
+      findings = [];
+      currentSectionIndex = 0;
+      const beginBtn = document.getElementById('btnBeginInspection');
+      if (beginBtn) beginBtn.textContent = 'Begin Inspection';
+      const delBtn = document.getElementById('btnDeleteInspection');
+      if (delBtn) delBtn.classList.add('hidden');
+      if (job) {
+        const model = job.machine || 'LX-8';
+        setActiveMachine(model);
+        currentInspection = {
+          id: 'ins_' + Date.now(),
+          customer: job.customer || '',
+          model,
+          serial: (job.serials && job.serials[0]) || (job.site || '').trim() || 'TBD',
+          technician: job.technician || '',
+          date: job.date || new Date().toISOString().slice(0, 10),
+          po: job.po || job.salesOrder || '',
+          jobId: job.id,
+          status: 'Draft',
+          results: {},
+          findings: [],
+          currentSectionIndex: 0,
+          createdAt: new Date().toISOString()
+        };
+        linkedJobIdForStart = null;
+        saveCurrentDraft();
+        renderSection();
+        showScreen('screenInspect');
+        setHeader('Inspecting');
+        toast('Inspection started — ' + jobDisplayName(job));
+        return;
+      }
+      initStartForm();
+      applyJobToInspectionForm(null);
+      const ex = document.getElementById('exampleInspectCard');
+      if (ex) ex.classList.remove('hidden');
+      showScreen('screenStart');
+      setHeader('New Inspection');
+    }
+    async function startPunchlistForCurrentJob(job) {
+      try {
+        if (typeof window.openPunchlistForJob !== 'function') {
+          toast('Punchlist not ready');
+          return;
+        }
+        const label = await window.openPunchlistForJob(job || null);
+        showScreen('screenPunchlist');
+        setHeader('Punchlist');
+        if (typeof window.renderList === 'function') window.renderList();
+        toast(job ? ('Punchlist: ' + jobDisplayName(job)) : 'Punchlist (no job)');
+      } catch (err) {
+        console.error(err);
+        toast('Could not open punchlist');
+      }
+    }
     document.getElementById('btnNewInspection').addEventListener('click', () => {
       closeSearch();
-      openJobPicker('inspection');
+      startInspectionForJob(getActiveCurrentJob());
     });
     document.getElementById('btnNewPunchlist').addEventListener('click', () => {
       closeSearch();
-      openJobPicker('punchlist');
+      startPunchlistForCurrentJob(getActiveCurrentJob());
     });
 
 
@@ -2965,6 +3109,11 @@
     document.getElementById('btnNotesBack').addEventListener('click', leaveNotesToFindings);
     document.getElementById('btnHeaderBack').addEventListener('click', () => {
       if (document.body.classList.contains('on-notes')) closeFullNotes();
+      if (document.body.classList.contains('on-settings')) {
+        showScreen('screenHome');
+        setHeader('LeMatic Inspection');
+        refreshHome();
+      }
     });
     document.getElementById('btnNotesNext').addEventListener('click', () => {
       if (false) {
@@ -3993,6 +4142,13 @@
       refreshHome();
     });
 
+    const btnSettings = document.getElementById('btnSettings');
+    if (btnSettings) btnSettings.addEventListener('click', () => {
+      closeSearch();
+      showScreen('screenSettings');
+      setHeader('Settings');
+      if (typeof refreshStorageCard === 'function') refreshStorageCard();
+    });
     document.getElementById('btnHome').addEventListener('click', () => {
       if (currentInspection && currentInspection.status !== 'Complete') {
         saveCurrentDraft();
@@ -4059,50 +4215,130 @@
         hideSearchResults();
         return;
       }
-      const matches = loadInspections().filter(ins => {
-        const hay = [
-          ins.customer, ins.serial, ins.technician, ins.model,
-          ins.po, ins.date, ins.status
-        ].map(x => (x || '').toLowerCase()).join(' ');
-        return hay.includes(q);
-      }).slice(0, 30);
-
-      if (matches.length === 0) {
-        panel.innerHTML = `<div class="search-empty">No inspections match</div>`;
-      } else {
-        panel.innerHTML = matches.map(ins => {
-          const findCount = (ins.findings || []).length;
-          const statusClass = ins.status === 'Complete' ? 'badge-complete' : 'badge-draft';
-          const statusLabel = ins.status === 'Complete' ? 'Complete' : 'Draft';
-          return `
-            <div class="list-item" data-id="${ins.id}">
-              <div class="list-item-main" data-action="open">
-                <div class="title">${ins.customer || 'Unknown'} – ${ins.model || 'LX-8'} – ${ins.serial || 'No S/N'}</div>
-                <div class="sub">${ins.technician || ''} · ${ins.date || ''} · ${findCount} finding${findCount !== 1 ? 's' : ''}</div>
-              </div>
-              <div class="list-item-actions">
-                <button class="btn-edit" data-action="edit" type="button">Edit</button>
-                <span class="badge ${statusClass}">${statusLabel}</span>
-              </div>
-            </div>`;
-        }).join('');
-        panel.querySelectorAll('.list-item').forEach(el => {
-          const id = el.dataset.id;
-          el.querySelector('[data-action="open"]').addEventListener('click', () => openInspection(id));
-          el.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
-            e.stopPropagation();
-            editInspectionMeta(id);
+      const rows = [];
+      loadJobs().forEach(job => {
+        const hay = [job.customer, job.site, job.contact, job.technician, job.po, job.salesOrder, job.status, job.scope]
+          .map(x => (x || '').toLowerCase()).join(' ');
+        if (hay.includes(q)) {
+          rows.push({
+            kind: 'job',
+            id: job.id,
+            kicker: 'Job',
+            title: job.customer || 'Untitled job',
+            sub: [job.site, formatJobDateRange(job), job.status].filter(Boolean).join(' · ')
           });
-        });
+        }
+      });
+      loadInspections().forEach(ins => {
+        const hay = [ins.customer, ins.serial, ins.technician, ins.model, ins.po, ins.date, ins.status]
+          .map(x => (x || '').toLowerCase()).join(' ');
+        if (hay.includes(q)) {
+          rows.push({
+            kind: 'inspection',
+            id: ins.id,
+            kicker: 'Inspection',
+            title: (ins.customer || 'Unknown') + ' – ' + (ins.model || 'LX-8') + ' – ' + (ins.serial || 'No S/N'),
+            sub: [ins.technician, ins.date, ins.status].filter(Boolean).join(' · ')
+          });
+        }
+      });
+      try {
+        const punch = (typeof window.getPunchlistSummaries === 'function') ? null : null;
+      } catch (e) {}
+      const punchNames = [];
+      try {
+        if (window.__plData && window.__plData.jobs) {
+          Object.keys(window.__plData.jobs).forEach(name => punchNames.push(name));
+        }
+      } catch (e) {}
+      // punchlist internal data
+      try {
+        if (typeof window.getPunchlistSummaries === 'function') {
+          /* summaries filled async below */
+        }
+      } catch (e) {}
+
+      function paint(extraPunch) {
+        const all = rows.concat(extraPunch || []).slice(0, 40);
+        if (!all.length) {
+          panel.innerHTML = `<div class="search-empty">No matches</div>`;
+        } else {
+          panel.innerHTML = all.map(row => `
+            <div class="list-item" data-kind="${row.kind}" data-id="${String(row.id || row.name || '').replace(/"/g,'')}" data-job="${String(row.job || '').replace(/"/g,'')}">
+              <div class="list-item-main" data-action="open">
+                <div class="search-result-kicker">${row.kicker}</div>
+                <div class="title">${row.title}</div>
+                <div class="sub">${row.sub || ''}</div>
+              </div>
+            </div>
+          `).join('');
+          panel.querySelectorAll('.list-item').forEach(el => {
+            el.addEventListener('click', () => {
+              const kind = el.dataset.kind;
+              const id = el.dataset.id;
+              closeSearch();
+              if (kind === 'job') {
+                const job = loadJobs().find(j => j.id === id);
+                if (job && typeof openJobDetail === 'function') openJobDetail(job.id);
+                else if (job) { showScreen('screenJobsList'); refreshJobsList(); }
+              } else if (kind === 'inspection') {
+                openInspection(id);
+              } else if (kind === 'punchlist') {
+                if (typeof window.openPunchlistByName === 'function') {
+                  window.openPunchlistByName(id).then(() => {
+                    showScreen('screenPunchlist');
+                    setHeader('Punchlist');
+                    if (typeof window.renderList === 'function') window.renderList();
+                  }).catch(() => toast('Could not open punchlist'));
+                }
+              } else if (kind === 'punchitem') {
+                const job = el.dataset.job || el.getAttribute('data-job');
+                if (typeof window.openPunchlistItem === 'function') {
+                  window.openPunchlistItem(job, Number(id) || id).then(() => {
+                    showScreen('screenPunchlist');
+                    setHeader('Punchlist');
+                  }).catch(() => toast('Could not open item'));
+                }
+              }
+            });
+          });
+        }
+        panel.hidden = false;
+        panel.classList.add('show');
+        const scrim = document.getElementById('searchScrim');
+        if (scrim) {
+          scrim.hidden = false;
+          scrim.classList.add('show');
+        }
+        positionSearchResults();
       }
-      panel.hidden = false;
-      panel.classList.add('show');
-      const scrim = document.getElementById('searchScrim');
-      if (scrim) {
-        scrim.hidden = false;
-        scrim.classList.add('show');
+
+      if (typeof window.getPunchlistSummaries === 'function') {
+        Promise.all([
+          window.getPunchlistSummaries(),
+          window.searchPunchlistItems ? window.searchPunchlistItems(q) : Promise.resolve([])
+        ]).then(([list, items]) => {
+          const extra = (list || []).filter(r => String(r.name || '').toLowerCase().includes(q)).map(r => ({
+            kind: 'punchlist',
+            id: r.name,
+            name: r.name,
+            kicker: 'Punchlist',
+            title: r.name,
+            sub: (r.total || 0) + ' item' + ((r.total || 0) !== 1 ? 's' : '') + ' · ' + (r.complete || 0) + ' complete'
+          }));
+          (items || []).forEach(it => extra.push({
+            kind: 'punchitem',
+            id: String(it.id),
+            job: it.job,
+            kicker: 'Punchlist item',
+            title: it.description || 'Item',
+            sub: [it.job, it.status, it.line, it.location].filter(Boolean).join(' · ')
+          }));
+          paint(extra);
+        }).catch(() => paint([]));
+      } else {
+        paint([]);
       }
-      positionSearchResults();
     }
 
     function closeSearch() {
@@ -4329,6 +4565,7 @@ const IDB_NAME = "FieldPunchlistDB";
     let tempPhoto = null;
     let filterField = "any";
     let filterQuery = "";
+    let plStatusFilters = [];
     let filterChipValue = "";
 
     const CARD_FIELDS = ["description","line","location","action","department","status","priority","responsible","dueDate","createdAt","comments"];
@@ -4499,6 +4736,10 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
     function itemMatchesFilter(item) {
+      if (plStatusFilters && plStatusFilters.length) {
+        const st = String(item.status || "Not Started");
+        if (!plStatusFilters.includes(st)) return false;
+      }
       const q = (filterQuery || "").trim().toLowerCase();
       const chip = (filterChipValue || "").trim().toLowerCase();
       if (!q && !chip) return true;
@@ -4640,6 +4881,31 @@ const IDB_NAME = "FieldPunchlistDB";
       });
     }
 
+    function syncStatusChips() {
+      const map = {
+        "stat-open": "Not Started",
+        "stat-progress": "In Progress",
+        "stat-done": "Complete"
+      };
+      Object.keys(map).forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.toggle("on", plStatusFilters.indexOf(map[id]) >= 0);
+      });
+    }
+    function onStatusChipTap(status) {
+      const i = plStatusFilters.indexOf(status);
+      if (i >= 0) plStatusFilters.splice(i, 1);
+      else plStatusFilters.push(status);
+      syncStatusChips();
+      renderList();
+    }
+    ["stat-open","stat-progress","stat-done"].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.bound === "1") return;
+      el.dataset.bound = "1";
+      el.addEventListener("click", () => onStatusChipTap(el.getAttribute("data-filter") || ""));
+    });
     function renderList() {
       const items = getItems();
       const list = document.getElementById("item-list");
@@ -4655,6 +4921,7 @@ const IDB_NAME = "FieldPunchlistDB";
       document.getElementById("stat-open").innerHTML = `<strong>${items.filter(i => i.status === "Not Started").length}</strong> Open`;
       document.getElementById("stat-progress").innerHTML = `<strong>${items.filter(i => i.status === "In Progress").length}</strong> In Progress`;
       document.getElementById("stat-done").innerHTML = `<strong>${items.filter(i => i.status === "Complete").length}</strong> Done`;
+      if (typeof syncStatusChips === "function") syncStatusChips();
       updateFilterButton();
 
       if (items.length === 0) {
@@ -5147,6 +5414,44 @@ const IDB_NAME = "FieldPunchlistDB";
         else localStorage.setItem('lx8_last_punchlist', data.currentJob);
       } catch (e) {}
       return data.currentJob;
+    };
+    window.getPunchlistStatsForJob = async function(jobOrName) {
+      await plLoadData();
+      if (!data || !data.jobs) return { total: 0, open: 0, complete: 0 };
+      const name = typeof jobOrName === 'string' ? jobOrName : (jobOrName && (jobOrName.customer && jobOrName.site ? (jobOrName.customer + ' – ' + jobOrName.site) : (jobOrName.customer || '')));
+      const keys = Object.keys(data.jobs);
+      const key = keys.find(k => k === name) || keys.find(k => jobOrName && data.jobIdByKey && data.jobIdByKey[k] === jobOrName.id) || keys.find(k => jobOrName && k.indexOf(jobOrName.customer || '') === 0);
+      const items = key ? (data.jobs[key] || []) : [];
+      const complete = items.filter(i => i && i.status === 'Complete').length;
+      return { total: items.length, open: items.length - complete, complete };
+    };
+    window.searchPunchlistItems = async function(q) {
+      await plLoadData();
+      const needle = String(q || "").trim().toLowerCase();
+      if (!needle || !data || !data.jobs) return [];
+      const out = [];
+      Object.keys(data.jobs).forEach(name => {
+        (data.jobs[name] || []).forEach(item => {
+          if (!item) return;
+          const hay = [item.description, item.action, item.location, item.line, item.comments, item.department, item.status, name]
+            .map(x => String(x || "").toLowerCase()).join(" ");
+          if (hay.indexOf(needle) >= 0) {
+            out.push({
+              job: name,
+              id: item.id,
+              description: item.description || "Punchlist item",
+              status: item.status || "",
+              location: item.location || "",
+              line: item.line || ""
+            });
+          }
+        });
+      });
+      return out.slice(0, 30);
+    };
+    window.openPunchlistItem = async function(jobName, itemId) {
+      await window.openPunchlistByName(jobName);
+      if (typeof openDetail === "function") openDetail(itemId);
     };
     window.getPunchlistSummaries = async function() {
       await plLoadData();
