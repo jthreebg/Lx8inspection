@@ -4844,3 +4844,140 @@
       top: calc(-1 * var(--header-h, 81px)) !important;
       height: 560px;
     }
+
+    html.theme-light #screenTime,
+    html.theme-light #screenTimeWeek,
+    html.theme-light #screenTimeEdit {
+      background: #e8eaee !important;
+      color: #111827 !important;
+    }
+    html.theme-light #screenTime .card,
+    html.theme-light #screenTimeWeek .card,
+    html.theme-light #screenTimeEdit .card,
+    html.theme-light .tc-status-card,
+    html.theme-light .tc-week-card,
+    html.theme-light .tc-entry {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border: 1px solid rgba(15,23,42,0.14) !important;
+      box-shadow: 0 8px 24px rgba(15,23,42,0.08) !important;
+    }
+    html.theme-light .tc-week-label,
+    html.theme-light .tc-entry-title,
+    html.theme-light .tc-status-time,
+    html.theme-light #screenTime .list-page-head h2,
+    html.theme-light #screenTimeWeek .list-page-head h2,
+    html.theme-light #screenTimeEdit .list-page-head h2 {
+      color: #111827 !important;
+    }
+    html.theme-light .tc-week-kicker,
+    html.theme-light .tc-entry-sub,
+    html.theme-light .tc-status-kicker,
+    html.theme-light .tc-status-meta,
+    html.theme-light .tc-week-totals,
+    html.theme-light .list-page-kicker {
+      color: #4b5563 !important;
+    }
+    html.theme-light .tc-week-totals strong { color: #111827 !important; }
+    html.theme-light .tc-type-chip {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border-color: rgba(15,23,42,0.16) !important;
+    }
+    html.theme-light .tc-type-chip.on {
+      background: #e5e7eb !important;
+      color: #111827 !important;
+      border-color: #111827 !important;
+    }
+    html.theme-light .tc-week-pick-card,
+    html.theme-light #tcNameSheet .save-sheet-card,
+    html.theme-light #tcNameSheet {
+      background: rgba(255,255,255,0.94) !important;
+      color: #111827 !important;
+      border-color: rgba(15,23,42,0.12) !important;
+    }
+    html.theme-light #screenTimeEdit input,
+    html.theme-light #screenTimeEdit select,
+    html.theme-light #screenTimeEdit textarea,
+    html.theme-light #tcWeekSelect {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border-color: rgba(15,23,42,0.14) !important;
+      color-scheme: light !important;
+    }
+
+    html.theme-light #screenJobsList,
+    html.theme-light #screenJobDetail,
+    html.theme-light #screenJobForm {
+      background: #e8eaee !important;
+      color: #111827 !important;
+    }
+    html.theme-light #screenJobsList .pl-item,
+    html.theme-light #screenJobDetail .card,
+    html.theme-light #screenJobForm .card,
+    html.theme-light .job-detail-scope,
+    html.theme-light .job-detail-list-card {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border: 1px solid rgba(15,23,42,0.14) !important;
+      box-shadow: 0 8px 24px rgba(15,23,42,0.08) !important;
+    }
+    html.theme-light #screenJobsList .list-page-head h2,
+    html.theme-light #screenJobDetail #jobDetailTitle,
+    html.theme-light #screenJobDetail h2,
+    html.theme-light .jd-value,
+    html.theme-light .jd-scope-text,
+    html.theme-light .jd-notes-text {
+      color: #111827 !important;
+    }
+    html.theme-light .jd-section-label,
+    html.theme-light #jobDetailScopeCard .jd-section-label,
+    html.theme-light #screenJobDetail .jd-section-label {
+      color: #111827 !important;
+    }
+    html.theme-light .jd-label,
+    html.theme-light .job-detail-sub,
+    html.theme-light #screenJobsList .list-page-kicker,
+    html.theme-light #screenJobDetail .list-page-kicker {
+      color: #4b5563 !important;
+    }
+    html.theme-light #screenJobDetail .jd-row {
+      border-bottom-color: rgba(15,23,42,0.08) !important;
+    }
+    html.theme-light #screenJobForm input,
+    html.theme-light #screenJobForm select,
+    html.theme-light #screenJobForm textarea {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border-color: rgba(15,23,42,0.14) !important;
+      color-scheme: light !important;
+    }
+    html.theme-light #btnEditJobDetail,
+    html.theme-light .btn-edit {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border: 1px solid rgba(15,23,42,0.16) !important;
+    }
+
+    html.theme-light .modal-sheet,
+    html.theme-light #deleteModal .modal-sheet {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border: 1px solid rgba(15,23,42,0.14) !important;
+      box-shadow: 0 16px 40px rgba(15,23,42,0.18) !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+    html.theme-light .modal-title,
+    html.theme-light #deleteModalTitle {
+      color: #111827 !important;
+    }
+    html.theme-light .modal-sheet .modal-body,
+    html.theme-light #deleteModalLabel {
+      color: #374151 !important;
+    }
+    html.theme-light #deleteModalCancel {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border-color: rgba(15,23,42,0.18) !important;
+    }

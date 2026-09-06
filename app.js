@@ -5019,7 +5019,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-13', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-14', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
