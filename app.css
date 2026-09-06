@@ -3561,7 +3561,6 @@
         max-height: 96px;
       }
       #screenHome > #homeAmbientGlow + .hero { margin-top: 16px; }
-      .app-header,
       .bottom-bar,
       #pl-modal .btn-row,
       #screenJobForm .btn-row,
@@ -3573,7 +3572,6 @@
       }
     }
     @media (min-width: 1024px) {
-      .app-header,
       .bottom-bar,
       #pl-modal .btn-row,
       #screenJobForm .btn-row,
@@ -4386,72 +4384,13 @@
       pointer-events: none !important;
     }
 
-    /* Center a single readable column on tablet / desktop / large Android */
-    .app-header,
-    .section-progress,
-    .search-bar.show,
-    #searchResults.show,
-    .screen.active,
-    #screenHome.screen.active {
-      width: 100%;
-      max-width: 430px;
-      margin-left: auto;
-      margin-right: auto;
-    }
+
+    /* Pill header always spans the full screen width */
     .app-header {
-      left: 0;
-      right: 0;
-    }
-    #searchScrim.show { left: 0; right: 0; }
-    #pl-modal .btn-row,
-    #pl-modal .pl-item-bar,
-    #screenJobForm .btn-row,
-    #screenStart .btn-row,
-    .btn-row.tc-edit-bar {
-      max-width: 430px !important;
       left: 0 !important;
       right: 0 !important;
-      margin-left: auto !important;
-      margin-right: auto !important;
-    }
-    @media (min-width: 768px) {
-      .app-header,
-      .section-progress,
-      .search-bar.show,
-      #searchResults.show,
-      .screen.active,
-      #screenHome.screen.active,
-      #pl-modal .btn-row,
-      #pl-modal .pl-item-bar,
-      #screenJobForm .btn-row,
-      #screenStart .btn-row,
-      .btn-row.tc-edit-bar {
-        max-width: 640px !important;
-      }
-      .home-tiles { gap: 14px; }
-    }
-    @media (min-width: 1024px) {
-      .app-header,
-      .section-progress,
-      .search-bar.show,
-      #searchResults.show,
-      .screen.active,
-      #screenHome.screen.active,
-      #pl-modal .btn-row,
-      #pl-modal .pl-item-bar,
-      #screenJobForm .btn-row,
-      #screenStart .btn-row,
-      .btn-row.tc-edit-bar {
-        max-width: 720px !important;
-      }
-    }
-    @media (max-width: 359px) {
-      .home-tile { height: 72px; min-height: 72px; max-height: 72px; }
-      .home-tile-title { font-size: 0.86rem; }
-      .app-header { padding-left: 12px; padding-right: 12px; }
-    }
-    @media (orientation: landscape) and (max-height: 500px) {
-      #screenHome > #homeAmbientGlow + .hero { margin-top: 0; padding-bottom: 8px; }
-      .home-round-logo { width: 64px !important; height: 64px !important; }
-      .home-tile { height: 64px; min-height: 64px; max-height: 64px; }
+      width: 100% !important;
+      max-width: none !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
     }
