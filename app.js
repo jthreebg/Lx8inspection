@@ -12,6 +12,13 @@ const ICO = {
     let currentInspection = null;
     let editingInspectionId = null; // when set, start form is in edit-meta mode
     let currentSectionIndex = 0;
+    // When a section is expanded (list mode), multiple item cards are on
+    // screen at once, so the single "current item" pointer used for swipe
+    // mode can't tell the camera which card you mean. When you tap a
+    // specific card's own camera button, its item id is stashed here so
+    // the photo attaches to that card instead of whatever currentItemIndex
+    // happens to be. Null means "use the normal current item" (swipe mode).
+    let pendingCameraItemId = null;
     let currentItemIndex = 0;
     let inspectListMode = false;
     let inspectSlideDir = null;
@@ -804,7 +811,12 @@ const ICO = {
           window.getPunchlistStatsForJob(job).then(s => fillStats(s.open || 0, s.complete || 0)).catch(() => fillStats(0, 0));
         } else if (typeof window.getPunchlistSummaries === 'function') {
           window.getPunchlistSummaries().then(rows => {
-            const row = (rows || []).find(r => r.jobId === job.id) || (rows || []).find(r => r.name === key || r.name === job.customer);
+            // A name match is only safe when that bucket isn't already
+            // claimed by a *different* job (two jobs can share a display
+            // name) — otherwise this would show one job's punchlist stats
+            // on another job's card just because the names collide.
+            const row = (rows || []).find(r => r.jobId === job.id)
+              || (rows || []).find(r => (r.name === key || r.name === job.customer) && !r.jobId);
             if (!row) { fillStats(0, 0); return; }
             fillStats(Math.max(0, (row.total || 0) - (row.complete || 0)), row.complete || 0);
           }).catch(() => fillStats(0, 0));
@@ -1517,7 +1529,10 @@ const ICO = {
         if (typeof window.getPunchlistSummaries === 'function') {
           const rows = await window.getPunchlistSummaries();
           const key = (typeof punchlistKeyForJob === 'function') ? punchlistKeyForJob(job) : (job.customer || '');
-          const match = rows.find(r => r.jobId === job.id) || rows.find(r => r.name === key);
+          // Same caveat as above: only trust a name match when that bucket
+          // isn't already claimed by a different job id, or two jobs with
+          // the same customer/site would show each other's punchlists.
+          const match = rows.find(r => r.jobId === job.id) || rows.find(r => r.name === key && !r.jobId);
           if (match) {
             punchTotal = match.total;
             punchDone = match.complete;
@@ -2953,6 +2968,12 @@ const ICO = {
       const container = document.getElementById('itemsContainer');
       const visible = inspectListMode ? items : (items[currentItemIndex] ? [items[currentItemIndex]] : []);
       container.classList.toggle('inspect-list-mode', !!inspectListMode);
+      // The global camera FAB targets a single "current item" that only
+      // has meaning in swipe mode. With a section expanded, several cards
+      // are visible at once, so hide the FAB (it can't know which card you
+      // mean) — each card gets its own camera button instead, below.
+      const globalCamFab = document.getElementById('fab-inspect-cam');
+      if (globalCamFab) globalCamFab.classList.toggle('hidden', !!inspectListMode);
       container.innerHTML = visible.map(item => {
         const res = results[item.item_id] || {};
         const isAnswered = !!res.condition;
@@ -3008,8 +3029,18 @@ const ICO = {
           ? `<div class="photo-area has-photo"><img class="photo-preview" src="${res.photoDataUrl}" alt="" /></div>`
           : '';
 
+        const camBtnHtml = inspectListMode
+          ? `<button type="button" class="item-card-cam-btn" data-cam-item="${item.item_id}" title="Add photo" aria-label="Add photo">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4.8 8.2h2.1l1.15-1.7h7.9l1.15 1.7H19.2A1.8 1.8 0 0 1 21 10v8.2A1.8 1.8 0 0 1 19.2 20H4.8A1.8 1.8 0 0 1 3 18.2V10a1.8 1.8 0 0 1 1.8-1.8z" stroke="currentColor" stroke-width="1.8"/>
+                <circle cx="12" cy="14.1" r="3.05" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+            </button>`
+          : '';
+
         return `
           <div class="${cardClass}" id="item-${item.item_id}">
+            ${camBtnHtml}
             <div class="item-title" data-answer="${compact ? (res.condition || '') : ''}">${item.inspection_item}</div>
             ${photoHtml}
             <div class="choice-grid">${choiceHtml}</div>
@@ -3062,6 +3093,16 @@ const ICO = {
         });
       });
       if (inspectListMode) {
+        container.querySelectorAll('.item-card-cam-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = parseInt(btn.dataset.camItem, 10);
+            const input = document.getElementById('inspectCamInput');
+            if (!input) return;
+            pendingCameraItemId = id;
+            input.value = '';
+            input.click();
+          });
+        });
         container.querySelectorAll('.item-card').forEach(card => {
           card.addEventListener('click', (e) => {
             if (e.target.closest('.choice-btn, .finding-panel, button, textarea, select, input')) return;
@@ -6083,10 +6124,18 @@ const IDB_NAME = "FieldPunchlistDB";
         : null;
       const name = typeof jobOrName === 'string' ? jobOrName : (jobOrName && (jobOrName.customer && jobOrName.site ? (jobOrName.customer + ' – ' + jobOrName.site) : (jobOrName.customer || '')));
       const keys = Object.keys(data.jobs);
+      // Two jobs can share the same customer/site text, so a bucket already
+      // claimed (via jobIdByKey) by a *different* job must never be picked
+      // up by a plain name/substring match — only an unclaimed bucket, or
+      // one already linked to this same job, is a safe match.
+      const ownedByOther = (k) => {
+        const owner = data.jobIdByKey && data.jobIdByKey[k];
+        return owner && (!jobOrName || owner !== jobOrName.id);
+      };
       const key = (linkedKey && keys.includes(linkedKey) && linkedKey)
-        || keys.find(k => k === name)
+        || keys.find(k => k === name && !ownedByOther(k))
         || keys.find(k => jobOrName && data.jobIdByKey && data.jobIdByKey[k] === jobOrName.id)
-        || keys.find(k => jobOrName && k.indexOf(jobOrName.customer || '') === 0);
+        || keys.find(k => jobOrName && k.indexOf(jobOrName.customer || '') === 0 && !ownedByOther(k));
       const items = key ? (data.jobs[key] || []) : [];
       const complete = items.filter(i => i && i.status === 'Complete').length;
       return { total: items.length, open: items.length - complete, complete };
@@ -7547,8 +7596,16 @@ function tcRenderEntryList(listEl, offset) {
     }
     window.attachInspectCameraPhoto = async function(file) {
       if (!file) return;
-      const items = currentSectionItems();
-      const item = items[currentItemIndex];
+      let item = null;
+      if (pendingCameraItemId != null) {
+        const items = currentSectionItems();
+        item = items.find(it => it.item_id === pendingCameraItemId) || null;
+      }
+      pendingCameraItemId = null;
+      if (!item) {
+        const items = currentSectionItems();
+        item = items[currentItemIndex];
+      }
       if (!item) { toast('No item to attach to'); return; }
       const itemId = item.item_id;
       if (!results[itemId]) results[itemId] = {};
@@ -7581,6 +7638,7 @@ function tcRenderEntryList(listEl, offset) {
       fab.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        pendingCameraItemId = null; // explicit FAB tap always means "the current swiped item"
         input.value = '';
         input.click();
       });
