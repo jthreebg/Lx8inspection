@@ -4775,3 +4775,72 @@
       padding: 0 16px;
       margin-top: 4px;
     }
+
+    html.theme-light,
+    html.theme-light body {
+      background: #e8eaee !important;
+    }
+    html.theme-light .app-header,
+    html.theme-light body:not(.on-home) .app-header,
+    html.theme-light body.on-home .app-header {
+      background: rgba(232, 234, 238, 0.62) !important;
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      backdrop-filter: blur(28px) saturate(180%);
+    }
+    html.theme-light .section-progress,
+    html.theme-light .section-progress::before {
+      background: rgba(232, 234, 238, 0.62) !important;
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      backdrop-filter: blur(28px) saturate(180%);
+    }
+    html.theme-light .bottom-bar,
+    html.theme-light #pl-modal .btn-row,
+    html.theme-light #pl-modal .pl-item-bar,
+    html.theme-light #screenJobForm .btn-row,
+    html.theme-light #screenStart .btn-row,
+    html.theme-light .btn-row.tc-edit-bar {
+      background: rgba(232, 234, 238, 0.86) !important;
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      backdrop-filter: blur(28px) saturate(180%);
+    }
+
+    html.theme-light .storage-card {
+      background: #ffffff !important;
+      border: 1px solid rgba(15,23,42,0.16) !important;
+      box-shadow: 0 8px 24px rgba(15,23,42,0.10) !important;
+      color: #111827 !important;
+    }
+    html.theme-light .storage-card .storage-kicker {
+      color: #4b5563 !important;
+    }
+    html.theme-light .storage-card .storage-line {
+      color: #111827 !important;
+    }
+    html.theme-light .storage-card .storage-sub {
+      color: #4b5563 !important;
+    }
+    html.theme-light .storage-bar {
+      background: rgba(15,23,42,0.12) !important;
+    }
+    html.theme-light .storage-card .btn,
+    html.theme-light .storage-actions .btn {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border: 1px solid rgba(15,23,42,0.18) !important;
+    }
+
+    html.theme-light body.on-home .app-header,
+    html.theme-light body.on-home .app-header::before,
+    html.theme-light body.on-home .app-header::after {
+      background: transparent !important;
+      background-color: transparent !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
+    html.theme-light #homeAmbientGlow {
+      opacity: 0.85;
+      top: calc(-1 * var(--header-h, 81px)) !important;
+      height: 560px;
+    }

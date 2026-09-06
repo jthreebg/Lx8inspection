@@ -19,7 +19,7 @@
     <script>
     (function(){try{if(localStorage.getItem('lx8_theme')==='light')document.documentElement.classList.add('theme-light');}catch(e){}})();
   </script>
-  <link rel="stylesheet" href="app.css?v=12" />
+  <link rel="stylesheet" href="app.css?v=13" />
   
 
 
@@ -296,9 +296,13 @@
         <label>Company phone</label>
         <input type="tel" id="profileCompanyPhone" placeholder="Company phone" autocomplete="tel" />
       </div>
-      <div class="form-group" style="margin:0">
+      <div class="form-group" style="margin:0 0 10px">
         <label>Company address</label>
         <textarea id="profileCompanyAddress" placeholder="Company address" rows="2"></textarea>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Company website</label>
+        <input type="url" id="profileWebsite" placeholder="https://" autocomplete="url" inputmode="url" />
       </div>
       <div id="profileQrWrap" class="profile-qr-wrap" hidden>
         <div id="profileQr" aria-label="Contact QR code"></div>
@@ -896,8 +900,8 @@
     <div class="profile-qr-viewer-hint">Scan to add contact</div>
   </div>
   <div class="toast" id="toast"></div>
-  <script src="qrcode.min.js?v=12"></script>
-  <script src="templates.js?v=12"></script>
-  <script src="app.js?v=12"></script>
+  <script src="qrcode.min.js?v=13"></script>
+  <script src="templates.js?v=13"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>

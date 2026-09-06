@@ -5019,7 +5019,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-12', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-13', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -7676,13 +7676,13 @@ function tcRenderEntryList(listEl, offset) {
           if (p && typeof p === 'object') return p;
         }
       } catch (e) {}
-      return { name: '', phone: '', email: '', company: '', companyPhone: '', companyAddress: '' };
+      return { name: '', phone: '', email: '', company: '', companyPhone: '', companyAddress: '', website: '' };
     }
     function profileName() {
       return String((getProfile().name || '')).trim();
     }
     function saveProfile(next) {
-      const p = Object.assign({ name: '', phone: '', email: '', company: '', companyPhone: '', companyAddress: '' }, getProfile(), next || {});
+      const p = Object.assign({ name: '', phone: '', email: '', company: '', companyPhone: '', companyAddress: '', website: '' }, getProfile(), next || {});
       try { localStorage.setItem('lx8_profile', JSON.stringify(p)); } catch (e) {}
       if (p.name) {
         try { lsWrite('lx8_last_tech', p.name); } catch (e) {}
@@ -7700,7 +7700,9 @@ function tcRenderEntryList(listEl, offset) {
       const company = String(p.company || '').trim();
       const companyPhone = String(p.companyPhone || '').trim();
       const companyAddress = String(p.companyAddress || '').trim();
-      if (!name && !phone && !email && !company && !companyPhone && !companyAddress) return '';
+      let website = String(p.website || '').trim();
+      if (website && !/^https?:\/\//i.test(website)) website = 'https://' + website;
+      if (!name && !phone && !email && !company && !companyPhone && !companyAddress && !website) return '';
       const lines = ['BEGIN:VCARD', 'VERSION:3.0'];
       if (name) {
         lines.push('FN:' + name);
@@ -7717,6 +7719,7 @@ function tcRenderEntryList(listEl, offset) {
         const adr = companyAddress.replace(/\r?\n/g, ', ');
         lines.push('ADR;TYPE=WORK:;;' + adr + ';;;;');
       }
+      if (website) lines.push('URL:' + website);
       lines.push('END:VCARD');
       return lines.join('\r\n');
     }
@@ -7859,6 +7862,8 @@ function tcRenderEntryList(listEl, offset) {
       if (co) co.value = p.company || '';
       if (cph) cph.value = p.companyPhone || '';
       if (cad) cad.value = p.companyAddress || '';
+      const web = document.getElementById('profileWebsite');
+      if (web) web.value = p.website || '';
       const sum = document.getElementById('profileToggleName');
       if (sum) sum.textContent = p.name || '';
       renderProfileQr();
@@ -7895,7 +7900,7 @@ function tcRenderEntryList(listEl, offset) {
     }
 
     function bindProfileForm() {
-      ['profileName','profilePhone','profileEmail','profileCompany','profileCompanyPhone','profileCompanyAddress'].forEach((id) => {
+      ['profileName','profilePhone','profileEmail','profileCompany','profileCompanyPhone','profileCompanyAddress','profileWebsite'].forEach((id) => {
         const el = document.getElementById(id);
         if (!el || el.dataset.profileBound === '1') return;
         el.dataset.profileBound = '1';
@@ -7906,7 +7911,8 @@ function tcRenderEntryList(listEl, offset) {
             email: (document.getElementById('profileEmail') || {}).value || '',
             company: (document.getElementById('profileCompany') || {}).value || '',
             companyPhone: (document.getElementById('profileCompanyPhone') || {}).value || '',
-            companyAddress: (document.getElementById('profileCompanyAddress') || {}).value || ''
+            companyAddress: (document.getElementById('profileCompanyAddress') || {}).value || '',
+            website: (document.getElementById('profileWebsite') || {}).value || ''
           });
         };
         el.addEventListener('input', () => { write(); renderProfileQr(); });
@@ -7941,7 +7947,7 @@ function tcRenderEntryList(listEl, offset) {
       if (lightBtn) lightBtn.classList.toggle('on', light);
       try {
         const meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute('content', light ? '#f2f4f7' : '#000000');
+        if (meta) meta.setAttribute('content', light ? '#e8eaee' : '#000000');
       } catch (e) {}
     }
     function bootTheme() {
