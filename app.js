@@ -398,6 +398,10 @@ const ICO = {
       }
       storeMem.visits = Array.isArray(visits) ? visits : [];
       storeMem.inspections = Array.isArray(inspections) ? inspections : [];
+      try {
+        const idbJobs = await idbGetKv('jobs');
+        if (Array.isArray(idbJobs) && idbJobs.length) storeMem.jobs = idbJobs;
+      } catch (e2) {}
       storeMem.ready = true;
       try {
         if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -417,13 +421,26 @@ const ICO = {
       }
       return true;
     }
+    function hydrateInspectionIdentities(list) {
+      const arr = Array.isArray(list) ? list : [];
+      const jobs = loadJobsSafe();
+      arr.forEach(ins => {
+        if (!ins) return;
+        if (ins.bakeryId && (!ins.serial || ins.machineId) && (ins.jobId || !ins.customer)) return;
+        const job = jobs.find(j => j && j.id === ins.jobId) || null;
+        attachRecordIdentity(ins, job, ins.serial);
+      });
+      return arr;
+    }
     function loadInspections() {
       if (storeMem.inspections) {
         storeMem.inspections = ensureSampleInspection(storeMem.inspections);
+        hydrateInspectionIdentities(storeMem.inspections);
         return storeMem.inspections;
       }
       const raw = lsRead('lx8_inspections', []);
       storeMem.inspections = ensureSampleInspection(Array.isArray(raw) ? raw : []);
+      hydrateInspectionIdentities(storeMem.inspections);
       try { saveInspections(storeMem.inspections); } catch (e) {}
       return storeMem.inspections;
     }
@@ -620,13 +637,14 @@ const ICO = {
             const statusClass = allDone ? 'badge-complete' : (done > 0 ? 'badge-draft' : 'badge-draft');
             const statusLabel = allDone ? 'Complete' : (total === 0 ? 'Empty' : 'Open');
             const rowTone = allDone ? 'list-complete' : '';
-            const jobLine = row.jobLabel
-              ? row.jobLabel
+            const title = row.title || row.jobLabel || row.name;
+            const jobLine = row.jobId
+              ? (row.jobLabel && row.jobLabel !== title ? row.jobLabel : 'Linked job')
               : 'No job linked';
             return `
               <div class="list-item ${rowTone}" data-job-name="${String(row.name).replace(/"/g, '&quot;')}" data-job-id="${String(row.jobId || '').replace(/"/g, '&quot;')}">
                 <div class="list-item-main" data-action="open">
-                  <div class="title">${row.name}</div>
+                  <div class="title">${title}</div>
                   <div class="sub">${jobLine}</div>
                   <div class="sub">${total} item${total !== 1 ? 's' : ''} · ${done} complete${open ? ' · ' + open + ' open' : ''}</div>
                 </div>
@@ -1073,8 +1091,167 @@ const ICO = {
     function openDeleteVisitModal(id) {}
     function performDeleteVisit(id) {}
 
+    // ========== IDENTITY (jobs, bakeries, machines) ==========
+    // Job IDs are unique per trip. Bakery + machine IDs stay stable so the
+    // same plant / serial can appear on many jobs, inspections, punchlists,
+    // and time cards without colliding. Recurring issue tracking later can
+    // group on bakeryId or machineId.
+    function normIdentityKey(s) {
+      return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+    function newEntityId(prefix, taken) {
+      const set = taken instanceof Set ? taken : new Set((taken || []).filter(Boolean).map(String));
+      let id = '';
+      let n = 0;
+      do {
+        id = String(prefix || 'id') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+        n++;
+      } while (set.has(id) && n < 20);
+      if (set.has(id)) id = String(prefix || 'id') + '_' + Date.now().toString(36) + '_' + n + '_' + Math.random().toString(36).slice(2, 8);
+      return id;
+    }
+    function loadIdList(key) {
+      const raw = lsRead(key, []);
+      return Array.isArray(raw) ? raw : [];
+    }
+    function saveIdList(key, list) {
+      lsWrite(key, Array.isArray(list) ? list : []);
+    }
+    function loadBakeries() { return loadIdList('lx8_bakeries'); }
+    function saveBakeries(list) { saveIdList('lx8_bakeries', list); }
+    function loadMachines() { return loadIdList('lx8_machines'); }
+    function saveMachines(list) { saveIdList('lx8_machines', list); }
+    function bakeryMatchKey(customer, site) {
+      return normIdentityKey(customer) + '|' + normIdentityKey(site);
+    }
+    function resolveBakeryId(customer, site, existingId) {
+      const bakeries = loadBakeries();
+      if (existingId) {
+        const hit = bakeries.find(b => b && b.id === existingId);
+        if (hit) {
+          if (customer && hit.customer !== customer) hit.customer = customer;
+          if (site && hit.site !== site) hit.site = site;
+          hit.updatedAt = new Date().toISOString();
+          saveBakeries(bakeries);
+          return hit.id;
+        }
+      }
+      const key = bakeryMatchKey(customer, site);
+      if (key !== '|') {
+        const hit = bakeries.find(b => b && bakeryMatchKey(b.customer, b.site) === key);
+        if (hit) {
+          if (customer) hit.customer = customer;
+          if (site) hit.site = site;
+          hit.updatedAt = new Date().toISOString();
+          saveBakeries(bakeries);
+          return hit.id;
+        }
+      }
+      const id = newEntityId('bky', bakeries.map(b => b && b.id));
+      bakeries.push({
+        id,
+        customer: customer || '',
+        site: site || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      saveBakeries(bakeries);
+      return id;
+    }
+    function resolveMachineId(serial, bakeryId, model) {
+      const s = String(serial || '').trim();
+      if (!s) return '';
+      const machines = loadMachines();
+      const serialKey = normIdentityKey(s);
+      let hit = machines.find(m => m && normIdentityKey(m.serial) === serialKey && (!bakeryId || m.bakeryId === bakeryId));
+      if (!hit) hit = machines.find(m => m && normIdentityKey(m.serial) === serialKey && !m.bakeryId);
+      if (hit) {
+        if (bakeryId && !hit.bakeryId) hit.bakeryId = bakeryId;
+        if (model && !hit.model) hit.model = model;
+        hit.updatedAt = new Date().toISOString();
+        saveMachines(machines);
+        return hit.id;
+      }
+      const id = newEntityId('mch', machines.map(m => m && m.id));
+      machines.push({
+        id,
+        serial: s,
+        bakeryId: bakeryId || '',
+        model: model || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      saveMachines(machines);
+      return id;
+    }
+    function stampJobIdentities(job) {
+      if (!job || typeof job !== 'object') return job;
+      if (!job.id) job.id = newEntityId('job', (loadJobsSafe()).map(j => j && j.id));
+      job.bakeryId = resolveBakeryId(job.customer, job.site, job.bakeryId);
+      if (!Array.isArray(job.serials)) job.serials = [];
+      if (!Array.isArray(job.machineIds)) job.machineIds = [];
+      job.serials.forEach(serial => {
+        const mid = resolveMachineId(serial, job.bakeryId, job.machine);
+        if (mid && job.machineIds.indexOf(mid) < 0) job.machineIds.push(mid);
+      });
+      return job;
+    }
+    function loadJobsSafe() {
+      if (storeMem.jobs && Array.isArray(storeMem.jobs)) return storeMem.jobs;
+      const raw = lsRead('lx8_jobs', []);
+      return Array.isArray(raw) ? raw : [];
+    }
+    function ensureJobIdentities(list) {
+      const arr = Array.isArray(list) ? list : [];
+      const taken = new Set(arr.map(j => j && j.id).filter(Boolean).map(String));
+      let changed = false;
+      arr.forEach(job => {
+        if (!job) return;
+        if (!job.id) {
+          job.id = newEntityId('job', taken);
+          taken.add(job.id);
+          changed = true;
+        }
+        const beforeB = job.bakeryId;
+        const beforeM = (job.machineIds || []).join(',');
+        stampJobIdentities(job);
+        if (job.bakeryId !== beforeB || (job.machineIds || []).join(',') !== beforeM) changed = true;
+      });
+      return changed;
+    }
+    function attachRecordIdentity(rec, job, serial) {
+      const out = rec || {};
+      if (job && job.id) out.jobId = job.id;
+      const bakeryId = (job && job.bakeryId) || resolveBakeryId(out.customer || (job && job.customer), out.site || (job && job.site), job && job.bakeryId);
+      if (bakeryId) out.bakeryId = bakeryId;
+      const sn = serial || out.serial || '';
+      if (sn) {
+        const mid = resolveMachineId(sn, bakeryId, out.model || (job && job.machine));
+        if (mid) out.machineId = mid;
+      }
+      return out;
+    }
+    window.newEntityId = newEntityId;
+    window.resolveBakeryId = resolveBakeryId;
+    window.resolveMachineId = resolveMachineId;
+    window.loadBakeries = loadBakeries;
+    window.loadMachines = loadMachines;
+    window.jobsForBakery = function(bakeryId) {
+      if (!bakeryId) return [];
+      return loadJobsSafe().filter(j => j && j.bakeryId === bakeryId);
+    };
+    window.inspectionsForMachine = function(machineId) {
+      if (!machineId) return [];
+      return (typeof loadInspections === 'function' ? loadInspections() : []).filter(i => i && i.machineId === machineId);
+    };
+    window.inspectionsForBakery = function(bakeryId) {
+      if (!bakeryId) return [];
+      return (typeof loadInspections === 'function' ? loadInspections() : []).filter(i => i && i.bakeryId === bakeryId);
+    };
+
     // ========== JOBS ==========
     let editingJobId = null;
+    let pendingNewJobId = null;
 
     const SAMPLE_JOB_ID = 'job_sample_demo';
     function getSampleJob() {
@@ -1153,11 +1330,14 @@ const ICO = {
     function loadJobs() {
       if (storeMem.jobs) {
         storeMem.jobs = ensureSampleJob(storeMem.jobs);
-        if (applyJobStatuses(storeMem.jobs)) saveJobs(storeMem.jobs);
+        const idsChanged = ensureJobIdentities(storeMem.jobs);
+        const statusChanged = applyJobStatuses(storeMem.jobs);
+        if (idsChanged || statusChanged) saveJobs(storeMem.jobs);
         return storeMem.jobs;
       }
       const raw = lsRead('lx8_jobs', []);
       storeMem.jobs = ensureSampleJob(Array.isArray(raw) ? raw : []);
+      ensureJobIdentities(storeMem.jobs);
       try { saveJobs(storeMem.jobs); } catch (e) {}
       return storeMem.jobs;
     }
@@ -1289,6 +1469,8 @@ const ICO = {
     function openMachineModal() {
       const modal = document.getElementById('machineModal');
       if (!modal) return;
+      if (modal.parentElement !== document.body) document.body.appendChild(modal);
+      modal.classList.add('modal-overlay');
       if (!machineModalMode) machineModalMode = 'job';
       if (machineModalMode === 'job') {
         const title = document.getElementById('machineModalTitle');
@@ -1536,9 +1718,9 @@ const ICO = {
           if (match) {
             punchTotal = match.total;
             punchDone = match.complete;
-            punchName = match.name;
+            punchName = match.title || match.jobLabel || jobDisplayName(job);
           } else {
-            punchName = key;
+            punchName = jobDisplayName(job);
           }
         }
       } catch (e) {}
@@ -1636,20 +1818,14 @@ const ICO = {
         machineModalMode = 'job';
         pendingInspectJobId = null;
         if (typeof setActiveMachine === 'function') setActiveMachine(model);
-        currentInspection = {
-          id: 'ins_' + Date.now(),
+        currentInspection = buildInspectionRecord({
           customer: '',
           model,
           serial: serial || 'TBD',
           technician: profileName() || '',
           date: new Date().toISOString().slice(0, 10),
-          po: '',
-          status: 'Draft',
-          results: {},
-          findings: [],
-          currentSectionIndex: 0,
-          createdAt: new Date().toISOString()
-        };
+          po: ''
+        }, null, serial);
         saveCurrentDraft();
         renderSection();
         showScreen('screenInspect');
@@ -1670,21 +1846,16 @@ const ICO = {
       findings = [];
       currentSectionIndex = 0;
       if (typeof setActiveMachine === 'function') setActiveMachine(model);
-      currentInspection = {
-        id: 'ins_' + Date.now(),
+      currentInspection = buildInspectionRecord({
         customer: job.customer || '',
+        site: job.site || '',
         model,
         serial,
         technician: job.technician || profileName() || '',
         date: job.date || new Date().toISOString().slice(0, 10),
         po: job.po || '',
-        jobId: job.id,
-        status: 'Draft',
-        results: {},
-        findings: [],
-        currentSectionIndex: 0,
-        createdAt: new Date().toISOString()
-      };
+        so: job.so || ''
+      }, job, serial);
       saveCurrentDraft();
       renderSection();
       showScreen('screenInspect');
@@ -1699,9 +1870,28 @@ const ICO = {
       if (!Array.isArray(job.serials)) job.serials = [];
       if (!job.serials.some(s => String(s).toLowerCase() === serial.toLowerCase())) {
         job.serials.push(serial);
-        saveJobs(list);
       }
+      stampJobIdentities(job);
+      saveJobs(list);
       jobSerialsDraft = job.serials.slice();
+    }
+
+    function newInspectionId() {
+      const taken = (typeof loadInspections === 'function' ? loadInspections() : []).map(i => i && i.id);
+      return newEntityId('ins', taken);
+    }
+    function buildInspectionRecord(base, job, serial) {
+      const rec = Object.assign({
+        id: newInspectionId(),
+        status: 'Draft',
+        results: {},
+        findings: [],
+        currentSectionIndex: 0,
+        createdAt: new Date().toISOString()
+      }, base || {});
+      if (!rec.id) rec.id = newInspectionId();
+      attachRecordIdentity(rec, job || null, serial || rec.serial);
+      return rec;
     }
 
     async function startPunchlistForDetailJob() {
@@ -1725,6 +1915,7 @@ const ICO = {
 
     function openNewJob() {
       editingJobId = null;
+      pendingNewJobId = newEntityId('job', loadJobs().map(j => j && j.id));
       initJobForm(null);
       document.getElementById('btnSaveJob').textContent = 'Save Job';
       document.getElementById('btnDeleteJob').classList.add('hidden');
@@ -1767,21 +1958,43 @@ const ICO = {
       if (editingJobId) {
         const idx = list.findIndex(j => j.id === editingJobId);
         if (idx < 0) { toast('Job not found'); return; }
-        list[idx] = { ...list[idx], ...payload };
+        const merged = { ...list[idx], ...payload };
+        stampJobIdentities(merged);
+        list[idx] = merged;
         toast('Job updated');
       } else {
-        const newId = 'job_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-        list.unshift({
+        const taken = new Set(list.map(j => j && j.id).filter(Boolean));
+        const newId = (pendingNewJobId && !taken.has(pendingNewJobId))
+          ? pendingNewJobId
+          : newEntityId('job', taken);
+        pendingNewJobId = null;
+        const created = {
           id: newId,
           createdAt: new Date().toISOString(),
           ...payload
-        });
+        };
+        stampJobIdentities(created);
+        created.id = newId;
+        list.unshift(created);
         editingJobId = newId;
         toast('Job saved');
       }
       saveJobs(list);
       const savedId = editingJobId;
       editingJobId = null;
+      const after = pendingAfterJobSave;
+      pendingAfterJobSave = null;
+      if (after === 'punchlist' && savedId) {
+        detailJobId = savedId;
+        startPunchlistForDetailJob();
+        return;
+      }
+      if (after === 'inspection' && savedId) {
+        detailJobId = savedId;
+        const job = loadJobs().find(j => j.id === savedId);
+        startInspectionForJob(job || null);
+        return;
+      }
       if (savedId) {
         detailJobId = savedId;
         showScreen('screenJobDetail');
@@ -2183,6 +2396,8 @@ const ICO = {
     });
     document.getElementById('btnCancelJob').addEventListener('click', () => {
       editingJobId = null;
+      pendingNewJobId = null;
+      pendingAfterJobSave = null;
       document.getElementById('btnDeleteJob').classList.add('hidden');
       if (detailJobId && loadJobs().some(j => j.id === detailJobId)) {
         showScreen('screenJobDetail');
@@ -2308,57 +2523,65 @@ const ICO = {
     }
 
     function punchlistKeyForJob(job) {
+      // Stable key is the job id. Display names change; ids do not.
+      if (!job) return null;
+      if (job.id) return job.id;
       return jobDisplayName(job);
     }
 
-    // Single source of truth for "which punchlist bucket belongs to this job".
-    // A job's customer/site text can change after a punchlist was already
-    // started for it (edited from the job picker, a typo fixed, etc). If we
-    // recomputed the bucket key from that text every time, an edit would
-    // silently fork a brand-new empty bucket and orphan the existing items.
-    // So: always check the stable id->key link FIRST, and only fall back to
-    // deriving a fresh text key when this job has never been linked before.
     function resolvePunchlistKeyForJob(job) {
       if (!job) return null;
-      if (!data) data = { jobs: {}, currentJob: '' };
-      if (!data.jobs) data.jobs = {};
-      if (!data.jobIdByKey) data.jobIdByKey = {};
-      if (!data.keyByJobId) data.keyByJobId = {};
-
-      const existingKey = job.id ? data.keyByJobId[job.id] : null;
-      if (existingKey && Object.prototype.hasOwnProperty.call(data.jobs, existingKey)) {
-        // Reuse the bucket this job already owns, even if its display name
-        // (customer/site) has since changed. Keep the link map in sync.
-        data.jobIdByKey[existingKey] = job.id;
-        return existingKey;
+      if (typeof window.resolvePunchlistKeyForJob === 'function') {
+        return window.resolvePunchlistKeyForJob(job);
       }
-
-      // Never linked yet (or the old bucket vanished): derive a fresh key.
-      // If that text key happens to collide with a bucket linked to a
-      // *different* job, disambiguate instead of merging two jobs' items.
-      let key = punchlistKeyForJob(job);
-      const collidesWithOtherJob = data.jobIdByKey[key] && data.jobIdByKey[key] !== job.id;
-      if (collidesWithOtherJob) {
-        let n = 2;
-        while (data.jobIdByKey[key + ' (' + n + ')'] && data.jobIdByKey[key + ' (' + n + ')'] !== job.id) n++;
-        key = key + ' (' + n + ')';
-      }
-      if (!data.jobs[key]) data.jobs[key] = [];
-      if (job.id) {
-        data.jobIdByKey[key] = job.id;
-        data.keyByJobId[job.id] = key;
-      }
-      return key;
+      return punchlistKeyForJob(job);
     }
 
     function ensurePunchlistBucketForJob(job) {
       if (!job) return;
-      const key = resolvePunchlistKeyForJob(job);
-      if (!key) return;
-      data.currentJob = key;
-      if (typeof plSaveData === 'function') plSaveData();
-      if (typeof populateJobSelect === 'function') populateJobSelect();
-      return key;
+      if (typeof window.openPunchlistForJob === 'function') {
+        return window.openPunchlistForJob(job);
+      }
+      return punchlistKeyForJob(job);
+    }
+
+    let pendingAfterJobSave = null; // 'punchlist' | 'inspection' | null
+
+    function ensureJobPickerModal() {
+      let modal = document.getElementById('jobPickerModal');
+      if (modal) return modal;
+      modal = document.createElement('div');
+      modal.id = 'jobPickerModal';
+      modal.className = 'modal-overlay hidden';
+      modal.setAttribute('aria-hidden', 'true');
+      modal.innerHTML = `
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="jobPickerTitle">
+          <div class="modal-header">
+            <h2 id="jobPickerTitle">Select Job</h2>
+          </div>
+          <div class="modal-body">
+            <div id="jobPickerList"></div>
+          </div>
+          <div class="job-picker-actions">
+            <button type="button" class="btn btn-outline" id="jobPickerCancel">Cancel</button>
+            <button type="button" class="btn btn-primary" id="jobPickerGoJobs">Add Job</button>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+      const cancel = modal.querySelector('#jobPickerCancel');
+      if (cancel && cancel.dataset.bound !== '1') {
+        cancel.dataset.bound = '1';
+        cancel.addEventListener('click', () => closeJobPicker());
+      }
+      const go = modal.querySelector('#jobPickerGoJobs');
+      if (go && go.dataset.bound !== '1') {
+        go.dataset.bound = '1';
+        go.addEventListener('click', () => startAddJobFromPicker(pendingJobPickPurpose));
+      }
+      modal.addEventListener('click', (e) => {
+        if (e.target.id === 'jobPickerModal') closeJobPicker();
+      });
+      return modal;
     }
 
     function closeJobPicker() {
@@ -2373,12 +2596,18 @@ const ICO = {
     function openJobPicker(purpose) {
       const jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
       pendingJobPickPurpose = purpose;
-      const modal = document.getElementById('jobPickerModal');
+      const modal = ensureJobPickerModal();
       const listEl = document.getElementById('jobPickerList');
       const title = document.getElementById('jobPickerTitle');
-      if (!modal || !listEl) return;
+      if (!modal || !listEl) {
+        toast('Could not open job picker');
+        return;
+      }
 
-      title.textContent = purpose === 'punchlist' ? 'Select Job for Punchlist' : 'Select Job for Inspection';
+      if (title) title.textContent = purpose === 'punchlist' ? 'Select Job for Punchlist' : 'Select Job for Inspection';
+
+      const goBtn = document.getElementById('jobPickerGoJobs');
+      if (goBtn) goBtn.textContent = 'Add Job';
 
       const skipLabel = purpose === 'punchlist' ? 'Continue without a job' : 'Continue without a job';
       const skipSub = purpose === 'punchlist'
@@ -2386,7 +2615,7 @@ const ICO = {
         : 'Enter customer details manually';
       let html = '';
       if (!jobs.length) {
-        html += `<div class="job-picker-empty">No jobs yet.<br>You can continue without one, or create a job first.</div>`;
+        html += `<div class="job-picker-empty">No jobs yet.<br>Add a job first, or continue without one.</div>`;
       } else {
         const sorted = jobs.slice().sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
         html += sorted.map(job => {
@@ -2397,6 +2626,10 @@ const ICO = {
           </button>`;
         }).join('');
       }
+      html += `<button type="button" class="job-picker-item job-picker-add" data-job-id="__add__">
+        <span class="jp-title">Add Job</span>
+        <span class="jp-sub">${purpose === 'punchlist' ? 'Create a job, then open its punchlist' : 'Create a job, then start an inspection'}</span>
+      </button>`;
       html += `<button type="button" class="job-picker-item job-picker-skip" data-job-id="__none__">
         <span class="jp-title">${skipLabel}</span>
         <span class="jp-sub">${skipSub}</span>
@@ -2439,8 +2672,21 @@ const ICO = {
       }
     }
 
+    function startAddJobFromPicker(purpose) {
+      pendingAfterJobSave = purpose || pendingJobPickPurpose || null;
+      closeJobPicker();
+      openNewJob();
+      toast(pendingAfterJobSave === 'punchlist'
+        ? 'Save the job to open its punchlist'
+        : 'Save the job to continue');
+    }
+
     async function onJobPicked(jobId) {
       const purpose = pendingJobPickPurpose;
+      if (jobId === '__add__') {
+        startAddJobFromPicker(purpose);
+        return;
+      }
       const skip = !jobId || jobId === '__none__';
       const job = skip ? null : loadJobs().find(j => j.id === jobId);
       if (!skip && !job) {
@@ -2463,21 +2709,16 @@ const ICO = {
         if (job) {
           const model = 'LX-8';
           setActiveMachine(model);
-          currentInspection = {
-            id: 'ins_' + Date.now(),
+          currentInspection = buildInspectionRecord({
             customer: job.customer || '',
+            site: job.site || '',
             model,
-            serial: (job.site || '').trim() || 'TBD',
+            serial: (job.serials && job.serials[0]) || '',
             technician: job.technician || profileName() || '',
             date: job.date || new Date().toISOString().slice(0, 10),
             po: job.po || '',
-            jobId: job.id,
-            status: 'Draft',
-            results: {},
-            findings: [],
-            currentSectionIndex: 0,
-            createdAt: new Date().toISOString()
-          };
+            so: job.so || ''
+          }, job, (job.serials && job.serials[0]) || '');
           linkedJobIdForStart = null;
           saveCurrentDraft();
           renderSection();
@@ -2514,15 +2755,14 @@ const ICO = {
       }
     }
 
-    document.getElementById('jobPickerCancel').addEventListener('click', () => closeJobPicker());
-    document.getElementById('jobPickerGoJobs').addEventListener('click', () => {
-      closeJobPicker();
-      showScreen('screenJobsList');
-      setHeader('Jobs');
-      if (typeof refreshJobsList === 'function') refreshJobsList();
+    const jobPickerCancelBtn = document.getElementById('jobPickerCancel');
+    if (jobPickerCancelBtn) jobPickerCancelBtn.addEventListener('click', () => closeJobPicker());
+    const jobPickerGoJobsBtn = document.getElementById('jobPickerGoJobs');
+    if (jobPickerGoJobsBtn) jobPickerGoJobsBtn.addEventListener('click', () => {
+      startAddJobFromPicker(pendingJobPickPurpose);
     });
-
-    document.getElementById('jobPickerModal').addEventListener('click', (e) => {
+    const jobPickerModalEl = document.getElementById('jobPickerModal');
+    if (jobPickerModalEl) jobPickerModalEl.addEventListener('click', (e) => {
       if (e.target.id === 'jobPickerModal') closeJobPicker();
     });
 
@@ -2592,7 +2832,7 @@ const ICO = {
     });
     document.getElementById('btnNewPunchlist').addEventListener('click', () => {
       closeSearch();
-      startPunchlistForCurrentJob(getActiveCurrentJob());
+      openJobPicker('punchlist');
     });
 
 
@@ -2634,6 +2874,8 @@ const ICO = {
         list[idx].date = date;
         list[idx].po = po;
         if (linkedJobIdForStart) list[idx].jobId = linkedJobIdForStart;
+        const linkedJob = linkedJobIdForStart ? loadJobs().find(j => j.id === linkedJobIdForStart) : null;
+        attachRecordIdentity(list[idx], linkedJob, serial);
         list[idx].updatedAt = new Date().toISOString();
         saveInspections(list);
         currentInspection = list[idx];
@@ -2648,21 +2890,15 @@ const ICO = {
       }
 
       // Create new inspection
-      currentInspection = {
-        id: 'ins_' + Date.now(),
+      const linkedJob = linkedJobIdForStart ? loadJobs().find(j => j.id === linkedJobIdForStart) : null;
+      currentInspection = buildInspectionRecord({
         customer,
         model,
         serial,
         technician: tech,
         date,
-        po,
-        jobId: linkedJobIdForStart || null,
-        status: 'Draft',
-        results: {},
-        findings: [],
-        currentSectionIndex: 0,
-        createdAt: new Date().toISOString()
-      };
+        po
+      }, linkedJob, serial);
       linkedJobIdForStart = null;
       results = {};
       findings = [];
@@ -5203,7 +5439,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-15', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-18', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -5246,24 +5482,12 @@ const IDB_NAME = "FieldPunchlistDB";
     const STORE_NAME = "appdata";
     const LEGACY_KEY = "field_punchlist_v3";
 
+    const UNLINKED_PUNCHLIST_KEY = "unlinked";
     const defaultData = {
-      currentJob: "Aryzta Australia",
-      jobs: {
-        "Aryzta Australia": [
-          { id:1, line:"LH", location:"Seal Unit", description:"Bad center seal heater", action:"Send new heater for warranty", department:"Service", responsible:"", dueDate:"", priority:"Normal", comments:"", status:"Not Started", photo:null },
-          { id:2, line:"Rh", location:"Basket loader", description:"Leaking regulator (through spring/screw)", action:"Send new regulator for warranty", department:"Service", responsible:"", dueDate:"", priority:"High", comments:"", status:"In Progress", photo:null },
-          { id:3, line:"LH", location:"Band slicer", description:"Missing complete set of band blade guides", action:"Send new blade guides", department:"Bakery", responsible:"", dueDate:"", priority:"Normal", comments:"Looked all over bakery – can't find.", status:"Not Started", photo:null },
-          { id:4, line:"both", location:"Band slicer", description:"Missing top conveyor and upper band adjust handles", action:"Send new handles (x4)", department:"Bakery", responsible:"", dueDate:"", priority:"Normal", comments:"Cannot find handles in bakery.", status:"Not Started", photo:null },
-          { id:5, line:"both", location:"Basket feed conveyors", description:"Infeed basket gate cycles too much", action:"Add timer to basket gate close", department:"Programming", responsible:"", dueDate:"", priority:"Normal", comments:"", status:"Complete", photo:null },
-          { id:6, line:"both", location:"Grouper", description:"Not enough lane coverage with grouper hold downs", action:"Need two more assemblies per machine", department:"Service", responsible:"", dueDate:"", priority:"High", comments:"", status:"Not Started", photo:null }
-        ],
-        "Epi": [
-          { id:1, line:"Epi", location:"Non-op vacuum header", description:"Very bent non-op vacuum header", action:"Repair or replace", department:"Engineering", responsible:"", dueDate:"", priority:"High", comments:"Film sucked into op vacuum header causing no seal on op side", status:"Not Started", photo:null },
-          { id:2, line:"Epi", location:"Air system", description:"Heavy water in airlines", action:"Inspect filters, drains, dryer; correct moisture source", department:"Maintenance", responsible:"", dueDate:"", priority:"High", comments:"Caused stuck Airbar solenoid", status:"Not Started", photo:null },
-          { id:3, line:"Epi", location:"X-ray interlock", description:"Auto-starts after safety reset; requires code entry", action:"Change logic so operator must manually start after reset", department:"Controls", responsible:"", dueDate:"", priority:"High", comments:"~2 min recovery + 2 people currently", status:"In Progress", photo:null },
-          { id:4, line:"Epi", location:"Top heater assembly", description:"Not level and binding", action:"Verify level and spring tension", department:"Engineering", responsible:"", dueDate:"", priority:"Normal", comments:"Re-leveled this visit; springs at 12 lbs with binding", status:"Complete", photo:null }
-        ]
-      }
+      currentJob: "",
+      jobs: {},
+      jobIdByKey: {},
+      keyByJobId: {}
     };
 
     let data = null;
@@ -5274,6 +5498,107 @@ const IDB_NAME = "FieldPunchlistDB";
     let filterQuery = "";
     let plStatusFilters = [];
     let filterChipValue = "";
+
+    function plFieldJobs() {
+      try {
+        return (typeof loadJobs === "function" ? loadJobs() : []) || [];
+      } catch (e) {
+        return [];
+      }
+    }
+    function plJobById(id) {
+      if (!id) return null;
+      return plFieldJobs().find(j => j && j.id === id) || null;
+    }
+    function plDisplayName(key) {
+      const job = plJobById(key);
+      if (job) {
+        if (typeof jobDisplayName === "function") return jobDisplayName(job);
+        return job.customer || key;
+      }
+      if (!key || key === UNLINKED_PUNCHLIST_KEY || key === "General" || key === "Default") return "Unlinked";
+      return key;
+    }
+    function migratePunchlistKeys() {
+      if (!data) data = { jobs: {}, currentJob: "", jobIdByKey: {}, keyByJobId: {} };
+      if (!data.jobs) data.jobs = {};
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      if (!data.keyByJobId) data.keyByJobId = {};
+
+      const fieldJobs = plFieldJobs();
+      const validIds = {};
+      fieldJobs.forEach(j => { if (j && j.id) validIds[j.id] = j; });
+
+      const claimed = {};
+      Object.keys(data.jobs).forEach(k => {
+        if (validIds[k]) claimed[k] = true;
+        const linked = data.jobIdByKey[k];
+        if (linked && validIds[linked]) claimed[linked] = true;
+      });
+
+      const next = {};
+      function absorb(key, items) {
+        if (!next[key]) next[key] = [];
+        if (items && items.length) next[key] = next[key].concat(items);
+      }
+
+      Object.keys(data.jobs).forEach(oldKey => {
+        const items = data.jobs[oldKey] || [];
+        let newKey = oldKey;
+        if (validIds[oldKey]) {
+          newKey = oldKey;
+        } else if (data.jobIdByKey[oldKey] && validIds[data.jobIdByKey[oldKey]]) {
+          newKey = data.jobIdByKey[oldKey];
+        } else if (oldKey === "General" || oldKey === "Default" || oldKey === UNLINKED_PUNCHLIST_KEY) {
+          newKey = UNLINKED_PUNCHLIST_KEY;
+        } else {
+          const match = fieldJobs.find(j => {
+            if (!j || claimed[j.id]) return false;
+            const label = (typeof jobDisplayName === "function") ? jobDisplayName(j) : (j.customer || "");
+            return label === oldKey || j.customer === oldKey;
+          });
+          if (match) {
+            newKey = match.id;
+            claimed[match.id] = true;
+          }
+        }
+        absorb(newKey, items);
+      });
+
+      let cur = data.currentJob || "";
+      if (cur && !next[cur]) {
+        if (data.jobIdByKey[cur] && next[data.jobIdByKey[cur]]) cur = data.jobIdByKey[cur];
+        else if (cur === "General" || cur === "Default") cur = UNLINKED_PUNCHLIST_KEY;
+        else if (data.keyByJobId[cur] && next[data.keyByJobId[cur]]) cur = data.keyByJobId[cur];
+      }
+      data.jobs = next;
+      data.jobIdByKey = {};
+      data.keyByJobId = {};
+      Object.keys(data.jobs).forEach(k => {
+        if (validIds[k]) {
+          data.jobIdByKey[k] = k;
+          data.keyByJobId[k] = k;
+        }
+      });
+      data.currentJob = (cur && next[cur]) ? cur : (Object.keys(next)[0] || "");
+    }
+    function ensurePunchlistBucket(job) {
+      if (!data) data = { jobs: {}, currentJob: "", jobIdByKey: {}, keyByJobId: {} };
+      if (!data.jobs) data.jobs = {};
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      if (!data.keyByJobId) data.keyByJobId = {};
+      if (!job || !job.id) {
+        if (!data.jobs[UNLINKED_PUNCHLIST_KEY]) data.jobs[UNLINKED_PUNCHLIST_KEY] = [];
+        data.currentJob = UNLINKED_PUNCHLIST_KEY;
+        return UNLINKED_PUNCHLIST_KEY;
+      }
+      const key = job.id;
+      if (!data.jobs[key]) data.jobs[key] = [];
+      data.jobIdByKey[key] = job.id;
+      data.keyByJobId[job.id] = key;
+      data.currentJob = key;
+      return key;
+    }
 
     const CARD_FIELDS = ["description","line","location","action","department","status","priority","responsible","dueDate","createdAt","comments"];
     const CHIP_FIELDS = {
@@ -5341,11 +5666,14 @@ const IDB_NAME = "FieldPunchlistDB";
             }
           } catch (e) {}
         }
-        if (saved && saved.jobs && saved.currentJob) data = saved;
-        else { data = JSON.parse(JSON.stringify(defaultData)); await plSaveData(); }
+        if (saved && saved.jobs) data = saved;
+        else data = JSON.parse(JSON.stringify(defaultData));
+        migratePunchlistKeys();
+        await plSaveData();
       } catch (e) {
         data = JSON.parse(JSON.stringify(defaultData));
         try { await openDB(); } catch (_) {}
+        try { migratePunchlistKeys(); } catch (_) {}
       }
     }
 
@@ -5420,22 +5748,16 @@ const IDB_NAME = "FieldPunchlistDB";
     function populateJobSelect() {
       const sel = document.getElementById("job-select");
       if (!sel || !data) return;
-      // Prefer field-service jobs as the source of punchlist buckets
-      try {
-        const fieldJobs = (typeof loadJobs === "function" ? loadJobs() : []) || [];
-        fieldJobs.forEach(job => {
-          if (typeof resolvePunchlistKeyForJob === "function") resolvePunchlistKeyForJob(job);
-        });
-      } catch (e) {}
-      const jobs = Object.keys(data.jobs);
-      if (!jobs.length) {
-        data.jobs["Default"] = [];
-        data.currentJob = "Default";
-        jobs.push("Default");
+      migratePunchlistKeys();
+      const keys = Object.keys(data.jobs);
+      if (!keys.length) {
+        sel.innerHTML = '<option value="">Select a job…</option>';
+        data.currentJob = '';
+        return;
       }
-      if (!data.currentJob || !data.jobs[data.currentJob]) data.currentJob = jobs[0];
-      sel.innerHTML = jobs.map(j =>
-        `<option value="${escapeHtml(j)}" ${j === data.currentJob ? "selected" : ""}>${escapeHtml(j)}</option>`
+      if (!data.currentJob || !data.jobs[data.currentJob]) data.currentJob = keys[0];
+      sel.innerHTML = keys.map(j =>
+        `<option value="${escapeHtml(j)}" ${j === data.currentJob ? "selected" : ""}>${escapeHtml(plDisplayName(j))}</option>`
       ).join("");
     }
 
@@ -5704,7 +6026,7 @@ const IDB_NAME = "FieldPunchlistDB";
         if (typeof window.setLastPunchlistName === "function") window.setLastPunchlistName(data.currentJob);
         else localStorage.setItem("lx8_last_punchlist", data.currentJob);
       } catch (err) {}
-      toast("Switched to " + data.currentJob);
+      toast("Switched to " + plDisplayName(data.currentJob));
     });
 
     document.getElementById("btn-filter").addEventListener("click", openFilterSheet);
@@ -5886,8 +6208,12 @@ const IDB_NAME = "FieldPunchlistDB";
         items[idx] = { ...items[idx], ...formData };
         toast("Item updated");
       } else {
-        const newId = items.length ? Math.max(...items.map(i => i.id)) + 1 : 1;
-        items.push({ id: newId, ...formData });
+        const taken = items.map(i => i && i.id);
+        const newId = (typeof newEntityId === "function") ? newEntityId("pli", taken) : ("pli_" + Date.now().toString(36));
+        const job = (typeof loadJobs === "function") ? loadJobs().find(j => j && j.id === data.currentJob) : null;
+        const rec = { id: newId, jobId: data.currentJob || "", ...formData };
+        if (typeof attachRecordIdentity === "function") attachRecordIdentity(rec, job || null, rec.line || "");
+        items.push(rec);
         toast("Item added");
       }
       setItems(items);
@@ -6010,62 +6336,27 @@ const IDB_NAME = "FieldPunchlistDB";
 
     const btnJobs = document.getElementById("btn-jobs");
     if (btnJobs) btnJobs.addEventListener("click", () => {
-      const jobNames = Object.keys(data.jobs);
-      document.getElementById("modal-title").textContent = "Manage Jobs";
-      const tb = document.getElementById("modal-trash"); if (tb) tb.style.display = "none";
-      const cam = document.getElementById("modal-camera"); if (cam) cam.style.display = "none";
-      document.getElementById("modal-body").innerHTML = `
-        <div class="job-manage-list">
-          ${jobNames.map(j => `
-            <div class="job-manage-item">
-              <span>${escapeHtml(j)} ${j === data.currentJob ? "(current)" : ""}</span>
-              ${jobNames.length > 1 ? `
-                <button type="button" class="icon-btn danger" data-job="${escapeHtml(j)}" title="Delete job">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M10 11v6M14 11v6"/></svg>
-                </button>` : ''}
-            </div>
-          `).join("")}
-        </div>
-        <div class="form-group">
-          <label>New Job Name</label>
-          <input type="text" id="new-job-name" placeholder="e.g. Customer / Line name">
-        </div>
-        <div class="btn-row">
-          <button type="button" class="btn btn-outline" onclick="closeModal()">Close</button>
-          <button class="btn btn-primary" onclick="addJob()">Add Job</button>
-        </div>
-      `;
-      document.getElementById("pl-modal").classList.add("show");
-      document.querySelectorAll("#modal-body [data-job]").forEach(btn => {
-        btn.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const name = btn.getAttribute("data-job");
-          if (name) deleteJob(name);
-        });
-      });
+      if (typeof openJobPicker === "function") openJobPicker("punchlist");
     });
 
     function addJob() {
-      const name = document.getElementById("new-job-name").value.trim();
-      if (!name) { alert("Enter a job name"); return; }
-      if (data.jobs[name]) { alert("A job with that name already exists"); return; }
-      data.jobs[name] = [];
-      data.currentJob = name;
-      plSaveData();
-      populateJobSelect();
-      closeModal();
-      renderList();
-      toast("Job created: " + name);
+      if (typeof startAddJobFromPicker === "function") {
+        startAddJobFromPicker("punchlist");
+        return;
+      }
+      if (typeof openNewJob === "function") openNewJob();
     }
 
     function deleteJob(name) {
       if (!name || !data.jobs[name]) {
-        toast("Job not found");
+        toast("Punchlist not found");
         return;
       }
-      if (!confirm("Delete job \"" + name + "\" and all its items?")) return;
+      if (!confirm("Delete punchlist \"" + plDisplayName(name) + "\" and all its items?")) return;
+      const prev = data.jobIdByKey[name];
       delete data.jobs[name];
+      delete data.jobIdByKey[name];
+      if (prev && data.keyByJobId[prev] === name) delete data.keyByJobId[prev];
       if (data.currentJob === name) {
         const remaining = Object.keys(data.jobs);
         data.currentJob = remaining[0] || "";
@@ -6074,7 +6365,7 @@ const IDB_NAME = "FieldPunchlistDB";
       populateJobSelect();
       closeModal();
       renderList();
-      toast("Job deleted");
+      toast("Punchlist deleted");
     }
     window.deleteJob = deleteJob;
     window.deleteItem = deleteItem;
@@ -6092,50 +6383,32 @@ const IDB_NAME = "FieldPunchlistDB";
     window.plRenderList = renderList;
     window.plLoadData = plLoadData;
     window.populateJobSelect = populateJobSelect;
+    window.resolvePunchlistKeyForJob = function(job) {
+      if (!job) return UNLINKED_PUNCHLIST_KEY;
+      return job.id || UNLINKED_PUNCHLIST_KEY;
+    };
     window.openPunchlistForJob = async function(job) {
       await plLoadData();
-      if (!data) data = { jobs: {}, currentJob: '' };
-      if (!data.jobs) data.jobs = {};
-      if (job) {
-        const key = resolvePunchlistKeyForJob(job);
-        data.currentJob = key;
-      } else {
-        const key = 'General';
-        if (!data.jobs[key]) data.jobs[key] = [];
-        data.currentJob = key;
-      }
+      const key = ensurePunchlistBucket(job || null);
       await plSaveData();
       populateJobSelect();
       renderList();
       try {
-        if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(data.currentJob);
-        else localStorage.setItem('lx8_last_punchlist', data.currentJob);
+        if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(key);
+        else localStorage.setItem('lx8_last_punchlist', key);
       } catch (e) {}
-      return data.currentJob;
+      return key;
     };
     window.getPunchlistStatsForJob = async function(jobOrName) {
       await plLoadData();
       if (!data || !data.jobs) return { total: 0, open: 0, complete: 0 };
-      // Prefer the stable id->key link (survives customer/site edits) over a
-      // name match, and only fall back to name/substring matching for plain
-      // string lookups where no job object (and thus no id) is available.
-      const linkedKey = (typeof jobOrName === 'object' && jobOrName && jobOrName.id && data.keyByJobId)
-        ? data.keyByJobId[jobOrName.id]
-        : null;
+      const jobId = typeof jobOrName === 'object' && jobOrName ? jobOrName.id : null;
       const name = typeof jobOrName === 'string' ? jobOrName : (jobOrName && (jobOrName.customer && jobOrName.site ? (jobOrName.customer + ' – ' + jobOrName.site) : (jobOrName.customer || '')));
       const keys = Object.keys(data.jobs);
-      // Two jobs can share the same customer/site text, so a bucket already
-      // claimed (via jobIdByKey) by a *different* job must never be picked
-      // up by a plain name/substring match — only an unclaimed bucket, or
-      // one already linked to this same job, is a safe match.
-      const ownedByOther = (k) => {
-        const owner = data.jobIdByKey && data.jobIdByKey[k];
-        return owner && (!jobOrName || owner !== jobOrName.id);
-      };
-      const key = (linkedKey && keys.includes(linkedKey) && linkedKey)
-        || keys.find(k => k === name && !ownedByOther(k))
-        || keys.find(k => jobOrName && data.jobIdByKey && data.jobIdByKey[k] === jobOrName.id)
-        || keys.find(k => jobOrName && k.indexOf(jobOrName.customer || '') === 0 && !ownedByOther(k));
+      const key = (jobId && keys.includes(jobId) && jobId)
+        || (jobId && data.keyByJobId && data.keyByJobId[jobId] && keys.includes(data.keyByJobId[jobId]) && data.keyByJobId[jobId])
+        || keys.find(k => k === name)
+        || keys.find(k => data.jobIdByKey && data.jobIdByKey[k] === jobId);
       const items = key ? (data.jobs[key] || []) : [];
       const complete = items.filter(i => i && i.status === 'Complete').length;
       return { total: items.length, open: items.length - complete, complete };
@@ -6174,55 +6447,78 @@ const IDB_NAME = "FieldPunchlistDB";
     window.getPunchlistSummaries = async function() {
       await plLoadData();
       if (!data || !data.jobs) return [];
-      const links = data.jobIdByKey || {};
-      const fieldJobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
+      const fieldJobs = plFieldJobs();
       return Object.keys(data.jobs).map(name => {
         const items = data.jobs[name] || [];
         const complete = items.filter(i => i && i.status === 'Complete').length;
-        const jobId = links[name] || '';
+        const jobId = (data.jobIdByKey && data.jobIdByKey[name]) || (plJobById(name) ? name : '');
         const job = fieldJobs.find(j => j && j.id === jobId);
         const jobLabel = job
           ? ((typeof jobDisplayName === 'function') ? jobDisplayName(job) : (job.customer || ''))
-          : '';
-        return { name, total: items.length, complete, jobId, jobLabel };
+          : (name === UNLINKED_PUNCHLIST_KEY ? '' : plDisplayName(name));
+        return { name, title: plDisplayName(name), total: items.length, complete, jobId, jobLabel };
       }).sort((a, b) => {
-        // Prefer non-empty, then alpha
         if ((b.total > 0) !== (a.total > 0)) return b.total > 0 ? 1 : -1;
-        return String(a.name).localeCompare(String(b.name));
+        return String(a.title || a.name).localeCompare(String(b.title || b.name));
       });
     };
     window.setPunchlistJobLink = async function(name, jobId) {
       await plLoadData();
-      if (!data) data = { jobs: {}, currentJob: '' };
+      if (!data) data = { jobs: {}, currentJob: '', jobIdByKey: {}, keyByJobId: {} };
       if (!data.jobs) data.jobs = {};
-      if (!data.jobs[name]) data.jobs[name] = [];
       if (!data.jobIdByKey) data.jobIdByKey = {};
       if (!data.keyByJobId) data.keyByJobId = {};
+      const items = data.jobs[name] || [];
       if (jobId) {
-        data.jobIdByKey[name] = jobId;
-        data.keyByJobId[jobId] = name;
+        const dest = jobId;
+        if (name !== dest) {
+          data.jobs[dest] = (data.jobs[dest] || []).concat(items);
+          if (name && data.jobs[name]) delete data.jobs[name];
+          delete data.jobIdByKey[name];
+        } else if (!data.jobs[dest]) {
+          data.jobs[dest] = items;
+        }
+        data.jobIdByKey[dest] = jobId;
+        data.keyByJobId[jobId] = dest;
+        if (data.currentJob === name) data.currentJob = dest;
       } else {
+        const dest = UNLINKED_PUNCHLIST_KEY;
+        if (name !== dest) {
+          data.jobs[dest] = (data.jobs[dest] || []).concat(items);
+          delete data.jobs[name];
+        }
         const prev = data.jobIdByKey[name];
         delete data.jobIdByKey[name];
         if (prev && data.keyByJobId[prev] === name) delete data.keyByJobId[prev];
+        if (data.currentJob === name) data.currentJob = dest;
       }
+      migratePunchlistKeys();
       await plSaveData();
       return true;
     };
     window.openPunchlistByName = async function(name) {
       await plLoadData();
-      if (!data) data = { jobs: {}, currentJob: '' };
+      if (!data) data = { jobs: {}, currentJob: '', jobIdByKey: {}, keyByJobId: {} };
       if (!data.jobs) data.jobs = {};
-      if (!data.jobs[name]) data.jobs[name] = [];
-      data.currentJob = name;
+      let key = name;
+      if (!data.jobs[key]) {
+        const byId = data.keyByJobId && data.keyByJobId[name];
+        if (byId && data.jobs[byId]) key = byId;
+        else {
+          const match = Object.keys(data.jobs).find(k => plDisplayName(k) === name);
+          if (match) key = match;
+          else data.jobs[key] = [];
+        }
+      }
+      data.currentJob = key;
       await plSaveData();
       populateJobSelect();
       renderList();
       try {
-        if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(name);
-        else localStorage.setItem('lx8_last_punchlist', name);
+        if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(key);
+        else localStorage.setItem('lx8_last_punchlist', key);
       } catch (e) {}
-      return name;
+      return key;
     };
     window.getPunchlistBackup = function() {
       return JSON.parse(JSON.stringify(data));
@@ -6332,9 +6628,9 @@ const IDB_NAME = "FieldPunchlistDB";
         return;
       }
       const items = getItems();
-      const jobName = data.currentJob || 'Punchlist';
+      const jobName = plDisplayName(data.currentJob) || 'Punchlist';
       const jobs = (typeof loadJobs === 'function') ? loadJobs() : [];
-      const job = jobs.find(j => j && (j.id === jobName || (typeof jobDisplayName === 'function' && jobDisplayName(j) === jobName) || j.customer === jobName)) || null;
+      const job = jobs.find(j => j && (j.id === data.currentJob || (typeof jobDisplayName === 'function' && jobDisplayName(j) === jobName) || j.customer === jobName)) || null;
       const customer = (job && job.customer) || jobName || 'Customer';
       const site = (job && job.site) || '';
       const tech = (job && job.technician) || '';
@@ -6470,8 +6766,8 @@ const IDB_NAME = "FieldPunchlistDB";
 
     async function exportPunchlistExcel() {
       const items = getItems();
-      const jobName = data.currentJob || "Punchlist";
-      const safeName = jobName.replace(/[\\/:*?"<>|]/g, "-").trim() || "Punchlist";
+      const jobName = plDisplayName(data.currentJob) || "Punchlist";
+      const safeName = String(jobName).replace(/[\\/:*?"<>|]/g, "-").trim() || "Punchlist";
       const filename = safeName + " Punchlist.xlsx";
 
       function normStatus(s) {
@@ -6625,7 +6921,11 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
     function tcUid() {
-      return 'tc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+      const taken = (tcState.entries || []).map(e => e && e.id);
+      if (tcState.active && tcState.active.id) taken.push(tcState.active.id);
+      return (typeof newEntityId === 'function')
+        ? newEntityId('tc', taken)
+        : ('tc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8));
     }
     function tcLoad() {
       try {
@@ -7118,12 +7418,14 @@ function tcRenderEntryList(listEl, offset) {
         }
       }
       const bakeryName = tcBakeryNameForJob(jobId);
+      const job = jobId && (typeof loadJobs === 'function') ? loadJobs().find(j => j && j.id === jobId) : null;
       const id = tcUid();
       const clockIn = Date.now();
       const entry = {
         id, clockIn, clockOut: null,
         type: tcState.selectedType || 'bakery',
         jobId: jobId || '',
+        bakeryId: job && job.bakeryId ? job.bakeryId : (job ? resolveBakeryId(job.customer, job.site, job.bakeryId) : ''),
         bakeryName: bakeryName || '',
         date: tcDateKey(clockIn),
         notes: '',
