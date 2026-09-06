@@ -1,4 +1,4 @@
-const CACHE = 'lematic-fs-flat-v5';
+const CACHE = 'lematic-fs-flat-v8';
 // Core app shell only — cached on install so the app opens fast and works offline.
 const PRECACHE = [
   './',

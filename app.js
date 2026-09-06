@@ -4623,6 +4623,51 @@ const ICO = {
       panel.style.maxHeight = Math.max(120, Math.round(viewBottom - rect.bottom - 16)) + 'px';
     }
 
+
+    function searchDateHay(v) {
+      if (v == null || v === '') return '';
+      let d = null;
+      if (v instanceof Date && !isNaN(v.getTime())) d = v;
+      else if (typeof v === 'number') d = new Date(v);
+      else {
+        const s = String(v).trim();
+        const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (m) d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        else {
+          const t = Date.parse(s);
+          if (!isNaN(t)) d = new Date(t);
+        }
+      }
+      if (!d || isNaN(d.getTime())) return String(v).toLowerCase();
+      const y = d.getFullYear();
+      const yy = String(y).slice(-2);
+      const mo = d.getMonth() + 1;
+      const da = d.getDate();
+      const mo2 = String(mo).padStart(2, '0');
+      const da2 = String(da).padStart(2, '0');
+      const shortM = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][d.getMonth()];
+      const longM = ['january','february','march','april','may','june','july','august','september','october','november','december'][d.getMonth()];
+      return [
+        y + '-' + mo2 + '-' + da2,
+        y + '-' + mo + '-' + da,
+        mo + '/' + da + '/' + y,
+        mo2 + '/' + da2 + '/' + y,
+        mo + '/' + da + '/' + yy,
+        mo + '-' + da + '-' + y,
+        mo2 + '-' + da2 + '-' + y,
+        shortM + ' ' + da,
+        shortM + ' ' + da + ', ' + y,
+        shortM + ' ' + da + ' ' + y,
+        longM + ' ' + da,
+        longM + ' ' + da + ', ' + y,
+        da + ' ' + shortM,
+        da + ' ' + shortM + ' ' + y
+      ].join(' ').toLowerCase();
+    }
+    function searchHay(parts) {
+      return (parts || []).map(x => String(x == null ? '' : x).toLowerCase()).join(' ');
+    }
+
     function renderSearchResults() {
       const panel = document.getElementById('searchResults');
       const bar = document.getElementById('searchBar');
@@ -4633,8 +4678,12 @@ const ICO = {
       }
       const rows = [];
       loadJobs().forEach(job => {
-        const hay = [job.customer, job.site, job.contact, job.technician, job.po, job.salesOrder, job.status, job.scope]
-          .map(x => (x || '').toLowerCase()).join(' ');
+        const hay = searchHay([
+          job.customer, job.site, job.contact, job.technician, job.po, job.salesOrder, job.status, job.scope,
+          formatJobDateRange(job),
+          searchDateHay(job.startDate || job.start),
+          searchDateHay(job.endDate || job.end)
+        ]);
         if (hay.includes(q)) {
           rows.push({
             kind: 'job',
@@ -4646,8 +4695,22 @@ const ICO = {
         }
       });
       loadInspections().forEach(ins => {
-        const hay = [ins.customer, ins.serial, ins.technician, ins.model, ins.po, ins.date, ins.status]
-          .map(x => (x || '').toLowerCase()).join(' ');
+        const extraBits = [];
+        if (ins.notes) extraBits.push(ins.notes);
+        if (ins.summaryNotes) extraBits.push(ins.summaryNotes);
+        if (ins.results) {
+          Object.keys(ins.results).forEach(k => {
+            const r = ins.results[k] || {};
+            extraBits.push(r.notes, r.condition, r.action, k);
+          });
+        }
+        (ins.findings || []).forEach(f => {
+          extraBits.push(f.item, f.notes, f.condition, f.section, f.action);
+        });
+        const hay = searchHay([
+          ins.customer, ins.serial, ins.technician, ins.model, ins.po, ins.date, ins.status, ins.site,
+          searchDateHay(ins.date), searchDateHay(ins.createdAt), searchDateHay(ins.updatedAt)
+        ].concat(extraBits));
         if (hay.includes(q)) {
           rows.push({
             kind: 'inspection',
@@ -4657,7 +4720,41 @@ const ICO = {
             sub: [ins.technician, ins.date, ins.status].filter(Boolean).join(' · ')
           });
         }
+        (ins.findings || []).forEach(f => {
+          const fh = [f.item, f.notes, f.condition, f.section, f.action].map(x => String(x || '').toLowerCase()).join(' ');
+          if (fh.includes(q)) {
+            rows.push({
+              kind: 'inspection',
+              id: ins.id,
+              kicker: 'Finding',
+              title: f.item || 'Finding',
+              sub: [ins.customer, f.condition, f.section].filter(Boolean).join(' · ')
+            });
+          }
+        });
       });
+      try {
+        if (typeof tcLoad === 'function') tcLoad();
+        const entries = (typeof tcState !== 'undefined' && tcState && tcState.entries) ? tcState.entries : [];
+        entries.forEach(en => {
+          const hay = searchHay([
+            en.bakeryName, en.notes, en.type, en.date, en.jobId,
+            searchDateHay(en.date),
+            searchDateHay(en.clockIn),
+            searchDateHay(en.clockOut)
+          ]);
+          if (hay.includes(q)) {
+            const hours = (typeof tcEntryHours === 'function') ? tcEntryHours(en) : '';
+            rows.push({
+              kind: 'timecard',
+              id: en.id,
+              kicker: 'Time card',
+              title: en.bakeryName || (en.type || 'Hours'),
+              sub: [en.date, en.type, hours ? (Math.round(hours*100)/100 + 'h') : '', en.notes].filter(Boolean).join(' · ')
+            });
+          }
+        });
+      } catch (e) {}
       try {
         const punch = (typeof window.getPunchlistSummaries === 'function') ? null : null;
       } catch (e) {}
@@ -4715,6 +4812,8 @@ const ICO = {
                     setHeader('Punchlist');
                   }).catch(() => toast('Could not open item'));
                 }
+              } else if (kind === 'timecard') {
+                if (typeof openTimeCards === 'function') openTimeCards();
               }
             });
           });
@@ -5505,7 +5604,7 @@ const IDB_NAME = "FieldPunchlistDB";
           <textarea id="f-comments" rows="4" placeholder="Notes">${escapeHtml(item.comments || '')}</textarea>
         </div>
         <button type="button" class="btn btn-outline pl-item-delete" id="btn-delete-item">Delete item</button>
-        <div class="btn-row">
+        <div class="btn-row pl-item-bar">
           <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
           <button class="btn btn-primary" onclick="saveItem()">${isNew ? 'Add Item' : 'Save'}</button>
         </div>
@@ -5849,7 +5948,10 @@ const IDB_NAME = "FieldPunchlistDB";
       Object.keys(data.jobs).forEach(name => {
         (data.jobs[name] || []).forEach(item => {
           if (!item) return;
-          const hay = [item.description, item.action, item.location, item.line, item.comments, item.department, item.status, name]
+          const hay = [item.description, item.action, item.location, item.line, item.comments, item.department, item.status, name,
+            item.dueDate, item.createdAt,
+            (typeof searchDateHay === "function" ? searchDateHay(item.dueDate) : ""),
+            (typeof searchDateHay === "function" ? searchDateHay(item.createdAt) : "")]
             .map(x => String(x || "").toLowerCase()).join(" ");
           if (hay.indexOf(needle) >= 0) {
             out.push({
@@ -7300,4 +7402,35 @@ function tcRenderEntryList(listEl, offset) {
       });
     };
     window.bindInspectCamFab();
+    
+
+
+    
+    (function bindKeyboardPin() {
+      if (window.__kbPinBound) return;
+      window.__kbPinBound = true;
+      const SEL = '#pl-modal .btn-row, #pl-modal .pl-item-bar, #screenJobForm .btn-row, #screenStart .btn-row, .btn-row.tc-edit-bar';
+      const field = (el) => {
+        if (!el || el === document.body) return false;
+        const tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable) return true;
+        return !!(el.closest && el.closest('input, textarea, select, [contenteditable="true"]'));
+      };
+      const apply = (hide) => {
+        document.body.classList.toggle('kb-open', !!hide);
+        document.querySelectorAll(SEL).forEach((bar) => {
+          bar.style.setProperty('display', hide ? 'none' : 'flex', 'important');
+          bar.style.setProperty('visibility', hide ? 'hidden' : 'visible', 'important');
+        });
+      };
+      document.addEventListener('focusin', (e) => {
+        if (field(e.target)) apply(true);
+      }, true);
+      document.addEventListener('focusout', (e) => {
+        setTimeout(() => {
+          apply(field(document.activeElement));
+        }, 60);
+      }, true);
+    })();
+
     })();

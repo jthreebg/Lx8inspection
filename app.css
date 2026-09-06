@@ -31,6 +31,7 @@
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --bar-pad-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
       --locked-bar-space: calc(58px + env(safe-area-inset-bottom, 0px));
+      --lock-bar-h: calc(68px + env(safe-area-inset-bottom, 0px));
       --radius: 20px;
       --radius-sm: 14px;
       --radius-pill: 999px;
@@ -4305,4 +4306,152 @@
       border: 0.5px solid var(--field-selected-border) !important;
       border-radius: var(--radius-pill) !important;
       box-shadow: var(--field-selected-ring), inset 0 0.5px 0 rgba(255,255,255,0.38) !important;
+    }
+
+    /* Search must sit above header (settings lives outside .header-actions) */
+    body.search-open #btnSettings,
+    body.search-open #btnHeaderBack,
+    body.search-open #btnHome,
+    body.search-open #btnSearch,
+    body.search-open #btnHeaderPunchlist,
+    body.search-open #btnInspectHome {
+      display: none !important;
+      pointer-events: none !important;
+      visibility: hidden !important;
+    }
+    body.search-open .app-header {
+      pointer-events: none !important;
+    }
+    .search-bar,
+    .search-bar.show {
+      z-index: 800 !important;
+      pointer-events: auto !important;
+    }
+    .search-bar.show .search-field,
+    .search-bar.show input,
+    .search-bar.show .search-cancel,
+    .search-bar.show .search-clear {
+      pointer-events: auto !important;
+      position: relative;
+      z-index: 2;
+    }
+
+
+    /* Keep home pinned to the large viewport so the keyboard overlays instead of shrinking layout */
+    body.search-open #screenHome,
+    body.search-open #screenHome.screen.active {
+      min-height: 100vh !important;
+      min-height: 100lvh !important;
+      height: auto !important;
+    }
+    body.search-open .home-bottom {
+      margin-top: auto;
+    }
+    #searchScrim.show { z-index: 790 !important; }
+    #searchResults.show {
+      z-index: 795 !important;
+      top: calc(62px + env(safe-area-inset-top, 0px));
+      max-height: calc(100lvh - 62px - env(safe-area-inset-top, 0px));
+    }
+
+
+
+    #pl-modal .btn-row,
+    #pl-modal .pl-item-bar,
+    #screenJobForm .btn-row,
+    #screenStart .btn-row,
+    .btn-row.tc-edit-bar {
+      position: fixed !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      top: auto !important;
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      transform: none !important;
+      box-shadow: none !important;
+      padding: 10px 18px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+      background: #000000 !important;
+      z-index: 400;
+    }
+    body.kb-open #pl-modal .btn-row,
+    body.kb-open #pl-modal .pl-item-bar,
+    body.kb-open #screenJobForm .btn-row,
+    body.kb-open #screenStart .btn-row,
+    body.kb-open .btn-row.tc-edit-bar {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
+    /* Center a single readable column on tablet / desktop / large Android */
+    .app-header,
+    .section-progress,
+    .search-bar.show,
+    #searchResults.show,
+    .screen.active,
+    #screenHome.screen.active {
+      width: 100%;
+      max-width: 430px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .app-header {
+      left: 0;
+      right: 0;
+    }
+    #searchScrim.show { left: 0; right: 0; }
+    #pl-modal .btn-row,
+    #pl-modal .pl-item-bar,
+    #screenJobForm .btn-row,
+    #screenStart .btn-row,
+    .btn-row.tc-edit-bar {
+      max-width: 430px !important;
+      left: 0 !important;
+      right: 0 !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+    }
+    @media (min-width: 768px) {
+      .app-header,
+      .section-progress,
+      .search-bar.show,
+      #searchResults.show,
+      .screen.active,
+      #screenHome.screen.active,
+      #pl-modal .btn-row,
+      #pl-modal .pl-item-bar,
+      #screenJobForm .btn-row,
+      #screenStart .btn-row,
+      .btn-row.tc-edit-bar {
+        max-width: 640px !important;
+      }
+      .home-tiles { gap: 14px; }
+    }
+    @media (min-width: 1024px) {
+      .app-header,
+      .section-progress,
+      .search-bar.show,
+      #searchResults.show,
+      .screen.active,
+      #screenHome.screen.active,
+      #pl-modal .btn-row,
+      #pl-modal .pl-item-bar,
+      #screenJobForm .btn-row,
+      #screenStart .btn-row,
+      .btn-row.tc-edit-bar {
+        max-width: 720px !important;
+      }
+    }
+    @media (max-width: 359px) {
+      .home-tile { height: 72px; min-height: 72px; max-height: 72px; }
+      .home-tile-title { font-size: 0.86rem; }
+      .app-header { padding-left: 12px; padding-right: 12px; }
+    }
+    @media (orientation: landscape) and (max-height: 500px) {
+      #screenHome > #homeAmbientGlow + .hero { margin-top: 0; padding-bottom: 8px; }
+      .home-round-logo { width: 64px !important; height: 64px !important; }
+      .home-tile { height: 64px; min-height: 64px; max-height: 64px; }
     }
