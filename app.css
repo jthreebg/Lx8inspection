@@ -2771,8 +2771,8 @@
     #screenJobsList .badge-complete { background: rgba(52,211,153,0.12); color: var(--success); border: 0.5px solid rgba(52,211,153,0.28); }
     #screenJobsList .empty { text-align: center; padding: 60px 24px; color: var(--muted); }
     /* —— Job Detail —— */
-    #screenJobDetail { padding-bottom: 28px; }
-    #screenJobDetail     #screenJobDetail .job-detail-head {
+    #screenJobDetail { padding-bottom: calc(28px + var(--safe-bottom)); }
+    #screenJobDetail .job-detail-head {
       display: flex;
       align-items: flex-end;
       justify-content: space-between;
@@ -5086,6 +5086,27 @@
       height: auto !important;
       min-height: calc(68px + env(safe-area-inset-bottom, 0px));
       max-height: none !important;
+    }
+    /* The "last-wins" block above zeroes overlay padding for edge-to-edge
+       sheet coverage, but that also erased the reserved space that kept
+       these sheets from sliding up underneath the fixed header on tall
+       content. Re-reserve it here — same !important fight, later in the
+       cascade, so this wins. */
+    #machineModal.modal-overlay.show,
+    #jobPickerModal.modal-overlay.show,
+    #jobDatesModal.modal-overlay.show,
+    #pl-modal.modal-overlay.show {
+      padding-top: var(--header-h) !important;
+    }
+    #machineModal .machine-sheet,
+    #machineModal .modal,
+    #jobPickerModal .modal,
+    #jobDatesModal .machine-sheet,
+    #jobDatesModal .modal,
+    #pl-modal .modal,
+    #pl-modal #modal-sheet {
+      max-height: calc(100dvh - var(--header-h)) !important;
+      max-height: calc(100svh - var(--header-h)) !important;
     }
     #screenStart,
     #screenStart.screen.active,
