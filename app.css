@@ -5284,3 +5284,93 @@
       align-items: center;
       box-sizing: border-box;
     }
+
+    html.theme-light #screenPunchlistList > .card,
+    html.theme-light #screenInspectList > .card,
+    html.theme-light #screenVisitList > .card,
+    html.theme-light #screenJobsList > .card,
+    html.theme-light #screenPunchlistList .card {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+    html.theme-light #screenPunchlistList .list-item,
+    html.theme-light #screenInspectList .list-item,
+    html.theme-light #recentPunchlistList .list-item {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border: 1px solid rgba(15,23,42,0.10) !important;
+      box-shadow: 0 8px 24px rgba(15,23,42,0.06) !important;
+    }
+
+    /* Punchlist add/edit sheet: buttons flush to screen bottom, no grey strip */
+    #pl-modal.modal-overlay.show {
+      align-items: stretch !important;
+      justify-content: flex-end !important;
+      height: 100% !important;
+      height: 100svh !important;
+      height: -webkit-fill-available !important;
+      padding: 0 !important;
+    }
+    #pl-modal .modal,
+    #pl-modal #modal-sheet {
+      margin-bottom: 0 !important;
+      border-bottom-left-radius: 0 !important;
+      border-bottom-right-radius: 0 !important;
+    }
+    #pl-modal .btn-row,
+    #pl-modal .pl-item-bar {
+      position: sticky !important;
+      bottom: 0 !important;
+      left: auto !important;
+      right: auto !important;
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 10px 16px max(10px, env(safe-area-inset-bottom, 0px)) !important;
+      background: var(--sheet, #1a1a1b) !important;
+      border-top: 0.5px solid var(--border) !important;
+      box-shadow: none !important;
+    }
+    html.theme-light #pl-modal .modal,
+    html.theme-light #pl-modal #modal-sheet,
+    html.theme-light #pl-modal .btn-row,
+    html.theme-light #pl-modal .pl-item-bar {
+      background: #ffffff !important;
+    }
+    html.theme-light #pl-modal .btn-row,
+    html.theme-light #pl-modal .pl-item-bar {
+      border-top-color: rgba(15,23,42,0.08) !important;
+    }
+    #pl-modal .modal-body {
+      padding-bottom: 12px !important;
+    }
+
+    /* Home must stay tappable — overlays and header traps */
+    body.on-home .app-header,
+    body.on-home .app-header .header-btn,
+    body.on-home .home-tiles,
+    body.on-home .home-tile,
+    body.on-home #homeCurrentJobCard,
+    body.on-home #homeCurrentJobCard .pl-item {
+      pointer-events: auto !important;
+    }
+    body.on-home #homeAmbientGlow {
+      pointer-events: none !important;
+    }
+    body.on-home:not(.search-open) .search-bar,
+    body.on-home:not(.search-open) #searchScrim,
+    body.on-home:not(.search-open) #searchResults {
+      display: none !important;
+      pointer-events: none !important;
+    }
+    #pl-modal:not(.show),
+    .modal-overlay:not(.show),
+    .modal-backdrop:not(.show),
+    .save-sheet[hidden],
+    .save-sheet:not(.show) {
+      display: none !important;
+      pointer-events: none !important;
+    }

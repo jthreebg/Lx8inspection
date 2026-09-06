@@ -446,6 +446,19 @@ const ICO = {
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
       const screenEl = document.getElementById(id);
       if (screenEl) screenEl.classList.add('active');
+      if (id === 'screenHome') {
+        document.body.classList.remove('search-open');
+        const sb = document.getElementById('searchBar');
+        if (sb) sb.classList.remove('show');
+        const scrim = document.getElementById('searchScrim');
+        if (scrim) { scrim.hidden = true; scrim.classList.remove('show'); }
+        const results = document.getElementById('searchResults');
+        if (results) { results.hidden = true; results.classList.remove('show'); }
+        document.querySelectorAll('.modal-overlay.show, .save-sheet.show').forEach((el) => {
+          el.classList.remove('show');
+          el.hidden = true;
+        });
+      }
       if (id !== 'screenPunchlist') {
         const overlay = document.getElementById('pl-modal');
         if (overlay && overlay.classList.contains('show')) {
@@ -542,15 +555,39 @@ const ICO = {
     function fillPunchlistJobSelect(selectedId) {
       const sel = document.getElementById('plLinkJobSelect');
       if (!sel) return;
-      const jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
-      let html = '<option value="">— No job —</option>';
-      jobs.forEach(j => {
-        if (!j || !j.id) return;
-        const label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : (j.customer || j.id);
-        const selAttr = selectedId && selectedId === j.id ? ' selected' : '';
-        html += '<option value="' + String(j.id).replace(/"/g, '&quot;') + '"' + selAttr + '>' + String(label).replace(/</g, '&lt;') + '</option>';
-      });
-      sel.innerHTML = html;
+      let jobs = [];
+      try { jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || []; } catch (e) {}
+      try {
+        const disk = (typeof lsRead === 'function') ? lsRead('lx8_jobs', []) : [];
+        const byId = {};
+        [].concat(disk || [], jobs).forEach((j) => {
+          if (j && j.id) byId[j.id] = j;
+        });
+        jobs = Object.keys(byId).map((id) => byId[id]);
+      } catch (e) {}
+      sel.innerHTML = '';
+      const opt0 = document.createElement('option');
+      opt0.value = '';
+      opt0.textContent = '— No job —';
+      sel.appendChild(opt0);
+      jobs
+        .filter((j) => j && j.id)
+        .sort((a, b) => {
+          const la = (typeof jobDisplayName === 'function' ? jobDisplayName(a) : (a.customer || ''));
+          const lb = (typeof jobDisplayName === 'function' ? jobDisplayName(b) : (b.customer || ''));
+          return String(la).localeCompare(String(lb));
+        })
+        .forEach((j) => {
+          let label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : '';
+          if (!label || label === 'Job' || label === j.id) {
+            label = [j.customer, j.site].filter(Boolean).join(' – ') || j.customer || j.site || j.so || 'Untitled job';
+          }
+          const opt = document.createElement('option');
+          opt.value = j.id;
+          opt.textContent = label;
+          if (selectedId && selectedId === j.id) opt.selected = true;
+          sel.appendChild(opt);
+        });
     }
     function closePunchlistLinkSheet() {
       const sheet = document.getElementById('plLinkJobSheet');
@@ -566,7 +603,19 @@ const ICO = {
     function openPunchlistLinkSheet(name) {
       linkingPunchlistName = name || '';
       const title = document.getElementById('plLinkJobTitle');
-      if (title) title.textContent = name || 'Link job';
+      if (title) title.textContent = 'Edit punchlist';
+      const nameEl = document.getElementById('plLinkNameInput');
+      if (nameEl) {
+        let shown = name || '';
+        try {
+          if (typeof window.getPunchlistSummaries === 'function') {
+            /* filled from card title */
+          }
+        } catch (e) {}
+        const card = Array.from(document.querySelectorAll('#recentPunchlistList .list-item')).find(el => el.getAttribute('data-job-name') === name);
+        if (card && card.querySelector('.title')) shown = card.querySelector('.title').textContent || shown;
+        nameEl.value = shown;
+      }
       let currentId = '';
       const items = document.querySelectorAll('#recentPunchlistList .list-item');
       items.forEach((card) => {
@@ -583,17 +632,24 @@ const ICO = {
       }
     }
     async function savePunchlistJobLink() {
-      const name = linkingPunchlistName;
+      let name = linkingPunchlistName;
+      const nameEl = document.getElementById('plLinkNameInput');
+      const nextName = nameEl ? String(nameEl.value || '').trim() : name;
       const sel = document.getElementById('plLinkJobSelect');
       const jobId = sel ? sel.value : '';
-      if (!name || typeof window.setPunchlistJobLink !== 'function') {
+      if (!name) {
         closePunchlistLinkSheet();
         return;
       }
-      await window.setPunchlistJobLink(name, jobId);
+      if (nextName && typeof window.renamePunchlist === 'function') {
+        name = await window.renamePunchlist(name, nextName);
+      }
+      if (typeof window.setPunchlistJobLink === 'function') {
+        await window.setPunchlistJobLink(name, jobId);
+      }
       closePunchlistLinkSheet();
       if (typeof refreshPunchlistHome === 'function') await refreshPunchlistHome();
-      toast(jobId ? 'Punchlist linked to job' : 'Job unlinked');
+      toast(jobId ? 'Punchlist saved' : 'Punchlist saved');
     }
     function viewLinkedPunchlistJob() {
       const sel = document.getElementById('plLinkJobSelect');
@@ -626,7 +682,7 @@ const ICO = {
             return `
               <div class="list-item ${rowTone}" data-job-name="${String(row.name).replace(/"/g, '&quot;')}" data-job-id="${String(row.jobId || '').replace(/"/g, '&quot;')}">
                 <div class="list-item-main" data-action="open">
-                  <div class="title">${row.title || row.jobLabel || row.name}</div>
+                  <div class="title">${row.title || (typeof punchlistDisplayName === "function" ? punchlistDisplayName(row.name) : row.name)}</div>
                   <div class="sub">${jobLine}</div>
                   <div class="sub">${total} item${total !== 1 ? 's' : ''} · ${done} complete${open ? ' · ' + open + ' open' : ''}</div>
                 </div>
@@ -1781,13 +1837,15 @@ const ICO = {
           // Same caveat as above: only trust a name match when that bucket
           // isn't already claimed by a different job id, or two jobs with
           // the same customer/site would show each other's punchlists.
-          const match = rows.find(r => r.jobId === job.id) || rows.find(r => r.name === key && !r.jobId);
-          if (match) {
-            punchTotal = match.total;
-            punchDone = match.complete;
-            punchName = match.name;
+          const linked = (rows || []).filter(r => r && r.jobId === job.id);
+          if (linked.length) {
+            punchTotal = linked.reduce((s, r) => s + (r.total || 0), 0);
+            punchDone = linked.reduce((s, r) => s + (r.complete || 0), 0);
+            punchName = linked[0].name;
+            window._jdPunchlists = linked;
           } else {
-            punchName = key;
+            punchName = '';
+            window._jdPunchlists = [];
           }
         }
       } catch (e) {}
@@ -1800,21 +1858,34 @@ const ICO = {
       }
 
       const punchList = document.getElementById('jobDetailPunchList');
-      if (punchTotal === 0) {
-        punchList.innerHTML = `<div class="empty-state compact"><p>No punchlist items yet. Tap Punchlist to add.</p></div>`;
+      const linkedLists = window._jdPunchlists || [];
+      if (!linkedLists.length) {
+        punchList.innerHTML = `<div class="empty-state compact"><p>No punchlist linked. Tap + Punchlist to add one.</p></div>`;
       } else {
-        const open = punchTotal - punchDone;
-        const allDone = open === 0;
-        punchList.innerHTML = `<div class="list-item ${allDone ? 'list-complete' : ''}" data-action="open-punch">
+        punchList.innerHTML = linkedLists.map(row => {
+          const open = (row.total || 0) - (row.complete || 0);
+          const allDone = (row.total || 0) > 0 && open === 0;
+          return `<div class="list-item ${allDone ? 'list-complete' : ''}" data-action="open-punch" data-pl-name="${String(row.name).replace(/"/g,'&quot;')}">
           <div class="list-item-main">
-            <div class="title">${jobEsc(punchName || jobDisplayName(job))}</div>
-            <div class="sub">${punchTotal} item${punchTotal !== 1 ? 's' : ''} · ${punchDone} complete${open ? ' · ' + open + ' open' : ''}</div>
+            <div class="title">${jobEsc(row.title || (typeof punchlistDisplayName === "function" ? punchlistDisplayName(row.name) : row.name))}</div>
+            <div class="sub">${row.total || 0} item${(row.total || 0) !== 1 ? 's' : ''} · ${row.complete || 0} complete${open ? ' · ' + open + ' open' : ''}</div>
           </div>
           <div class="list-item-actions">
-            <span class="badge ${allDone ? 'badge-complete' : 'badge-draft'}">${allDone ? 'Complete' : 'Open'}</span>
+            <span class="badge ${allDone ? 'badge-complete' : 'badge-draft'}">${(row.total || 0) === 0 ? 'Empty' : (allDone ? 'Complete' : 'Open')}</span>
           </div>
         </div>`;
-        punchList.querySelector('[data-action="open-punch"]').addEventListener('click', () => startPunchlistForDetailJob());
+        }).join('');
+        punchList.querySelectorAll('[data-action="open-punch"]').forEach(el => {
+          el.addEventListener('click', async () => {
+            const n = el.getAttribute('data-pl-name');
+            if (n && typeof window.openPunchlistByName === 'function') {
+              await window.openPunchlistByName(n);
+              showScreen('screenPunchlist');
+              setHeader('Punchlist');
+              if (typeof window.renderList === 'function') window.renderList();
+            }
+          });
+        });
       }
     }
 
@@ -1958,15 +2029,16 @@ const ICO = {
       const job = loadJobs().find(j => j.id === detailJobId);
       if (!job) { toast('Job not found'); return; }
       try {
-        if (typeof window.openPunchlistForJob !== 'function') {
+        const maker = window.createPunchlistForJob || window.openPunchlistForJob;
+        if (typeof maker !== 'function') {
           toast('Punchlist not ready');
           return;
         }
-        await window.openPunchlistForJob(job);
+        await maker(job);
         showScreen('screenPunchlist');
         setHeader('Punchlist');
         if (typeof window.renderList === 'function') window.renderList();
-        toast('Punchlist: ' + jobDisplayName(job));
+        toast('Punchlist created');
       } catch (e) {
         console.error(e);
         toast('Could not open punchlist');
@@ -2033,6 +2105,11 @@ const ICO = {
         toast('Job saved');
       }
       saveJobs(list);
+      try {
+        if (typeof window.syncPunchlistJobLabels === 'function') {
+          window.syncPunchlistJobLabels(editingJobId);
+        }
+      } catch (e) {}
       const savedId = editingJobId;
       const after = pendingAfterJobSave;
       pendingAfterJobSave = null;
@@ -2634,7 +2711,7 @@ const ICO = {
       if (modal.parentElement !== document.body) document.body.appendChild(modal);
       modal.classList.add('modal-overlay');
 
-      title.textContent = purpose === 'punchlist' ? 'Select Job for Punchlist' : 'Select Job for Inspection';
+      title.textContent = purpose === 'punchlist' ? 'Select job to link' : 'Select Job for Inspection';
       const goBtn = document.getElementById('jobPickerGoJobs');
       if (goBtn) goBtn.textContent = 'Add Job';
 
@@ -2764,7 +2841,7 @@ const ICO = {
           showScreen('screenPunchlist');
           setHeader('Punchlist');
           if (typeof window.renderList === 'function') window.renderList();
-          toast(job ? ('Punchlist: ' + jobDisplayName(job)) : 'Punchlist (no job)');
+          toast(job ? ('Punchlist linked') : 'Punchlist created');
         } catch (err) {
           console.error(err);
           toast('Could not open punchlist');
@@ -2832,15 +2909,16 @@ const ICO = {
     }
     async function startPunchlistForCurrentJob(job) {
       try {
-        if (typeof window.openPunchlistForJob !== 'function') {
+        const maker = window.createPunchlistForJob || window.openPunchlistForJob;
+        if (typeof maker !== 'function') {
           toast('Punchlist not ready');
           return;
         }
-        const label = await window.openPunchlistForJob(job || null);
+        const label = await maker(job || null);
         showScreen('screenPunchlist');
         setHeader('Punchlist');
         if (typeof window.renderList === 'function') window.renderList();
-        toast(job ? ('Punchlist: ' + jobDisplayName(job)) : 'Punchlist (no job)');
+        toast(job ? ('Punchlist linked') : 'Punchlist created');
       } catch (err) {
         console.error(err);
         toast('Could not open punchlist');
@@ -2852,7 +2930,8 @@ const ICO = {
     });
     document.getElementById('btnNewPunchlist').addEventListener('click', () => {
       closeSearch();
-      openJobPicker('punchlist');
+      const job = (typeof getActiveCurrentJob === 'function') ? getActiveCurrentJob() : null;
+      startPunchlistForCurrentJob(job);
     });
 
 
@@ -5287,7 +5366,7 @@ const ICO = {
             id: r.name,
             name: r.name,
             kicker: 'Punchlist',
-            title: r.name,
+            title: r.title || (typeof window.punchlistDisplayName === 'function' ? window.punchlistDisplayName(r.name) : r.name),
             sub: (r.total || 0) + ' item' + ((r.total || 0) !== 1 ? 's' : '') + ' · ' + (r.complete || 0) + ' complete'
           }));
           (items || []).forEach(it => extra.push({
@@ -5296,7 +5375,7 @@ const ICO = {
             job: it.job,
             kicker: 'Punchlist item',
             title: it.description || 'Item',
-            sub: [it.job, it.status, it.line, it.location].filter(Boolean).join(' · ')
+            sub: [(typeof window.punchlistDisplayName === 'function' ? window.punchlistDisplayName(it.job) : it.job), it.status, it.line, it.location].filter(Boolean).join(' · ')
           }));
           paint(extra);
         }).catch(() => paint([]));
@@ -5590,6 +5669,95 @@ const IDB_NAME = "FieldPunchlistDB";
       });
     }
 
+
+    function plLists() {
+      if (!data) data = { lists: {}, currentId: '' };
+      if (!data.lists) data.lists = {};
+      return data.lists;
+    }
+    function plRecord(id) {
+      return (id && plLists()[id]) || null;
+    }
+    function plEnsureId(taken) {
+      if (typeof newEntityId === 'function') return newEntityId('pl', taken || Object.keys(plLists()));
+      return 'pl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    }
+    function migratePunchlistRecords() {
+      if (!data) data = {};
+      if (!data.lists) data.lists = {};
+      let dirty = false;
+      const taken = Object.keys(data.lists);
+      const fromJobs = data.jobs && typeof data.jobs === 'object' ? data.jobs : {};
+      Object.keys(fromJobs).forEach((key) => {
+        const val = fromJobs[key];
+        if (val && !Array.isArray(val) && typeof val === 'object' && Array.isArray(val.items)) {
+          const id = val.id || key;
+          if (!data.lists[id]) {
+            data.lists[id] = {
+              id,
+              name: val.name || (data.listNames && data.listNames[key]) || key,
+              jobId: val.jobId || (data.jobIdByKey && data.jobIdByKey[key]) || '',
+              items: val.items || [],
+              createdAt: val.createdAt || Date.now()
+            };
+            dirty = true;
+          }
+          return;
+        }
+        const items = Array.isArray(val) ? val : [];
+        const existing = Object.values(data.lists).find((L) => L && (L.id === key || (L.name === key && items === val)));
+        if (data.lists[key] && Array.isArray(data.lists[key].items)) return;
+        const id = (/^pl_[a-z0-9]+/i.test(key) ? key : plEnsureId(taken.concat(Object.keys(data.lists))));
+        taken.push(id);
+        const name = (data.listNames && data.listNames[key])
+          || ((/^pl_|^job_/i.test(key)) ? 'Punchlist' : key);
+        const jobId = (data.jobIdByKey && data.jobIdByKey[key]) || '';
+        data.lists[id] = { id, name, jobId, items, createdAt: Date.now() };
+        dirty = true;
+      });
+      if (!Object.keys(data.lists).length) {
+        const id = plEnsureId([]);
+        data.lists[id] = { id, name: 'Punchlist', jobId: '', items: [], createdAt: Date.now() };
+        data.currentId = id;
+        dirty = true;
+      }
+      if (data.currentId && data.lists[data.currentId]) {
+        /* ok */
+      } else if (data.currentJob && data.lists[data.currentJob]) {
+        data.currentId = data.currentJob;
+        dirty = true;
+      } else if (data.currentJob) {
+        const hit = Object.values(data.lists).find((L) => L && L.name === data.currentJob);
+        data.currentId = hit ? hit.id : Object.keys(data.lists)[0];
+        dirty = true;
+      } else {
+        data.currentId = Object.keys(data.lists)[0];
+        dirty = true;
+      }
+      data.version = 3;
+      plSyncLegacy();
+      return dirty;
+    }
+    function plSyncLegacy() {
+      if (!data) return;
+      const lists = data.lists || {};
+      data.jobs = {};
+      data.listNames = {};
+      data.jobIdByKey = {};
+      data.keyByJobId = {};
+      Object.keys(lists).forEach((id) => {
+        const L = lists[id];
+        if (!L) return;
+        data.jobs[id] = Array.isArray(L.items) ? L.items : [];
+        data.listNames[id] = L.name || 'Punchlist';
+        if (L.jobId) {
+          data.jobIdByKey[id] = L.jobId;
+          data.keyByJobId[L.jobId] = id;
+        }
+      });
+      data.currentJob = data.currentId || '';
+    }
+
     async function plLoadData() {
       try {
         await openDB();
@@ -5604,16 +5772,48 @@ const IDB_NAME = "FieldPunchlistDB";
             }
           } catch (e) {}
         }
-        if (saved && saved.jobs && saved.currentJob) data = saved;
-        else { data = JSON.parse(JSON.stringify(defaultData)); await plSaveData(); }
-        if (migratePunchlistKeys()) await plSaveData();
+        if (saved && (saved.lists || saved.jobs)) {
+          const prevNames = (data && data.listNames) ? data.listNames : {};
+          data = saved;
+          if (!data.lists) data.lists = {};
+          data.listNames = Object.assign({}, prevNames, saved.listNames || {});
+        } else { data = JSON.parse(JSON.stringify(defaultData)); }
+        migratePunchlistRecords();
+        await plSaveData();
       } catch (e) {
         data = JSON.parse(JSON.stringify(defaultData));
         try { await openDB(); } catch (_) {}
       }
     }
 
+
+    window.punchlistDisplayName = function(key) {
+      try { return punchlistDisplayName(key); } catch (e) { return key || 'Punchlist'; }
+    };
+    function punchlistDisplayName(key) {
+      if (!key) return 'Punchlist';
+      const L = data && data.lists && data.lists[key];
+      if (L && L.name) return L.name;
+      if (data && data.listNames && data.listNames[key]) return data.listNames[key];
+      if (/^pl_[a-z0-9]+/i.test(String(key)) || /^job_[a-z0-9]+/i.test(String(key))) return 'Punchlist';
+      return String(key);
+    }
+    function ensurePunchlistIdentities() {
+      if (!data) return false;
+      if (!data.jobs) data.jobs = {};
+      if (!data.listNames) data.listNames = {};
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      let dirty = false;
+      Object.keys(data.jobs).forEach((key) => {
+        if (data.listNames[key]) return;
+        if (/^pl_[a-z0-9]+/i.test(key) || /^job_[a-z0-9]+/i.test(key)) return;
+        data.listNames[key] = key;
+        dirty = true;
+      });
+      return dirty;
+    }
     function migratePunchlistKeys() {
+      return false;
       if (!data) data = { jobs: {}, currentJob: '' };
       if (!data.jobs) data.jobs = {};
       if (!data.jobIdByKey) data.jobIdByKey = {};
@@ -5719,8 +5919,19 @@ const IDB_NAME = "FieldPunchlistDB";
       });
     }
 
-    function getItems() { return data.jobs[data.currentJob] || []; }
-    function setItems(items) { data.jobs[data.currentJob] = items; plSaveData(); }
+    function getItems() {
+      const L = plRecord(data.currentId || data.currentJob);
+      return (L && Array.isArray(L.items)) ? L.items : [];
+    }
+    function setItems(items) {
+      const id = data.currentId || data.currentJob;
+      if (!id) return;
+      if (!data.lists) data.lists = {};
+      if (!data.lists[id]) data.lists[id] = { id, name: punchlistDisplayName(id), jobId: '', items: [] };
+      data.lists[id].items = items || [];
+      plSyncLegacy();
+      plSaveData();
+    }
 
     function punchlistShowToast(msg) {
       const t = document.getElementById("toast");
@@ -5762,22 +5973,20 @@ const IDB_NAME = "FieldPunchlistDB";
           if (typeof resolvePunchlistKeyForJob === "function") resolvePunchlistKeyForJob(job);
         });
       } catch (e) {}
-      const jobs = Object.keys(data.jobs);
+      const jobs = Object.keys(plLists());
       if (!jobs.length) {
-        data.jobs["Default"] = [];
-        data.currentJob = "Default";
-        jobs.push("Default");
+        const id = plEnsureId([]);
+        data.lists[id] = { id, name: 'Punchlist', jobId: '', items: [], createdAt: Date.now() };
+        data.currentId = id;
+        jobs.push(id);
+        plSyncLegacy();
       }
-      if (!data.currentJob || !data.jobs[data.currentJob]) data.currentJob = jobs[0];
+      if (!data.currentId || !data.lists[data.currentId]) data.currentId = jobs[0];
+      data.currentJob = data.currentId;
       const fieldJobsForLabel = (typeof loadJobs === "function" ? loadJobs() : []) || [];
       sel.innerHTML = jobs.map(j => {
-        const job = fieldJobsForLabel.find(x => x && x.id === j);
-        let label = j;
-        if (job && typeof jobDisplayName === "function") label = jobDisplayName(job);
-        else if (job && job.customer) label = job.customer;
-        else if (j === "Default") label = "No job";
-        else if (/^job_/.test(String(j))) label = "Punchlist";
-        return `<option value="${escapeHtml(j)}" ${j === data.currentJob ? "selected" : ""}>${escapeHtml(label)}</option>`;
+        const label = punchlistDisplayName(j);
+        return `<option value="${escapeHtml(j)}" ${j === (data.currentId || data.currentJob) ? "selected" : ""}>${escapeHtml(label)}</option>`;
       }).join("");
     }
 
@@ -6038,7 +6247,7 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
     document.getElementById("job-select").addEventListener("change", (e) => {
-      data.currentJob = e.target.value;
+      data.currentId = e.target.value; data.currentJob = e.target.value;
       plSaveData();
       filterChipValue = "";
       renderList();
@@ -6046,7 +6255,7 @@ const IDB_NAME = "FieldPunchlistDB";
         if (typeof window.setLastPunchlistName === "function") window.setLastPunchlistName(data.currentJob);
         else localStorage.setItem("lx8_last_punchlist", data.currentJob);
       } catch (err) {}
-      toast("Switched to " + data.currentJob);
+      toast("Switched to " + punchlistDisplayName(data.currentJob));
     });
 
     document.getElementById("btn-filter").addEventListener("click", openFilterSheet);
@@ -6060,7 +6269,7 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
     function showForm(item, isNew) {
-      document.getElementById("modal-title").textContent = isNew ? "New Item" : `Item #${item.id}`;
+      document.getElementById("modal-title").textContent = isNew ? "New Item" : (item.description || "Item");
       const trashBtn = document.getElementById("modal-trash");
       if (trashBtn) {
         trashBtn.style.display = "none";
@@ -6441,18 +6650,64 @@ const IDB_NAME = "FieldPunchlistDB";
     window.plRenderList = renderList;
     window.plLoadData = plLoadData;
     window.populateJobSelect = populateJobSelect;
-    window.openPunchlistForJob = async function(job) {
+    window.createPunchlistForJob = async function(job) {
       await plLoadData();
       if (!data) data = { jobs: {}, currentJob: '' };
       if (!data.jobs) data.jobs = {};
-      if (job) {
-        const key = resolvePunchlistKeyForJob(job);
-        data.currentJob = key;
-      } else {
-        const key = 'General';
-        if (!data.jobs[key]) data.jobs[key] = [];
-        data.currentJob = key;
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      if (!data.listNames) data.listNames = {};
+      const base = job
+        ? (((typeof jobDisplayName === 'function') ? jobDisplayName(job) : (job.customer || '')) || 'Punchlist')
+        : 'Punchlist';
+      if (!data.lists) data.lists = {};
+      const key = plEnsureId(Object.keys(data.lists));
+      data.lists[key] = {
+        id: key,
+        name: String(base).trim() || 'Punchlist',
+        jobId: (job && job.id) || '',
+        items: [],
+        createdAt: Date.now()
+      };
+      data.currentId = key;
+      plSyncLegacy();
+      await plSaveData();
+      populateJobSelect();
+      renderList();
+      try {
+        if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(key);
+        else localStorage.setItem('lx8_last_punchlist', key);
+      } catch (e) {}
+      return key;
+    };
+    window.renamePunchlist = async function(oldName, newName) {
+      await plLoadData();
+      const next = String(newName || '').trim();
+      const L = plRecord(oldName);
+      if (!L || !next) return oldName;
+      L.name = next;
+      plSyncLegacy();
+      await plSaveData();
+      populateJobSelect();
+      return oldName;
+    };
+    window.openPunchlistForJob = async function(job) {
+      await plLoadData();
+      if (!data.lists) data.lists = {};
+      let id = '';
+      if (job && job.id) {
+        const hit = Object.values(data.lists).find((L) => L && L.jobId === job.id);
+        if (hit) id = hit.id;
       }
+      if (!id) {
+        const label = job
+          ? (((typeof jobDisplayName === 'function') ? jobDisplayName(job) : job.customer) || 'Punchlist')
+          : 'Punchlist';
+        id = plEnsureId(Object.keys(data.lists));
+        data.lists[id] = { id, name: label, jobId: (job && job.id) || '', items: [], createdAt: Date.now() };
+      }
+      data.currentId = id;
+      data.currentJob = id;
+      plSyncLegacy();
       await plSaveData();
       populateJobSelect();
       renderList();
@@ -6465,6 +6720,17 @@ const IDB_NAME = "FieldPunchlistDB";
     window.getPunchlistStatsForJob = async function(jobOrName) {
       await plLoadData();
       if (!data || !data.jobs) return { total: 0, open: 0, complete: 0 };
+      const jobId = (jobOrName && typeof jobOrName === 'object') ? jobOrName.id : '';
+      if (jobId) {
+        let total = 0, complete = 0;
+        Object.values(data.lists || {}).forEach((L) => {
+          if (!L || L.jobId !== jobId) return;
+          const items = L.items || [];
+          total += items.length;
+          complete += items.filter(i => i && i.status === 'Complete').length;
+        });
+        return { total, complete, open: Math.max(0, total - complete) };
+      }
       // Prefer the stable id->key link (survives customer/site edits) over a
       // name match, and only fall back to name/substring matching for plain
       // string lookups where no job object (and thus no id) is available.
@@ -6494,10 +6760,12 @@ const IDB_NAME = "FieldPunchlistDB";
       const needle = String(q || "").trim().toLowerCase();
       if (!needle || !data || !data.jobs) return [];
       const out = [];
-      Object.keys(data.jobs).forEach(name => {
-        (data.jobs[name] || []).forEach(item => {
+      Object.keys(data.lists || data.jobs || {}).forEach(name => {
+        const items = (data.lists && data.lists[name] && data.lists[name].items) || data.jobs[name] || [];
+        items.forEach(item => {
           if (!item) return;
-          const hay = [item.description, item.action, item.location, item.line, item.comments, item.department, item.status, name,
+          const listLabel = punchlistDisplayName(name);
+          const hay = [item.description, item.action, item.location, item.line, item.comments, item.department, item.status, listLabel,
             item.dueDate, item.createdAt,
             (typeof searchDateHay === "function" ? searchDateHay(item.dueDate) : ""),
             (typeof searchDateHay === "function" ? searchDateHay(item.createdAt) : "")]
@@ -6522,19 +6790,18 @@ const IDB_NAME = "FieldPunchlistDB";
     };
     window.getPunchlistSummaries = async function() {
       await plLoadData();
-      if (!data || !data.jobs) return [];
-      const links = data.jobIdByKey || {};
+      if (!data || !data.lists) return [];
       const fieldJobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
-      return Object.keys(data.jobs).map(name => {
-        const items = data.jobs[name] || [];
+      return Object.keys(data.lists).map(name => {
+        const L = data.lists[name] || {};
+        const items = L.items || [];
         const complete = items.filter(i => i && i.status === 'Complete').length;
-        const jobId = links[name] || (fieldJobs.some(j => j && j.id === name) ? name : '');
-        const job = fieldJobs.find(j => j && (j.id === jobId || j.id === name));
+        const jobId = L.jobId || '';
+        const job = fieldJobs.find(j => j && j.id === jobId);
         const jobLabel = job
           ? ((typeof jobDisplayName === 'function') ? jobDisplayName(job) : (job.customer || ''))
           : '';
-        const looksLikeId = /^[a-z]+_[a-z0-9]+/i.test(String(name || ''));
-        const title = jobLabel || (!looksLikeId ? name : 'Punchlist');
+        const title = punchlistDisplayName(name);
         return { name, title, total: items.length, complete, jobId, jobLabel };
       }).sort((a, b) => {
         // Prefer non-empty, then alpha
@@ -6546,26 +6813,25 @@ const IDB_NAME = "FieldPunchlistDB";
       await plLoadData();
       if (!data) data = { jobs: {}, currentJob: '' };
       if (!data.jobs) data.jobs = {};
-      if (!data.jobs[name]) data.jobs[name] = [];
-      if (!data.jobIdByKey) data.jobIdByKey = {};
-      if (!data.keyByJobId) data.keyByJobId = {};
-      if (jobId) {
-        data.jobIdByKey[name] = jobId;
-        data.keyByJobId[jobId] = name;
-      } else {
-        const prev = data.jobIdByKey[name];
-        delete data.jobIdByKey[name];
-        if (prev && data.keyByJobId[prev] === name) delete data.keyByJobId[prev];
-      }
+      const L = plRecord(name);
+      if (!L) return false;
+      L.jobId = jobId || '';
+      plSyncLegacy();
       await plSaveData();
       return true;
     };
     window.openPunchlistByName = async function(name) {
       await plLoadData();
-      if (!data) data = { jobs: {}, currentJob: '' };
-      if (!data.jobs) data.jobs = {};
-      if (!data.jobs[name]) data.jobs[name] = [];
-      data.currentJob = name;
+      if (!data.lists) data.lists = {};
+      let id = name;
+      if (!data.lists[id]) {
+        const hit = Object.values(data.lists).find((L) => L && L.name === name);
+        if (hit) id = hit.id;
+      }
+      if (!data.lists[id]) return null;
+      data.currentId = id;
+      data.currentJob = id;
+      plSyncLegacy();
       await plSaveData();
       populateJobSelect();
       renderList();
@@ -6683,10 +6949,12 @@ const IDB_NAME = "FieldPunchlistDB";
         return;
       }
       const items = getItems();
-      const jobName = data.currentJob || 'Punchlist';
+      const listLabel = (typeof punchlistDisplayName === 'function' ? punchlistDisplayName(data.currentJob) : data.currentJob) || 'Punchlist';
       const jobs = (typeof loadJobs === 'function') ? loadJobs() : [];
-      const job = jobs.find(j => j && (j.id === jobName || (typeof jobDisplayName === 'function' && jobDisplayName(j) === jobName) || j.customer === jobName)) || null;
-      const customer = (job && job.customer) || jobName || 'Customer';
+      const linkedId = (plRecord(data.currentId || data.currentJob) || {}).jobId || '';
+      const job = jobs.find(j => j && j.id === linkedId) || null;
+      const jobName = listLabel;
+      const customer = (job && job.customer) || (job && jobDisplayName(job)) || listLabel || 'Customer';
       const site = (job && job.site) || '';
       const tech = (job && job.technician) || '';
       const dateRange = (typeof formatJobDateRange === 'function' && job) ? formatJobDateRange(job) : '';
@@ -6821,7 +7089,8 @@ const IDB_NAME = "FieldPunchlistDB";
 
     async function exportPunchlistExcel() {
       const items = getItems();
-      const jobName = data.currentJob || "Punchlist";
+      const jobName = (typeof punchlistDisplayName === "function" ? punchlistDisplayName(data.currentJob) : data.currentJob) || "Punchlist";
+      /* jobName is display label for filename */
       const safeName = jobName.replace(/[\\/:*?"<>|]/g, "-").trim() || "Punchlist";
       const filename = safeName + " Punchlist.xlsx";
 
