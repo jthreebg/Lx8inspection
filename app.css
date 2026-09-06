@@ -127,8 +127,12 @@
     /* Home: transparent header so shared ambient glow shows through */
     body.on-home .app-header {
       background: transparent;
-      overflow: hidden !important;
-      contain: strict;
+      overflow: visible !important;
+      contain: none !important;
+      transform: none !important;
+      will-change: auto !important;
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
     }
     body.on-home .app-header > * {
       position: relative;
@@ -4483,8 +4487,7 @@
       color-scheme: light;
     }
     html.theme-light .app-header,
-    html.theme-light body:not(.on-home) .app-header,
-    html.theme-light body.on-home .app-header {
+    html.theme-light body:not(.on-home) .app-header {
       background: #f2f4f7 !important;
       color: #1c1c1e;
     }
@@ -4818,8 +4821,7 @@
       background: #e8eaee !important;
     }
     html.theme-light .app-header,
-    html.theme-light body:not(.on-home) .app-header,
-    html.theme-light body.on-home .app-header {
+    html.theme-light body:not(.on-home) .app-header {
       background: rgba(232, 234, 238, 0.62) !important;
       -webkit-backdrop-filter: blur(28px) saturate(180%);
       backdrop-filter: blur(28px) saturate(180%);
@@ -5167,4 +5169,118 @@
       background: #ffffff !important;
       color: #111827 !important;
       border-color: rgba(15,23,42,0.18) !important;
+    }
+
+    /* Home header must stay clear so the glow shows through */
+    html.theme-light body.on-home .app-header,
+    html.theme-light body.on-home .app-header::before,
+    html.theme-light body.on-home .app-header::after,
+    body.on-home .app-header,
+    body.on-home .app-header::before,
+    body.on-home .app-header::after {
+      background: transparent !important;
+      background-color: transparent !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      box-shadow: none !important;
+      border: none !important;
+      border-bottom: none !important;
+      contain: none !important;
+      overflow: visible !important;
+    }
+
+    /* Inspection / job / machine field focus — beat the light-mode input !important */
+    html.theme-light .form-group input:focus,
+    html.theme-light .form-group input:focus-visible,
+    html.theme-light .form-group select:focus,
+    html.theme-light .form-group select:focus-visible,
+    html.theme-light .form-group textarea:focus,
+    html.theme-light .form-group textarea:focus-visible,
+    html.theme-light #screenStart input:focus,
+    html.theme-light #screenStart select:focus,
+    html.theme-light #machineModal input:focus,
+    html.theme-light #machineModal select:focus,
+    html.theme-light #inspectSerialInput:focus,
+    html.theme-light #inspectSerialSelect:focus,
+    html.theme-light #inspectMachine:focus,
+    html.theme-light #inspectMachineCustom:focus,
+    html.theme-light input:focus,
+    html.theme-light input:focus-visible,
+    html.theme-light textarea:focus,
+    html.theme-light textarea:focus-visible,
+    html.theme-light select:focus,
+    html.theme-light select:focus-visible {
+      background: #e8eaee !important;
+      color: #111827 !important;
+      border-color: #1c1c1e !important;
+      box-shadow: 0 0 0 2px #1c1c1e !important;
+      outline: none !important;
+    }
+
+    /* Fill the iPhone screen — no gray strip under content */
+    html, body {
+      min-height: 100% !important;
+      min-height: 100svh !important;
+      min-height: -webkit-fill-available !important;
+      background: var(--bg) !important;
+    }
+    html.theme-light, html.theme-light body {
+      background: #e8eaee !important;
+    }
+    .screen.active,
+    #screenHome.screen.active,
+    #screenInspectList.screen.active,
+    #screenPunchlist.screen.active,
+    #screenJobsList.screen.active,
+    #screenStart.screen.active,
+    #screenJobForm.screen.active,
+    #screenTime.screen.active {
+      min-height: 100svh !important;
+      min-height: -webkit-fill-available !important;
+      background: var(--bg);
+    }
+    html.theme-light .screen.active,
+    html.theme-light #screenHome.screen.active,
+    html.theme-light #screenInspectList.screen.active,
+    html.theme-light #screenPunchlist.screen.active {
+      background: #e8eaee !important;
+    }
+    #screenHome .home-bottom {
+      padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    /* Sheets flush to the physical bottom. Safe-area only on action padding. */
+    #machineModal.modal-overlay.show,
+    #jobPickerModal.modal-overlay.show,
+    #jobDatesModal.modal-overlay.show,
+    #pl-modal.modal-overlay.show {
+      height: 100% !important;
+      height: 100svh !important;
+      height: -webkit-fill-available !important;
+      bottom: 0 !important;
+    }
+    #machineModal .machine-sheet,
+    #machineModal .modal,
+    #jobPickerModal .modal,
+    #jobDatesModal .machine-sheet,
+    #jobDatesModal .modal,
+    #pl-modal .modal {
+      margin-bottom: 0 !important;
+      border-bottom-left-radius: 0 !important;
+      border-bottom-right-radius: 0 !important;
+      padding-bottom: 0 !important;
+    }
+    #machineModal .modal-actions,
+    #jobDatesModal .modal-actions,
+    #jobPickerModal .job-picker-actions,
+    #pl-modal .btn-row,
+    #screenStart .btn-row,
+    #screenJobForm .btn-row {
+      min-height: 0 !important;
+      max-height: none !important;
+      height: auto !important;
+      padding: 12px 16px max(16px, env(safe-area-inset-bottom, 0px)) !important;
+      margin: 0 !important;
+      align-items: center;
+      box-sizing: border-box;
     }

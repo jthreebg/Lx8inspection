@@ -1352,15 +1352,32 @@ const ICO = {
     }
     function ensureSampleInspection(list) {
       const arr = Array.isArray(list) ? list.slice() : [];
+      const full = (typeof window !== 'undefined' && window.__SAMPLE_INSPECTION_FULL) || getSampleInspectionRecord();
       const idx = arr.findIndex(i => i && i.id === SAMPLE_INSPECTION_ID);
+      const existing = idx >= 0 ? arr[idx] : null;
+      const needsFull = !existing || !existing.results || !Object.keys(existing.results).length;
       if (idx < 0) {
-        const full = (typeof window !== 'undefined' && window.__SAMPLE_INSPECTION_FULL) || getSampleInspectionRecord();
         arr.unshift(full);
+      } else if (needsFull) {
+        arr[idx] = Object.assign({}, existing, full, { id: SAMPLE_INSPECTION_ID, jobId: SAMPLE_JOB_ID });
       } else {
         arr[idx].jobId = SAMPLE_JOB_ID;
         if (!arr[idx].customer) arr[idx].customer = 'BBU Sample Bakery';
+        if (!arr[idx].serial) arr[idx].serial = '44621019 Line 1';
+        if (!arr[idx].model) arr[idx].model = 'LX-8';
       }
       return arr;
+    }
+    function restoreSampleInspection() {
+      const full = getSampleInspectionRecord();
+      if (typeof attachRecordIdentity === 'function') {
+        try { attachRecordIdentity(full, { job: getSampleJob() }); } catch (e) {}
+      }
+      try { window.__SAMPLE_INSPECTION_FULL = JSON.parse(JSON.stringify(full)); } catch (e) {}
+      const list = loadInspections().filter(i => i && i.id !== SAMPLE_INSPECTION_ID);
+      list.unshift(full);
+      saveInspections(list);
+      return full;
     }
     function ensureSampleJob(list) {
       const arr = Array.isArray(list) ? list.slice() : [];
@@ -2280,6 +2297,17 @@ const ICO = {
     }
 
 
+    const btnRestoreSampleInspection = document.getElementById('btnRestoreSampleInspection');
+    if (btnRestoreSampleInspection) {
+      btnRestoreSampleInspection.addEventListener('click', () => {
+        const full = restoreSampleInspection();
+        if (typeof refreshHome === 'function') refreshHome();
+        toast('Sample inspection restored');
+        if (full && typeof openInspection === 'function') {
+          try { openInspection(full.id); } catch (e) {}
+        }
+      });
+    }
     document.getElementById('btnLoadExampleInspection').addEventListener('click', () => {
       closeSearch();
       const exampleResults = {1:{condition:'N/A'},2:{condition:'N/A'},3:{condition:'N/A'},4:{condition:'N/A'},5:{condition:'N/A'},6:{condition:'Good'},7:{condition:'Fair',notes:'Belting is stretched.'},8:{condition:'Good'},9:{condition:'Good'},10:{condition:'Fair',notes:'Some wear but can be adjusted.'},11:{condition:'Fair',notes:'Missing 4 but not needed on clusters.'},12:{condition:'Pass'},13:{condition:'Good'},14:{condition:'Fair',notes:'Belting is stretched.'},15:{condition:'Fair'},16:{condition:'Good',impacts:['Performance']},17:{condition:'Poor',notes:'Both are worn. Infeed is worn a lot.',impacts:['Performance'],severity:2},18:{condition:'Good'},19:{condition:'Fair',notes:'Circuit breaker tripped.'},20:{condition:'Good'},21:{condition:'Good'},22:{condition:'Poor',notes:'Worn smooth, should replace.',impacts:['Performance'],severity:2},23:{condition:'Fair',notes:'Center support bushings gone.'},24:{condition:'Fair',notes:'Play in base, pin, and clevis.'},25:{condition:'Fair',notes:'Broken top corner, op side gate.'},26:{condition:'Good'},27:{condition:'Good'},28:{condition:'Good'},29:{condition:'Good'},30:{condition:'Pass'},31:{condition:'Fair',notes:'Belting new but lane guides have worn grooves in rubber grip top.'},32:{condition:'Good'},33:{condition:'Poor',notes:'Infeed nose bar worn and transition gap is large.',impacts:['Performance'],severity:2},34:{condition:'Good'},35:{condition:'Good'},36:{condition:'Pass'},37:{condition:'Pass'},38:{condition:'Pass',notes:'Blade break prox cable has been cut and taped back together.'},39:{condition:'Good'},40:{condition:'Fair',notes:'Guides showing wear. Mix of old and new belts. Belts should be replaced in sets.'},41:{condition:'Good'},42:{condition:'N/A'},43:{condition:'Good'},44:{condition:'Poor',notes:'Missing blade guides. Blade wipers are broken.',impacts:['Downtime', 'Performance'],severity:2},45:{condition:'Poor',notes:'Bearings are bad, need to be replaced.',impacts:['Downtime', 'Performance'],severity:2},46:{condition:'Fair',notes:'Idler pulley new, drive pulley is worn.'},47:{condition:'Good',notes:'One bad hub, LeMatic and maintenance replaced.'},48:{condition:'Pass'},49:{condition:'Good',notes:'We installed a new blade, old blade had a lot of crumb build up.'},50:{condition:'Good'},51:{condition:'Good'},52:{condition:'Pass'},53:{condition:'Good'},54:{condition:'Good'},55:{condition:'Poor',notes:'Missing tensioner assembly.',impacts:['Downtime', 'Performance'],severity:2},56:{condition:'Good'},57:{condition:'Within Spec'},58:{condition:'Good'},59:{condition:'Good'},60:{condition:'Good'},61:{condition:'N/A'},62:{condition:'Good'},63:{condition:'Good'},65:{condition:'Pass'},66:{condition:'Pass',notes:'Prox is ok but linkage is worn and turning off prox.'},67:{condition:'Poor',notes:'Linkage worn out and needs to be replaced.',impacts:['Downtime', 'Performance'],severity:2},68:{condition:'Good'},69:{condition:'Good'},70:{condition:'Good'},71:{condition:'Good'},72:{condition:'Pass'},73:{condition:'Good'},75:{condition:'Pass'},76:{condition:'Good'},77:{condition:'Good'},78:{condition:'Poor',notes:'Blades are very rusty.',severity:2},79:{condition:'Pass'},81:{condition:'Good'},82:{condition:'Good'},83:{condition:'Fair',notes:'Track is showing some wear.',impacts:['Downtime']},84:{condition:'Good'},85:{condition:'Within Spec'},86:{condition:'Within Spec'},87:{condition:'Good'},88:{condition:'Good'},90:{condition:'Pass'},91:{condition:'Pass'},92:{condition:'Good'},93:{condition:'Good'},94:{condition:'Pass'},95:{condition:'Good'},96:{condition:'Fair',notes:'Non op bagger guides missing bolts.',impacts:['Performance']},97:{condition:'Poor',notes:'Transfer grate is bent, should be replaced.',impacts:['Performance'],severity:2},98:{condition:'Fair',notes:'Friction top is worn smooth, buns may slide.'},99:{condition:'Good'},100:{condition:'Good'},101:{condition:'Pass'},102:{condition:'Good'},103:{condition:'Fair',notes:'Dead plate is slightly bent.'},104:{condition:'Fair',notes:'Some play in clevis.'},105:{condition:'Good'},106:{condition:'Fair',notes:'Brackets were bent, LeMatic and maintenance fixed.'},107:{condition:'Fair',notes:'Some play in clevis'},108:{condition:'Poor',notes:'Bearings feel tight.',impacts:['Downtime'],severity:2},109:{condition:'Good'},110:{condition:'Fail',notes:'Lower drive belt cover is missing',impacts:['Safety'],severity:2},111:{condition:'Fair'},112:{condition:'Fair',notes:'Lift screws slightly noisy needs a little lube.'},113:{condition:'Poor',notes:'Broken tab.',impacts:['Performance'],severity:2},114:{condition:'Good'},115:{condition:'Within Spec'},116:{condition:'Fair',notes:'Should be cleaned.'},117:{condition:'Good'},118:{condition:'Good'},119:{condition:'Good'},120:{condition:'Good'},121:{condition:'Fair',notes:'Belt is slightly old but ok.'},122:{condition:'Good'},123:{condition:'Good'},124:{condition:'Good'},125:{condition:'Good'},126:{condition:'Good'},127:{condition:'Good'},128:{condition:'Within Spec'},129:{condition:'Good'},130:{condition:'Good'},131:{condition:'Out of Spec',notes:'Timing belts are getting loose.',severity:2},132:{condition:'Good'},133:{condition:'Good'},134:{condition:'Good'},135:{condition:'Pass'}};
@@ -5438,7 +5466,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-21', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-23', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -5687,7 +5715,7 @@ const IDB_NAME = "FieldPunchlistDB";
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=flat-21").catch(() => {});
+        navigator.serviceWorker.register("./sw.js?v=flat-23").catch(() => {});
       });
     }
 
@@ -5741,9 +5769,16 @@ const IDB_NAME = "FieldPunchlistDB";
         jobs.push("Default");
       }
       if (!data.currentJob || !data.jobs[data.currentJob]) data.currentJob = jobs[0];
-      sel.innerHTML = jobs.map(j =>
-        `<option value="${escapeHtml(j)}" ${j === data.currentJob ? "selected" : ""}>${escapeHtml(j)}</option>`
-      ).join("");
+      const fieldJobsForLabel = (typeof loadJobs === "function" ? loadJobs() : []) || [];
+      sel.innerHTML = jobs.map(j => {
+        const job = fieldJobsForLabel.find(x => x && x.id === j);
+        let label = j;
+        if (job && typeof jobDisplayName === "function") label = jobDisplayName(job);
+        else if (job && job.customer) label = job.customer;
+        else if (j === "Default") label = "No job";
+        else if (/^job_/.test(String(j))) label = "Punchlist";
+        return `<option value="${escapeHtml(j)}" ${j === data.currentJob ? "selected" : ""}>${escapeHtml(label)}</option>`;
+      }).join("");
     }
 
     function itemMatchesFilter(item) {
