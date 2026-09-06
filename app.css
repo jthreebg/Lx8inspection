@@ -12,9 +12,6 @@
       --danger: #f87171;
       --warning: #fbbf24;
       --bg: #000000;
-      --chrome: #000000;
-      --sheet: #1a1a1b;
-      --overlay: rgba(0, 0, 0, 0.56);
       --surface: #1a1a1b;
       --card: #1a1a1b;
       --elevated: #1a1a1b;
@@ -50,7 +47,7 @@
     }
     html, body {
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: var(--bg);
+      background: #000000;
       color: var(--text);
       overflow-x: hidden;
       max-width: 100%;
@@ -70,13 +67,13 @@
       padding-bottom: 0;
       padding-left: env(safe-area-inset-left);
       padding-right: env(safe-area-inset-right);
-      background: var(--bg);
+      background: #000000;
       background-attachment: fixed;
     }
 
     /* Shared glass material */
     .glass {
-      background: var(--surface);
+      background: #1a1a1b;
       border: 1px solid var(--border);
     }
 
@@ -109,7 +106,7 @@
       height: calc(69px + env(safe-area-inset-top, 0px));
       min-height: calc(69px + env(safe-area-inset-top, 0px));
       max-height: calc(69px + env(safe-area-inset-top, 0px));
-      background: var(--chrome);
+      background: #000000;
       color: var(--text);
       padding: 0 16px;
       display: flex; align-items: center; justify-content: space-between;
@@ -134,9 +131,9 @@
       position: relative;
       z-index: 1;
     }
-    /* Solid chrome header on non-home screens */
+    /* Solid black header on non-home screens */
     body:not(.on-home) .app-header {
-      background: var(--chrome);
+      background: #000000;
     }
     #btnSearch { display: none; }
     body.on-home #btnSearch { display: flex; }
@@ -654,13 +651,13 @@
       right: 0;
       bottom: 0;
       width: 100%;
-      max-width: none;
-      margin: 0;
+      max-width: 520px;
+      margin: 0 auto;
       display: flex;
       gap: 10px;
       padding: 10px 18px var(--bar-pad-bottom);
-      background: var(--chrome);
-      border-top: 0.5px solid var(--border);
+      background: #000000;
+      border-top: 0.5px solid rgba(255,255,255,0.12);
       z-index: 200;
       box-sizing: border-box;
     }
@@ -1035,8 +1032,6 @@
       min-height: calc(100dvh - 60px - var(--safe-top));
       min-height: calc(100svh - 60px - var(--safe-top));
       padding-bottom: calc(16px + var(--safe-bottom));
-      background: var(--bg);
-      color: var(--text);
     }
     .screen.active { display: block; }
     #screenHome.active {
@@ -1079,8 +1074,8 @@
       overflow-y: auto;
       font-size: 1.12rem;
       line-height: 1.55;
-      background: var(--bg);
-      color: var(--text);
+      background: #000;
+      color: #c5cdd3;
       border: none;
       outline: none;
       padding: 8px 20px 168px;
@@ -1409,15 +1404,11 @@
        should get this by adding class="modal-overlay" and only override
        what's genuinely different (usually just z-index). */
     .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: var(--overlay);
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.72);
       display: none;
-      flex-direction: column;
-      justify-content: flex-end;
-      align-items: stretch;
-      padding: 0;
-      margin: 0;
+      align-items: flex-end;
+      justify-content: center;
     }
     .modal-overlay.show { display: flex; }
     .modal-handle {
@@ -1454,24 +1445,19 @@
     #jobDatesModal .form-group { margin-bottom: 14px; }
     #jobDatesModal .modal-actions { padding-top: 8px; gap: 10px; }
 
-#machineModal,
-    #machineModal.modal-overlay {
+#machineModal.modal-overlay {
       z-index: 330;
     }
     #machineModal .machine-sheet {
       width: 100%;
-      max-width: none;
-      margin: 0;
-      margin-top: auto;
-      margin-bottom: 0;
-      max-height: min(92dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 8px));
+      max-width: 520px;
+      max-height: 88vh;
       border-radius: 24px 24px 0 0;
       border: 0.5px solid var(--border);
       border-bottom: none;
-      background: var(--sheet);
-      padding: 0 18px max(16px, env(safe-area-inset-bottom, 0px));
+      background: var(--surface, #1a1a1b);
+      padding: 0 18px var(--bar-pad-bottom);
       animation: plSlideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
-      box-sizing: border-box;
     }
     #machineModal .modal-handle {
       margin: 10px auto 8px;
@@ -1527,13 +1513,13 @@
       right: 0;
       bottom: 0;
       width: 100%;
-      max-width: none;
-      margin: 0;
+      max-width: 520px;
+      margin: 0 auto;
       display: flex;
       gap: 10px;
       padding: 10px 18px var(--bar-pad-bottom);
-      background: var(--chrome);
-      border-top: 0.5px solid var(--border);
+      background: #000000;
+      border-top: 0.5px solid rgba(255,255,255,0.12);
       z-index: 200;
       box-sizing: border-box;
     }
@@ -1605,13 +1591,13 @@
       right: 0;
       bottom: 0;
       width: 100%;
-      max-width: none;
-      margin: 0;
+      max-width: 520px;
+      margin: 0 auto;
       display: flex;
       gap: 10px;
       padding: 10px 18px var(--bar-pad-bottom);
-      background: var(--chrome);
-      border-top: 0.5px solid var(--border);
+      background: #000000;
+      border-top: 0.5px solid rgba(255,255,255,0.12);
       z-index: 200;
       box-sizing: border-box;
     }
@@ -1619,7 +1605,7 @@
 
     .section-progress {
       display: flex; gap: 8px; padding: 2px 14px 6px; overflow-x: auto;
-      background: var(--chrome);
+      background: #000000;
       min-height: 44px;
       border-bottom: none;
       -webkit-overflow-scrolling: touch;
@@ -1641,7 +1627,7 @@
       content: "";
       position: absolute;
       inset: 0;
-      background: var(--chrome);
+      background: #000000;
       z-index: -1;
     }
     /* Room for fixed section bar while inspecting */
@@ -1935,7 +1921,7 @@
     .bottom-bar {
       position: fixed;
       bottom: 0; left: 0; right: 0;
-      background: var(--chrome);
+      background: #000000;
       border-top: 1px solid var(--border);
       padding: 12px 16px;
       padding-bottom: var(--bar-pad-bottom);
@@ -2940,8 +2926,8 @@
       padding: 10px 16px var(--bar-pad-bottom);
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
-      border-top: 0.5px solid var(--border);
-      background: var(--sheet);
+      border-top: 0.5px solid rgba(255,255,255,0.12);
+      background: #1a1a1b;
       box-shadow: none;
       box-sizing: border-box;
       height: calc(72px + env(safe-area-inset-bottom, 0px));
@@ -3004,10 +2990,6 @@
       cursor: pointer;
     }
     .job-picker-item:active { filter: brightness(1.08); }
-    .job-picker-item.job-picker-add {
-      border-color: rgba(249,253,255,0.28);
-      background: rgba(249,253,255,0.06);
-    }
     .job-picker-item.job-picker-skip {
       border-style: dashed;
       background: transparent;
@@ -3427,9 +3409,9 @@
       text-align: center;
       text-align-last: center;
       font-weight: 650;
-      background: var(--input-bg) !important;
+      background: #0d0d0f !important;
       color: var(--text) !important;
-      border-color: var(--border) !important;
+      border-color: rgba(249, 253, 255, 0.08) !important;
     }
     #pl-modal .pl-item-delete {
       width: 100%;
@@ -3529,19 +3511,8 @@
       justify-content: center;
       line-height: 0;
     }
-    #pl-modal .photo-btn input[type="file"],
-    #pl-modal input[type="file"],
-    .photo-btn input[type="file"] {
-      position: absolute !important;
-      width: 1px !important;
-      height: 1px !important;
-      padding: 0 !important;
-      margin: -1px !important;
-      overflow: hidden !important;
-      clip: rect(0, 0, 0, 0) !important;
-      border: 0 !important;
-      opacity: 0 !important;
-      pointer-events: none;
+    #pl-modal .photo-btn input[type="file"] {
+      display: none !important;
     }
     #pl-modal .btn-row {
       position: fixed;
@@ -3549,14 +3520,14 @@
       right: 0;
       bottom: 0;
       width: 100%;
-      max-width: none;
-      margin: 0;
+      max-width: 520px;
+      margin: 0 auto;
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
       padding: 10px 18px var(--bar-pad-bottom);
-      background: var(--sheet);
-      border-top: 0.5px solid var(--border);
+      background: #000000;
+      border-top: 0.5px solid rgba(255,255,255,0.12);
       z-index: 415;
       box-sizing: border-box;
     }
@@ -4195,26 +4166,18 @@
     #jobDatesModal.modal-overlay.show,
     #machineModal.modal-overlay.show,
     #jobPickerModal.modal-overlay.show {
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
-      align-items: stretch;
-      padding: 0;
+      padding-top: var(--header-h, calc(69px + env(safe-area-inset-top, 0px)));
       box-sizing: border-box;
+      align-items: stretch;
     }
     #pl-modal.modal-overlay.show .modal,
     #pl-modal.modal-overlay.show #modal-sheet,
     #jobDatesModal.modal-overlay.show .modal,
-    #jobDatesModal.modal-overlay.show .machine-sheet,
     #machineModal.modal-overlay.show .modal,
-    #machineModal.modal-overlay.show .machine-sheet,
     #jobPickerModal.modal-overlay.show .modal {
-      width: 100%;
-      max-width: none;
-      margin: 0;
-      margin-top: auto;
-      max-height: min(92dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 8px));
-      max-height: min(92svh, calc(100svh - env(safe-area-inset-top, 0px) - 8px));
+      max-height: calc(100dvh - var(--header-h, 81px));
+      max-height: calc(100svh - var(--header-h, 81px));
+      margin-top: 0;
     }
     #pl-modal .modal-header,
     #pl-modal #modal-sheet .pl-item-head {
@@ -4428,12 +4391,8 @@
       transform: none !important;
       box-shadow: none !important;
       padding: 10px 18px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
-      background: var(--chrome);
+      background: #000000 !important;
       z-index: 400;
-    }
-    #pl-modal .btn-row,
-    #pl-modal .pl-item-bar {
-      background: var(--sheet);
     }
     body.kb-open #pl-modal .btn-row,
     body.kb-open #pl-modal .pl-item-bar,
@@ -4482,10 +4441,7 @@
 
     html.theme-light {
       color-scheme: light;
-      --bg: #e8eaee;
-      --chrome: #e8eaee;
-      --sheet: #ffffff;
-      --overlay: rgba(15, 23, 42, 0.38);
+      --bg: #f2f4f7;
       --surface: #ffffff;
       --card: #ffffff;
       --elevated: #ffffff;
@@ -4506,8 +4462,8 @@
     }
     html.theme-light,
     html.theme-light body {
-      background: var(--bg);
-      color: var(--text);
+      background: #f2f4f7 !important;
+      color: #1c1c1e !important;
       color-scheme: light;
     }
     html.theme-light .app-header,
@@ -4565,25 +4521,22 @@
       background: #1c1c1e;
       color: #ffffff;
     }
-    html.theme-light #screenJobForm .btn-row,
-    html.theme-light #screenStart .btn-row,
-    html.theme-light .btn-row.tc-edit-bar {
-      background: var(--chrome);
-    }
     html.theme-light #pl-modal .btn-row,
     html.theme-light #pl-modal .pl-item-bar,
-    html.theme-light #jobPickerModal .job-picker-actions {
-      background: var(--sheet);
+    html.theme-light #screenJobForm .btn-row,
+    html.theme-light #screenStart .btn-row,
+    html.theme-light .btn-row.tc-edit-bar,
+    html.theme-light .btn-row {
+      background: #f2f4f7 !important;
     }
     html.theme-light #pl-modal .modal,
     html.theme-light #modal-sheet,
     html.theme-light .modal,
-    html.theme-light .machine-sheet,
     html.theme-light .save-sheet-card,
     html.theme-light .tc-week-pick-card {
-      background: var(--sheet);
-      color: var(--text);
-      border-color: var(--border);
+      background: rgba(255,255,255,0.92) !important;
+      color: #1c1c1e;
+      border-color: rgba(15,23,42,0.12);
     }
     html.theme-light #searchResults,
     html.theme-light #searchResults.show {
@@ -4846,7 +4799,7 @@
 
     html.theme-light,
     html.theme-light body {
-      background: var(--bg);
+      background: #e8eaee !important;
     }
     html.theme-light .app-header,
     html.theme-light body:not(.on-home) .app-header,
@@ -4862,14 +4815,14 @@
       backdrop-filter: blur(28px) saturate(180%);
     }
     html.theme-light .bottom-bar,
+    html.theme-light #pl-modal .btn-row,
+    html.theme-light #pl-modal .pl-item-bar,
     html.theme-light #screenJobForm .btn-row,
     html.theme-light #screenStart .btn-row,
     html.theme-light .btn-row.tc-edit-bar {
-      background: var(--chrome);
-    }
-    html.theme-light #pl-modal .btn-row,
-    html.theme-light #pl-modal .pl-item-bar {
-      background: var(--sheet);
+      background: rgba(232, 234, 238, 0.86) !important;
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      backdrop-filter: blur(28px) saturate(180%);
     }
 
     html.theme-light .storage-card {
@@ -4976,13 +4929,9 @@
 
     html.theme-light #screenJobsList,
     html.theme-light #screenJobDetail,
-    html.theme-light #screenJobForm,
-    html.theme-light #screenStart,
-    html.theme-light #screenInspectList,
-    html.theme-light #screenPunchlist,
-    html.theme-light #screenPunchlistList {
-      background: var(--bg);
-      color: var(--text);
+    html.theme-light #screenJobForm {
+      background: #e8eaee !important;
+      color: #111827 !important;
     }
     html.theme-light #screenJobsList .pl-item,
     html.theme-light #screenJobDetail .card,
@@ -5052,125 +5001,4 @@
       background: #ffffff !important;
       color: #111827 !important;
       border-color: rgba(15,23,42,0.18) !important;
-    }
-
-    /* =====================================================================
-       Surfaces + sheets from tokens (not per-screen color patches).
-       Light/dark follow :root / html.theme-light --bg --chrome --sheet.
-       ===================================================================== */
-    .screen,
-    .screen.active,
-    #app {
-      background: var(--bg);
-      color: var(--text);
-    }
-    html.theme-light .screen,
-    html.theme-light .screen.active,
-    html.theme-light #app {
-      background: var(--bg);
-      color: var(--text);
-    }
-
-    /* Native file controls paint "Choose File" even at opacity:0 on iOS. */
-    input[type="file"] {
-      position: absolute !important;
-      width: 1px !important;
-      height: 1px !important;
-      padding: 0 !important;
-      margin: -1px !important;
-      overflow: hidden !important;
-      clip: rect(0, 0, 0, 0) !important;
-      clip-path: inset(50%) !important;
-      border: 0 !important;
-      opacity: 0 !important;
-      pointer-events: none !important;
-      font-size: 0 !important;
-      color: transparent !important;
-      white-space: nowrap !important;
-    }
-
-    /* Page chrome bars: same token as the page, full bleed — no gray slab. */
-    #screenStart .btn-row,
-    #screenJobForm .btn-row,
-    .btn-row.tc-edit-bar,
-    html.theme-light #screenStart .btn-row,
-    html.theme-light #screenJobForm .btn-row,
-    html.theme-light .btn-row.tc-edit-bar {
-      background: var(--chrome);
-      max-width: none !important;
-      width: 100% !important;
-      left: 0 !important;
-      right: 0 !important;
-      margin: 0 !important;
-      border-top-color: var(--border);
-    }
-
-    /* Bars that sit on a sheet use the sheet token so they don't band. */
-    #pl-modal .btn-row,
-    #pl-modal .pl-item-bar,
-    #jobPickerModal .job-picker-actions,
-    #machineModal .btn-row,
-    #machineModal .modal-actions,
-    #jobDatesModal .modal-actions,
-    html.theme-light #pl-modal .btn-row,
-    html.theme-light #pl-modal .pl-item-bar,
-    html.theme-light #jobPickerModal .job-picker-actions {
-      background: var(--sheet);
-      max-width: none !important;
-      width: 100% !important;
-      margin: 0 !important;
-    }
-
-    /* Bottom sheets dock by element id. Missing .modal-overlay cannot undock. */
-    #machineModal,
-    #pl-modal,
-    #jobDatesModal,
-    #jobPickerModal {
-      position: fixed !important;
-      top: 0 !important;
-      right: 0 !important;
-      bottom: 0 !important;
-      left: 0 !important;
-      inset: 0 !important;
-      width: 100% !important;
-      height: 100% !important;
-      height: 100dvh !important;
-      min-height: 100dvh !important;
-      max-height: none !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      background: var(--overlay);
-      display: none;
-      flex-direction: column !important;
-      justify-content: flex-end !important;
-      align-items: stretch !important;
-      box-sizing: border-box !important;
-      overscroll-behavior: none;
-    }
-    #machineModal.show,
-    #pl-modal.show,
-    #jobDatesModal.show,
-    #jobPickerModal.show {
-      display: flex !important;
-    }
-    #machineModal.hidden,
-    #pl-modal.hidden,
-    #jobDatesModal.hidden,
-    #jobPickerModal.hidden {
-      display: none !important;
-    }
-    #machineModal .machine-sheet,
-    #jobDatesModal .machine-sheet,
-    #pl-modal .modal,
-    #pl-modal #modal-sheet,
-    #jobPickerModal .modal {
-      margin-top: auto !important;
-      margin-bottom: 0 !important;
-      margin-left: 0 !important;
-      margin-right: 0 !important;
-      width: 100% !important;
-      max-width: none !important;
-      flex: 0 0 auto;
-      background: var(--sheet);
-      border-radius: 24px 24px 0 0;
     }
