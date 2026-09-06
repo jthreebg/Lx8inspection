@@ -12,6 +12,9 @@
       --danger: #f87171;
       --warning: #fbbf24;
       --bg: #000000;
+      --chrome: #000000;
+      --sheet: #1a1a1b;
+      --overlay: rgba(0, 0, 0, 0.55);
       --surface: #1a1a1b;
       --card: #1a1a1b;
       --elevated: #1a1a1b;
@@ -1151,7 +1154,7 @@
 
     /* Cards — Liquid Glass panels */
     .card {
-      background: #1a1a1b;
+      background: var(--card, #1a1a1b);
       border-radius: var(--radius);
       margin: 12px 16px;
       padding: 18px;
@@ -1404,13 +1407,18 @@
        should get this by adding class="modal-overlay" and only override
        what's genuinely different (usually just z-index). */
     .modal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.72);
+      position: fixed;
+      inset: 0;
+      background: var(--overlay, rgba(0,0,0,0.55));
       display: none;
-      align-items: flex-end;
-      justify-content: center;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: stretch;
+      z-index: 360;
+      padding: 0;
+      margin: 0;
     }
-    .modal-overlay.show { display: flex; }
+    .modal-overlay.show { display: flex !important; }
     .modal-handle {
       width: 36px; height: 5px; border-radius: 3px;
       background: rgba(255,255,255,0.28);
@@ -1518,8 +1526,8 @@
       display: flex;
       gap: 10px;
       padding: 10px 18px var(--bar-pad-bottom);
-      background: #000000;
-      border-top: 0.5px solid rgba(255,255,255,0.12);
+      background: var(--chrome, var(--bg));
+      border-top: 0.5px solid var(--border);
       z-index: 200;
       box-sizing: border-box;
     }
@@ -1596,8 +1604,8 @@
       display: flex;
       gap: 10px;
       padding: 10px 18px var(--bar-pad-bottom);
-      background: #000000;
-      border-top: 0.5px solid rgba(255,255,255,0.12);
+      background: var(--chrome, var(--bg));
+      border-top: 0.5px solid var(--border);
       z-index: 200;
       box-sizing: border-box;
     }
@@ -2926,8 +2934,8 @@
       padding: 10px 16px var(--bar-pad-bottom);
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
-      border-top: 0.5px solid rgba(255,255,255,0.12);
-      background: #1a1a1b;
+      border-top: 0.5px solid var(--border);
+      background: var(--sheet, var(--surface));
       box-shadow: none;
       box-sizing: border-box;
       height: calc(72px + env(safe-area-inset-bottom, 0px));
@@ -4166,18 +4174,23 @@
     #jobDatesModal.modal-overlay.show,
     #machineModal.modal-overlay.show,
     #jobPickerModal.modal-overlay.show {
-      padding-top: var(--header-h, calc(69px + env(safe-area-inset-top, 0px)));
+      padding-top: 0;
       box-sizing: border-box;
+      flex-direction: column;
+      justify-content: flex-end;
       align-items: stretch;
     }
     #pl-modal.modal-overlay.show .modal,
     #pl-modal.modal-overlay.show #modal-sheet,
     #jobDatesModal.modal-overlay.show .modal,
     #machineModal.modal-overlay.show .modal,
+    #machineModal.modal-overlay.show .machine-sheet,
     #jobPickerModal.modal-overlay.show .modal {
-      max-height: calc(100dvh - var(--header-h, 81px));
-      max-height: calc(100svh - var(--header-h, 81px));
-      margin-top: 0;
+      max-height: min(88dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 12px));
+      max-height: min(88svh, calc(100svh - env(safe-area-inset-top, 0px) - 12px));
+      margin-top: auto;
+      margin-bottom: 0;
+      width: 100%;
     }
     #pl-modal .modal-header,
     #pl-modal #modal-sheet .pl-item-head {
@@ -4391,7 +4404,7 @@
       transform: none !important;
       box-shadow: none !important;
       padding: 10px 18px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
-      background: #000000 !important;
+      background: var(--chrome, var(--bg)) !important;
       z-index: 400;
     }
     body.kb-open #pl-modal .btn-row,
@@ -4442,6 +4455,9 @@
     html.theme-light {
       color-scheme: light;
       --bg: #f2f4f7;
+      --chrome: #f2f4f7;
+      --sheet: #ffffff;
+      --overlay: rgba(15, 23, 42, 0.38);
       --surface: #ffffff;
       --card: #ffffff;
       --elevated: #ffffff;
@@ -4988,6 +5004,156 @@
       box-shadow: 0 16px 40px rgba(15,23,42,0.18) !important;
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
+    }
+
+    /* iPhone bottom sheets — last-wins layout */
+    .modal-overlay,
+    .modal-overlay.show,
+    #machineModal.modal-overlay,
+    #jobPickerModal.modal-overlay,
+    #jobDatesModal.modal-overlay,
+    #pl-modal.modal-overlay {
+      position: fixed !important;
+      inset: 0 !important;
+      top: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      height: 100dvh !important;
+      max-height: none !important;
+      display: none;
+      flex-direction: column !important;
+      justify-content: flex-end !important;
+      align-items: stretch !important;
+      background: var(--overlay, rgba(0,0,0,0.55)) !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      overflow: hidden !important;
+    }
+    .modal-overlay.show,
+    #machineModal.modal-overlay.show,
+    #jobPickerModal.modal-overlay.show,
+    #jobDatesModal.modal-overlay.show,
+    #pl-modal.modal-overlay.show {
+      display: flex !important;
+    }
+    #machineModal .machine-sheet,
+    #machineModal .modal,
+    #jobPickerModal .modal,
+    #jobDatesModal .machine-sheet,
+    #jobDatesModal .modal,
+    #pl-modal .modal,
+    #pl-modal #modal-sheet {
+      margin-top: auto !important;
+      margin-bottom: 0 !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+      width: 100% !important;
+      max-width: 560px !important;
+      border-radius: 24px 24px 0 0 !important;
+      background: var(--sheet, var(--surface)) !important;
+      display: flex !important;
+      flex-direction: column !important;
+      max-height: min(88dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 8px)) !important;
+    }
+    #machineModal .modal-body,
+    #jobPickerModal .modal-body,
+    #jobDatesModal .modal-body,
+    #pl-modal .modal-body {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    #machineModal .modal-actions,
+    #jobDatesModal .modal-actions,
+    #jobPickerModal .job-picker-actions {
+      position: sticky;
+      bottom: 0;
+      flex: 0 0 auto;
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      margin: 0;
+      padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+      background: var(--sheet, var(--surface)) !important;
+      border-top: 0.5px solid var(--border);
+      box-sizing: border-box;
+      height: auto !important;
+      min-height: calc(68px + env(safe-area-inset-bottom, 0px));
+      max-height: none !important;
+    }
+    #screenStart,
+    #screenStart.screen.active,
+    #screenJobForm,
+    #screenJobForm.screen.active {
+      background: var(--bg) !important;
+    }
+    #screenStart .card,
+    #screenJobForm .card {
+      background: var(--card) !important;
+      color: var(--text);
+    }
+
+    html.theme-light #screenStart,
+    html.theme-light #screenStart.screen.active,
+    html.theme-light #screenJobForm,
+    html.theme-light #screenInspect,
+    html.theme-light .screen.active {
+      background: #f2f4f7 !important;
+    }
+    html.theme-light .card,
+    html.theme-light #screenStart .card,
+    html.theme-light #screenJobForm .card,
+    html.theme-light .job-link-chip {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border-color: rgba(15,23,42,0.12) !important;
+    }
+    html.theme-light #screenStart label,
+    html.theme-light #screenStart .form-group label,
+    html.theme-light #screenJobForm label {
+      color: #6b7280 !important;
+    }
+    html.theme-light #machineModal .machine-sheet,
+    html.theme-light #machineModal .modal,
+    html.theme-light #jobPickerModal .modal,
+    html.theme-light #jobDatesModal .machine-sheet,
+    html.theme-light #jobPickerModal .job-picker-actions,
+    html.theme-light #machineModal .modal-actions,
+    html.theme-light #jobDatesModal .modal-actions {
+      background: #ffffff !important;
+      color: #111827 !important;
+    }
+    html.theme-light #jobPickerModal .job-picker-item {
+      background: #f7f8fa !important;
+      color: #111827 !important;
+      border-color: rgba(15,23,42,0.10) !important;
+    }
+    html.theme-light #jobPickerModal .job-picker-actions .btn-outline,
+    html.theme-light #machineModal .modal-actions .btn-outline,
+    html.theme-light #screenStart .btn-row .btn-outline,
+    html.theme-light #screenJobForm .btn-row .btn-outline {
+      background: #ffffff !important;
+      color: #111827 !important;
+      border-color: rgba(15,23,42,0.16) !important;
+    }
+    html.theme-light #jobPickerModal .job-picker-actions .btn-primary,
+    html.theme-light #machineModal .modal-actions .btn-primary,
+    html.theme-light #screenStart .btn-row .btn-primary,
+    html.theme-light #screenJobForm .btn-row .btn-primary {
+      background: #1c1c1e !important;
+      color: #ffffff !important;
+      border-color: #1c1c1e !important;
+    }
+    html.theme-light #pl-modal .btn-row,
+    html.theme-light #screenJobForm .btn-row,
+    html.theme-light #screenStart .btn-row,
+    html.theme-light .btn-row.tc-edit-bar {
+      background: #f2f4f7 !important;
+      border-top-color: rgba(15,23,42,0.10) !important;
     }
     html.theme-light .modal-title,
     html.theme-light #deleteModalTitle {

@@ -626,7 +626,7 @@ const ICO = {
             return `
               <div class="list-item ${rowTone}" data-job-name="${String(row.name).replace(/"/g, '&quot;')}" data-job-id="${String(row.jobId || '').replace(/"/g, '&quot;')}">
                 <div class="list-item-main" data-action="open">
-                  <div class="title">${row.name}</div>
+                  <div class="title">${row.title || row.jobLabel || row.name}</div>
                   <div class="sub">${jobLine}</div>
                   <div class="sub">${total} item${total !== 1 ? 's' : ''} · ${done} complete${open ? ' · ' + open + ' open' : ''}</div>
                 </div>
@@ -1080,11 +1080,11 @@ const ICO = {
 
     function newEntityId(prefix, taken) {
       const used = new Set((taken || []).filter(Boolean).map(String));
-      for (let i = 0; i < 12; i++) {
-        const id = prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      for (let i = 0; i < 16; i++) {
+        const id = prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
         if (!used.has(id)) return id;
       }
-      return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+      return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
     }
 
     function slugIdPart(value) {
@@ -1093,7 +1093,14 @@ const ICO = {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
-        .slice(0, 40);
+        .slice(0, 48);
+    }
+
+    function normalizeSerial(value) {
+      return String(value || '')
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '')
+        .trim();
     }
 
     function loadRegistry(key) {
@@ -1104,15 +1111,26 @@ const ICO = {
       lsWrite(key, Array.isArray(list) ? list : []);
     }
 
-    function resolveBakeryId(name, existingId) {
+    // Bakery is stable across many jobs. "BBU Sample" in March and "BBU Sample"
+    // in November share one bakeryId. The job itself always gets a new job_ id.
+    function resolveBakeryId(name, existingId, extra) {
       const label = String(name || '').trim();
+      const site = String((extra && extra.site) || '').trim();
       if (!label && existingId) return existingId;
       const list = loadRegistry('lx8_bakeries');
       if (existingId) {
         const hit = list.find(b => b && b.id === existingId);
         if (hit) {
-          if (label && hit.name !== label) {
-            hit.name = label;
+          let dirty = false;
+          if (label && hit.name !== label) { hit.name = label; dirty = true; }
+          if (site) {
+            if (!Array.isArray(hit.sites)) hit.sites = [];
+            if (!hit.sites.some(s => slugIdPart(s) === slugIdPart(site))) {
+              hit.sites.push(site);
+              dirty = true;
+            }
+          }
+          if (dirty) {
             hit.updatedAt = new Date().toISOString();
             saveRegistry('lx8_bakeries', list);
           }
@@ -1122,23 +1140,34 @@ const ICO = {
       const key = slugIdPart(label);
       let hit = key ? list.find(b => b && slugIdPart(b.name) === key) : null;
       if (!hit && label) {
-        hit = { id: newEntityId('bakery', list.map(b => b && b.id)), name: label, createdAt: new Date().toISOString() };
+        hit = {
+          id: newEntityId('bakery', list.map(b => b && b.id)),
+          name: label,
+          sites: site ? [site] : [],
+          createdAt: new Date().toISOString()
+        };
         list.push(hit);
         saveRegistry('lx8_bakeries', list);
       }
       return hit ? hit.id : existingId || null;
     }
 
-    function resolveMachineId(model, serial, existingId) {
+    // Machine identity is the serial number. Same S/N on ten trips = one machine,
+    // even if the bakery name or model field is typed a little differently.
+    function resolveMachineId(model, serial, existingId, extra) {
       const machine = String(model || '').trim() || 'LX-8';
-      const ser = String(serial || '').trim();
+      const rawSerial = String(serial || '').trim();
+      const serKey = normalizeSerial(rawSerial);
+      const bakeryId = extra && extra.bakeryId;
       const list = loadRegistry('lx8_machines');
       if (existingId) {
         const hit = list.find(m => m && m.id === existingId);
         if (hit) {
           let dirty = false;
           if (machine && hit.model !== machine) { hit.model = machine; dirty = true; }
-          if (ser && hit.serial !== ser) { hit.serial = ser; dirty = true; }
+          if (rawSerial && hit.serial !== rawSerial) { hit.serial = rawSerial; dirty = true; }
+          if (serKey && hit.serialKey !== serKey) { hit.serialKey = serKey; dirty = true; }
+          if (bakeryId && hit.bakeryId !== bakeryId) { hit.bakeryId = bakeryId; dirty = true; }
           if (dirty) {
             hit.updatedAt = new Date().toISOString();
             saveRegistry('lx8_machines', list);
@@ -1146,48 +1175,82 @@ const ICO = {
           return hit.id;
         }
       }
-      let hit = list.find(m => m && String(m.model || '') === machine && String(m.serial || '') === ser && ser);
-      if (!hit && (machine || ser)) {
+      let hit = serKey ? list.find(m => m && (m.serialKey === serKey || normalizeSerial(m.serial) === serKey)) : null;
+      if (!hit && (serKey || machine)) {
+        // No serial = do not merge every "LX-8" into one machine.
+        if (!serKey) return existingId || null;
         hit = {
           id: newEntityId('machine', list.map(m => m && m.id)),
           model: machine,
-          serial: ser,
+          serial: rawSerial,
+          serialKey: serKey,
+          bakeryId: bakeryId || null,
           createdAt: new Date().toISOString()
         };
         list.push(hit);
         saveRegistry('lx8_machines', list);
+      } else if (hit) {
+        let dirty = false;
+        if (machine && hit.model !== machine) { hit.model = machine; dirty = true; }
+        if (rawSerial && !hit.serial) { hit.serial = rawSerial; dirty = true; }
+        if (serKey && hit.serialKey !== serKey) { hit.serialKey = serKey; dirty = true; }
+        if (bakeryId && !hit.bakeryId) { hit.bakeryId = bakeryId; dirty = true; }
+        if (dirty) {
+          hit.updatedAt = new Date().toISOString();
+          saveRegistry('lx8_machines', list);
+        }
       }
       return hit ? hit.id : existingId || null;
     }
 
+    function jobSerialList(job) {
+      if (!job) return [];
+      const fromArr = Array.isArray(job.serials) ? job.serials : [];
+      const extra = job.serial ? [job.serial] : [];
+      const seen = new Set();
+      const out = [];
+      fromArr.concat(extra).forEach(s => {
+        const raw = String(s || '').trim();
+        const key = normalizeSerial(raw);
+        if (!raw || seen.has(key)) return;
+        seen.add(key);
+        out.push(raw);
+      });
+      return out;
+    }
+
     function stampJobIdentities(job) {
       if (!job || typeof job !== 'object') return job;
-      const takenJobs = (storeMem.jobs || []).map(j => j && j.id);
+      const allJobs = (typeof loadJobs === 'function' ? (storeMem.jobs || []) : []) || [];
+      const takenJobs = allJobs.map(j => j && j.id);
       if (!job.id) job.id = newEntityId('job', takenJobs);
-      job.bakeryId = resolveBakeryId(job.customer || job.site || '', job.bakeryId);
-      const serial = (Array.isArray(job.serials) && job.serials[0]) || job.serial || '';
-      job.machineId = resolveMachineId(job.machine, serial, job.machineId);
+      job.bakeryId = resolveBakeryId(job.customer || '', job.bakeryId, { site: job.site || '' });
+      const serials = jobSerialList(job);
+      const machineIds = serials
+        .map(s => resolveMachineId(job.machine, s, null, { bakeryId: job.bakeryId }))
+        .filter(Boolean);
+      job.machineIds = [...new Set(machineIds.concat(Array.isArray(job.machineIds) ? job.machineIds : []))];
+      job.machineId = job.machineIds[0] || resolveMachineId(job.machine, serials[0] || '', job.machineId, { bakeryId: job.bakeryId });
+      if (serials[0]) job.serial = job.serial || serials[0];
       return job;
     }
 
     function ensureJobIdentities(list) {
       let dirty = false;
-      const taken = (list || []).map(j => j && j.id).filter(Boolean);
+      const taken = [];
+      const seen = new Set();
       (list || []).forEach(job => {
         if (!job) return;
-        if (!job.id) {
-          job.id = newEntityId('job', taken);
-          taken.push(job.id);
+        if (!job.id || seen.has(String(job.id))) {
+          job.id = newEntityId('job', taken.concat(Array.from(seen)));
           dirty = true;
         }
-        const bakeryId = resolveBakeryId(job.customer || job.site || '', job.bakeryId);
-        const serial = (Array.isArray(job.serials) && job.serials[0]) || job.serial || '';
-        const machineId = resolveMachineId(job.machine, serial, job.machineId);
-        if (job.bakeryId !== bakeryId || job.machineId !== machineId) {
-          job.bakeryId = bakeryId;
-          job.machineId = machineId;
-          dirty = true;
-        }
+        seen.add(String(job.id));
+        taken.push(job.id);
+        const before = job.bakeryId + '|' + job.machineId + '|' + (job.machineIds || []).join(',');
+        stampJobIdentities(job);
+        const after = job.bakeryId + '|' + job.machineId + '|' + (job.machineIds || []).join(',');
+        if (before !== after) dirty = true;
       });
       return dirty;
     }
@@ -1195,16 +1258,46 @@ const ICO = {
     function attachRecordIdentity(rec, extras) {
       if (!rec || typeof rec !== 'object') return rec;
       const job = extras && extras.job;
-      if (job) {
-        rec.jobId = job.id || rec.jobId || null;
-        rec.bakeryId = job.bakeryId || rec.bakeryId || resolveBakeryId(rec.customer || job.customer || '', rec.bakeryId);
-        rec.machineId = job.machineId || rec.machineId || resolveMachineId(rec.model || job.machine, rec.serial || (job.serials && job.serials[0]) || '', rec.machineId);
-      } else {
-        rec.bakeryId = rec.bakeryId || resolveBakeryId(rec.customer || '', rec.bakeryId);
-        rec.machineId = rec.machineId || resolveMachineId(rec.model, rec.serial, rec.machineId);
-      }
+      const serial = rec.serial || (job && jobSerialList(job)[0]) || '';
+      const model = rec.model || rec.machine || (job && job.machine) || '';
+      const customer = rec.customer || (job && job.customer) || '';
+      if (job) rec.jobId = job.id || rec.jobId || null;
+      rec.bakeryId = (job && job.bakeryId) || rec.bakeryId || resolveBakeryId(customer, rec.bakeryId, { site: rec.site || (job && job.site) || '' });
+      rec.machineId = rec.machineId || resolveMachineId(model, serial, (job && job.machineId) || null, { bakeryId: rec.bakeryId });
+      if (serial && !rec.serial) rec.serial = serial;
+      if (customer && !rec.customer) rec.customer = customer;
       return rec;
     }
+
+    function jobById(id) {
+      if (!id || typeof loadJobs !== 'function') return null;
+      return (loadJobs() || []).find(j => j && j.id === id) || null;
+    }
+
+    // Future recurring-issue hooks. Call these when that UI lands.
+    window.recordsForBakery = function(bakeryId) {
+      if (!bakeryId) return { jobs: [], inspections: [], punchlists: [], timecards: [] };
+      const jobs = (typeof loadJobs === 'function' ? loadJobs() : []).filter(j => j && j.bakeryId === bakeryId);
+      const inspections = (typeof loadInspections === 'function' ? loadInspections() : []).filter(i => i && i.bakeryId === bakeryId);
+      return { bakeryId, jobs, inspections };
+    };
+    window.recordsForMachineSerial = function(serial) {
+      const key = normalizeSerial(serial);
+      if (!key) return { machines: [], jobs: [], inspections: [] };
+      const machines = loadRegistry('lx8_machines').filter(m => m && (m.serialKey === key || normalizeSerial(m.serial) === key));
+      const ids = new Set(machines.map(m => m.id));
+      const jobs = (typeof loadJobs === 'function' ? loadJobs() : []).filter(j => {
+        if (!j) return false;
+        if (ids.has(j.machineId) || (j.machineIds || []).some(id => ids.has(id))) return true;
+        return jobSerialList(j).some(s => normalizeSerial(s) === key);
+      });
+      const inspections = (typeof loadInspections === 'function' ? loadInspections() : []).filter(i => {
+        if (!i) return false;
+        if (ids.has(i.machineId)) return true;
+        return normalizeSerial(i.serial) === key;
+      });
+      return { serialKey: key, machines, jobs, inspections };
+    };
 
     const SAMPLE_JOB_ID = 'job_sample_demo';
     function getSampleJob() {
@@ -1223,6 +1316,8 @@ const ICO = {
         status: 'In Progress',
         scope: 'Demo trip for testing Job Detail, inspections, and punchlist linking.\n\n• Inspect LX-8 line 2\n• Capture punchlist items as found\n• Verify bagger guides and slicer linkage',
         notes: 'Sample job — safe to edit or delete while testing.',
+        machine: 'LX-8',
+        serials: ['44621019 Line 1'],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isSample: true
@@ -1298,6 +1393,7 @@ const ICO = {
 
     function saveJobs(list) {
       storeMem.jobs = Array.isArray(list) ? list : [];
+      try { ensureJobIdentities(storeMem.jobs); } catch (e) {}
       const ok = lsWrite('lx8_jobs', storeMem.jobs);
       if (!ok) {
         try {
@@ -1835,8 +1931,9 @@ const ICO = {
       if (!Array.isArray(job.serials)) job.serials = [];
       if (!job.serials.some(s => String(s).toLowerCase() === serial.toLowerCase())) {
         job.serials.push(serial);
-        saveJobs(list);
       }
+      stampJobIdentities(job);
+      saveJobs(list);
       jobSerialsDraft = job.serials.slice();
     }
 
@@ -1863,6 +1960,7 @@ const ICO = {
       const taken = loadJobs().map(j => j && j.id);
       pendingNewJobId = newEntityId('job', taken.concat([pendingNewJobId]));
       editingJobId = pendingNewJobId;
+      try { lsWrite('lx8_pending_job_id', pendingNewJobId); } catch (e) {}
       initJobForm(null);
       document.getElementById('btnSaveJob').textContent = 'Save Job';
       document.getElementById('btnDeleteJob').classList.add('hidden');
@@ -1923,6 +2021,7 @@ const ICO = {
       pendingAfterJobSave = null;
       pendingNewJobId = null;
       editingJobId = null;
+      try { lsWrite('lx8_pending_job_id', ''); } catch (e) {}
       if (after === 'punchlist' || after === 'inspection') {
         const saved = list.find(j => j.id === savedId);
         if (after === 'punchlist') startPunchlistForCurrentJob(saved);
@@ -2504,6 +2603,8 @@ const ICO = {
       const listEl = document.getElementById('jobPickerList');
       const title = document.getElementById('jobPickerTitle');
       if (!modal || !listEl) return;
+      if (modal.parentElement !== document.body) document.body.appendChild(modal);
+      modal.classList.add('modal-overlay');
 
       title.textContent = purpose === 'punchlist' ? 'Select Job for Punchlist' : 'Select Job for Inspection';
       const goBtn = document.getElementById('jobPickerGoJobs');
@@ -5337,7 +5438,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-19', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-21', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -5586,7 +5687,7 @@ const IDB_NAME = "FieldPunchlistDB";
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=flat-19").catch(() => {});
+        navigator.serviceWorker.register("./sw.js?v=flat-21").catch(() => {});
       });
     }
 
@@ -6086,14 +6187,21 @@ const IDB_NAME = "FieldPunchlistDB";
       };
       if (!formData.description) { alert("Description is required"); return; }
 
+      const plJob = (typeof jobById === 'function' && data && data.currentJob)
+        ? (jobById(data.currentJob) || jobById((data.keyByJobId && Object.keys(data.keyByJobId).find(id => data.keyByJobId[id] === data.currentJob)) || ''))
+        : null;
+      const stamped = (typeof attachRecordIdentity === 'function')
+        ? attachRecordIdentity({ ...formData }, { job: plJob })
+        : formData;
+
       let items = getItems();
       if (editingId) {
         const idx = items.findIndex(i => i.id === editingId);
-        items[idx] = { ...items[idx], ...formData };
+        items[idx] = { ...items[idx], ...stamped };
         toast("Item updated");
       } else {
-        const newId = items.length ? Math.max(...items.map(i => i.id)) + 1 : 1;
-        items.push({ id: newId, ...formData });
+        const newId = items.length ? Math.max(...items.map(i => Number(i.id) || 0)) + 1 : 1;
+        items.push({ id: newId, ...stamped });
         toast("Item added");
       }
       setItems(items);
@@ -6385,12 +6493,14 @@ const IDB_NAME = "FieldPunchlistDB";
       return Object.keys(data.jobs).map(name => {
         const items = data.jobs[name] || [];
         const complete = items.filter(i => i && i.status === 'Complete').length;
-        const jobId = links[name] || '';
-        const job = fieldJobs.find(j => j && j.id === jobId);
+        const jobId = links[name] || (fieldJobs.some(j => j && j.id === name) ? name : '');
+        const job = fieldJobs.find(j => j && (j.id === jobId || j.id === name));
         const jobLabel = job
           ? ((typeof jobDisplayName === 'function') ? jobDisplayName(job) : (job.customer || ''))
           : '';
-        return { name, total: items.length, complete, jobId, jobLabel };
+        const looksLikeId = /^[a-z]+_[a-z0-9]+/i.test(String(name || ''));
+        const title = jobLabel || (!looksLikeId ? name : 'Punchlist');
+        return { name, title, total: items.length, complete, jobId, jobLabel };
       }).sort((a, b) => {
         // Prefer non-empty, then alpha
         if ((b.total > 0) !== (a.total > 0)) return b.total > 0 ? 1 : -1;
@@ -7324,12 +7434,15 @@ function tcRenderEntryList(listEl, offset) {
         }
       }
       const bakeryName = tcBakeryNameForJob(jobId);
+      const job = (typeof jobById === 'function') ? jobById(jobId) : null;
       const id = tcUid();
       const clockIn = Date.now();
       const entry = {
         id, clockIn, clockOut: null,
         type: tcState.selectedType || 'bakery',
         jobId: jobId || '',
+        bakeryId: job && job.bakeryId ? job.bakeryId : (bakeryName && typeof resolveBakeryId === 'function' ? resolveBakeryId(bakeryName) : ''),
+        machineId: job && job.machineId ? job.machineId : '',
         bakeryName: bakeryName || '',
         date: tcDateKey(clockIn),
         notes: '',
