@@ -175,7 +175,6 @@
       position: relative;
       overflow: visible;
       padding-top: 12px;
-      display: flex;
       flex-direction: column;
       min-height: calc(100dvh - var(--header-h));
       min-height: calc(100svh - var(--header-h));
@@ -3862,4 +3861,13 @@
       opacity: 0;
       z-index: 201;
       pointer-events: none;
+    }
+
+
+    /* Screen visibility — last wins so pages never stack */
+    .screen { display: none !important; }
+    .screen.active { display: block !important; }
+    #screenHome.screen.active {
+      display: flex !important;
+      flex-direction: column !important;
     }
