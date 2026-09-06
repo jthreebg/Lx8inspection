@@ -4,20 +4,26 @@ Split static package for GitHub Pages.
 
 ## Folder
 
+All files are flat in one folder (no subfolders) — this matches how
+`index.html` references them (`app.css`, `app.js`, etc. with no path prefix).
+
 ```
 pwa/
   index.html
-  css/app.css
-  js/app.js
-  js/templates.js
-  js/pdf-fallback.js
-  vendor/exceljs.min.js
-  vendor/jspdf.umd.min.js
-  vendor/jspdf.plugin.autotable.min.js
-  icons/
+  app.css
+  app.js
+  templates.js
+  exceljs.min.js
+  jspdf.umd.min.js
+  jspdf.plugin.autotable.min.js
+  (exceljs.min.js / jspdf.umd.min.js / jspdf.plugin.autotable.min.js are
+   loaded on demand, only when a PDF/Excel export is used)
+  Punchlist-Template.xlsx
+  timecard-template.xlsx
+  icon-192.png / icon-512.png / icon-512-maskable.png
+  apple-touch-icon.png
   manifest.webmanifest
   sw.js
-  apple-touch-icon.png
 ```
 
 ## Add to GitHub
