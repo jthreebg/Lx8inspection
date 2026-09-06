@@ -1,11 +1,11 @@
-const CACHE = 'lematic-fs-flat-v25';
+const CACHE = 'lematic-fs-flat-v16';
 const PRECACHE = [
   './',
   './index.html',
-  './app.css?v=25',
-  './app.js?v=25',
-  './templates.js?v=25',
-  './qrcode.min.js?v=25',
+  './app.css?v=16',
+  './app.js?v=16',
+  './templates.js?v=16',
+  './qrcode.min.js?v=16',
   './manifest.webmanifest',
   './apple-touch-icon.png',
   './icon-192.png',
