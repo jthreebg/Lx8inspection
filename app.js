@@ -1169,7 +1169,7 @@ const ICO = {
       document.getElementById('jobCustomer').value = job?.customer || '';
       document.getElementById('jobSite').value = job?.site || '';
       document.getElementById('jobContact').value = job?.contact || '';
-      document.getElementById('jobTechnician').value = job?.technician || (lsRead('lx8_last_tech', '') || '');
+      document.getElementById('jobTechnician').value = job?.technician || profileName() || (lsRead('lx8_last_tech', '') || '');
       document.getElementById('jobDate').value = job?.date || new Date().toISOString().slice(0, 10);
       document.getElementById('jobEndDate').value = job?.endDate || '';
       document.getElementById('jobPO').value = job?.po || '';
@@ -1545,7 +1545,7 @@ const ICO = {
           customer: '',
           model,
           serial: serial || 'TBD',
-          technician: '',
+          technician: profileName() || '',
           date: new Date().toISOString().slice(0, 10),
           po: '',
           status: 'Draft',
@@ -1579,7 +1579,7 @@ const ICO = {
         customer: job.customer || '',
         model,
         serial,
-        technician: job.technician || '',
+        technician: job.technician || profileName() || '',
         date: job.date || new Date().toISOString().slice(0, 10),
         po: job.po || '',
         jobId: job.id,
@@ -1883,7 +1883,7 @@ const ICO = {
       document.getElementById('inpCustomer').value = ins.customer || '';
       document.getElementById('inpModel').value = ins.model || 'LX-8';
       document.getElementById('inpSerial').value = ins.serial || '';
-      document.getElementById('inpTechnician').value = ins.technician || '';
+      document.getElementById('inpTechnician').value = ins.technician || profileName() || '';
       document.getElementById('inpDate').value = ins.date || new Date().toISOString().slice(0, 10);
       document.getElementById('inpPO').value = ins.po || '';
       // Autocomplete customers
@@ -1898,7 +1898,7 @@ const ICO = {
         document.getElementById('inpCustomer').value = ins.customer || '';
         document.getElementById('inpModel').value = ins.model || 'LX-8';
         document.getElementById('inpSerial').value = ins.serial || '';
-        document.getElementById('inpTechnician').value = ins.technician || '';
+        document.getElementById('inpTechnician').value = ins.technician || profileName() || '';
         document.getElementById('inpDate').value = ins.date || '';
         document.getElementById('inpPO').value = ins.po || '';
       } else {
@@ -2267,7 +2267,7 @@ const ICO = {
           chip.innerHTML = jobEsc(jobDisplayName(job)) + (sub ? `<span class="jl-sub">${jobEsc(sub)}</span>` : '');
         }
         document.getElementById('inpCustomer').value = job.customer || '';
-        document.getElementById('inpTechnician').value = job.technician || '';
+        document.getElementById('inpTechnician').value = job.technician || profileName() || '';
         document.getElementById('inpDate').value = job.date || new Date().toISOString().slice(0, 10);
         document.getElementById('inpPO').value = job.po || '';
         // Prefer site as a helpful default for serial/location context only if serial empty
@@ -2310,7 +2310,7 @@ const ICO = {
             customer: job.customer || '',
             model,
             serial: (job.site || '').trim() || 'TBD',
-            technician: job.technician || '',
+            technician: job.technician || profileName() || '',
             date: job.date || new Date().toISOString().slice(0, 10),
             po: job.po || '',
             jobId: job.id,
@@ -4559,6 +4559,8 @@ const ICO = {
       closeSearch();
       showScreen('screenSettings');
       setHeader('Settings');
+      if (typeof fillProfileForm === 'function') fillProfileForm();
+      if (typeof bindProfileForm === 'function') bindProfileForm();
       if (typeof refreshStorageCard === 'function') refreshStorageCard();
     });
     document.getElementById('btnHome').addEventListener('click', () => {
@@ -5017,7 +5019,13 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-1').catch((err) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-12', { updateViaCache: 'none' }).then((reg) => {
+          const check = () => { try { reg.update(); } catch (e) {} };
+          check();
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') check();
+          });
+        }).catch((err) => {
           console.warn('Service worker registration failed:', err);
         });
       });
@@ -6424,6 +6432,8 @@ const IDB_NAME = "FieldPunchlistDB";
         const j = jobs.find(x => x && x.id === en.jobId);
         if (j && j.technician && String(j.technician).trim()) return String(j.technician).trim();
       }
+      const fromProfile = profileName();
+      if (fromProfile) return fromProfile;
       // Any job with technician
       for (const j of jobs) {
         if (j && j.technician && String(j.technician).trim() && j.id !== (typeof SAMPLE_JOB_ID !== 'undefined' ? SAMPLE_JOB_ID : '')) {
@@ -6437,6 +6447,8 @@ const IDB_NAME = "FieldPunchlistDB";
         if (usesSample) return String(sample.technician).trim();
       }
       try {
+        const fromProf = profileName();
+        if (fromProf) return fromProf;
         const saved = lsRead('lx8_tc_name', '');
         if (saved && String(saved).trim()) return String(saved).trim();
       } catch (e) {}
@@ -7432,5 +7444,523 @@ function tcRenderEntryList(listEl, offset) {
         }, 60);
       }, true);
     })();
+
+    
+
+
+    function qrGfMul(a, b) {
+      let p = 0;
+      for (let i = 0; i < 8; i++) {
+        if (b & 1) p ^= a;
+        const hi = a & 0x80;
+        a = (a << 1) & 0xff;
+        if (hi) a ^= 0x1d;
+        b >>= 1;
+      }
+      return p;
+    }
+    const QR_EXP = new Uint8Array(256);
+    const QR_LOG = new Uint8Array(256);
+    (function initQrGf() {
+      let x = 1;
+      for (let i = 0; i < 255; i++) {
+        QR_EXP[i] = x;
+        QR_LOG[x] = i;
+        x = qrGfMul(x, 2);
+      }
+      QR_EXP[255] = QR_EXP[0];
+    })();
+    function qrRsGen(ec) {
+      const gen = new Uint8Array(ec + 1);
+      gen[0] = 1;
+      for (let i = 0; i < ec; i++) {
+        for (let j = i; j >= 0; j--) {
+          gen[j + 1] ^= qrGfMul(gen[j], QR_EXP[i]);
+        }
+      }
+      return gen;
+    }
+    function qrRs(data, ec) {
+      const gen = qrRsGen(ec);
+      const out = new Uint8Array(ec);
+      for (let i = 0; i < data.length; i++) {
+        const factor = data[i] ^ out[0];
+        out.copyWithin(0, 1);
+        out[ec - 1] = 0;
+        if (!factor) continue;
+        const logF = QR_LOG[factor];
+        for (let j = 0; j < ec; j++) {
+          out[j] ^= QR_EXP[(QR_LOG[gen[j + 1]] + logF) % 255];
+        }
+      }
+      return out;
+    }
+    // version -> [total data bytes EC-M, ec bytes per block, blocks]
+    const QR_M = {
+      1: [16, 10, 1], 2: [28, 16, 1], 3: [44, 26, 1], 4: [64, 18, 2],
+      5: [86, 24, 2], 6: [108, 16, 4], 7: [124, 18, 4], 8: [154, 22, 4],
+      9: [182, 22, 5], 10: [216, 26, 5]
+    };
+    function qrSize(ver) { return 17 + 4 * ver; }
+    function qrReserve(size, ver) {
+      const m = Array.from({ length: size }, () => Array(size).fill(null));
+      const fillRect = (x, y, w, h, v) => {
+        for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) m[y + j][x + i] = v;
+      };
+      const finder = (x, y) => {
+        fillRect(x, y, 7, 7, true);
+        fillRect(x + 1, y + 1, 5, 5, false);
+        fillRect(x + 2, y + 2, 3, 3, true);
+        for (let i = -1; i < 8; i++) {
+          if (x + i >= 0 && x + i < size) {
+            if (y - 1 >= 0) m[y - 1][x + i] = false;
+            if (y + 7 < size) m[y + 7][x + i] = false;
+          }
+          if (y + i >= 0 && y + i < size) {
+            if (x - 1 >= 0) m[y + i][x - 1] = false;
+            if (x + 7 < size) m[y + i][x + 7] = false;
+          }
+        }
+      };
+      finder(0, 0); finder(size - 7, 0); finder(0, size - 7);
+      // timing
+      for (let i = 8; i < size - 8; i++) {
+        m[6][i] = i % 2 === 0;
+        m[i][6] = i % 2 === 0;
+      }
+      // dark module
+      m[size - 8][8] = true;
+      // format placeholders
+      for (let i = 0; i < 9; i++) {
+        if (m[8][i] == null) m[8][i] = false;
+        if (m[i][8] == null) m[i][8] = false;
+      }
+      for (let i = 0; i < 8; i++) {
+        if (m[8][size - 1 - i] == null) m[8][size - 1 - i] = false;
+        if (m[size - 1 - i][8] == null) m[size - 1 - i][8] = false;
+      }
+      if (ver >= 2) {
+        const align = ver === 2 ? [6, 18] : ver === 3 ? [6, 22] : ver === 4 ? [6, 26]
+          : ver === 5 ? [6, 30] : ver === 6 ? [6, 34] : ver === 7 ? [6, 22, 38]
+          : ver === 8 ? [6, 24, 42] : ver === 9 ? [6, 26, 46] : [6, 28, 50];
+        for (const y of align) for (const x of align) {
+          if ((x < 9 && y < 9) || (x > size - 10 && y < 9) || (x < 9 && y > size - 10)) continue;
+          fillRect(x - 2, y - 2, 5, 5, true);
+          fillRect(x - 1, y - 1, 3, 3, false);
+          m[y][x] = true;
+        }
+      }
+      return m;
+    }
+    function qrPlaceFormat(m, mask) {
+      // EC level M = 00, format = ecBits(2) + mask(3)
+      const data = (0b00 << 3) | mask;
+      let bits = data << 10;
+      const gen = 0b10100110111;
+      for (let i = 14; i >= 10; i--) if ((bits >> i) & 1) bits ^= gen << (i - 10);
+      const format = (data << 10 | bits) ^ 0b101010000010010;
+      const size = m.length;
+      const put = (i, bit) => {
+        const v = !!(bit);
+        if (i < 6) m[8][i] = v;
+        else if (i === 6) m[8][7] = v;
+        else if (i === 7) m[8][8] = v;
+        else m[7 - (i - 8)][8] = v;
+        if (i < 8) m[size - 1 - i][8] = v;
+        else m[8][size - 15 + i] = v;
+      };
+      for (let i = 0; i < 15; i++) put(i, (format >> i) & 1);
+    }
+    function qrMaskFn(mask, x, y) {
+      if (mask === 0) return (x + y) % 2 === 0;
+      if (mask === 1) return y % 2 === 0;
+      if (mask === 2) return x % 3 === 0;
+      if (mask === 3) return (x + y) % 3 === 0;
+      if (mask === 4) return (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0;
+      return ((x * y) % 2) + ((x * y) % 3) === 0;
+    }
+    function qrBuild(text) {
+      const bytes = [];
+      for (let i = 0; i < text.length; i++) {
+        const c = text.charCodeAt(i);
+        if (c < 128) bytes.push(c);
+        else {
+          const enc = unescape(encodeURIComponent(text[i]));
+          for (let k = 0; k < enc.length; k++) bytes.push(enc.charCodeAt(k));
+        }
+      }
+      let ver = 1;
+      while (ver <= 10 && QR_M[ver][0] < bytes.length + 3) ver++;
+      if (ver > 10) ver = 10;
+      const [dataBytes, ecPer, blocks] = QR_M[ver];
+      const bits = [];
+      const put = (val, n) => { for (let i = n - 1; i >= 0; i--) bits.push((val >> i) & 1); };
+      put(0b0100, 4);
+      put(bytes.length, ver < 10 ? 8 : 16);
+      bytes.forEach((b) => put(b, 8));
+      put(0, Math.min(4, dataBytes * 8 - bits.length));
+      while (bits.length % 8) bits.push(0);
+      const data = [];
+      for (let i = 0; i < bits.length; i += 8) {
+        let v = 0;
+        for (let j = 0; j < 8; j++) v = (v << 1) | bits[i + j];
+        data.push(v);
+      }
+      const pads = [0xec, 0x11];
+      let p = 0;
+      while (data.length < dataBytes) data.push(pads[(p++) % 2]);
+      data.length = dataBytes;
+      const blockLen = Math.floor(dataBytes / blocks);
+      const shortBlocks = blocks - (dataBytes % blocks);
+      const groups = [];
+      let off = 0;
+      for (let b = 0; b < blocks; b++) {
+        const len = blockLen + (b < shortBlocks ? 0 : 1);
+        const chunk = data.slice(off, off + len);
+        off += len;
+        groups.push({ d: chunk, e: Array.from(qrRs(Uint8Array.from(chunk), ecPer)) });
+      }
+      const inter = [];
+      const maxD = Math.max(...groups.map(g => g.d.length));
+      for (let i = 0; i < maxD; i++) groups.forEach(g => { if (i < g.d.length) inter.push(g.d[i]); });
+      for (let i = 0; i < ecPer; i++) groups.forEach(g => inter.push(g.e[i]));
+      const size = qrSize(ver);
+      const reserved = qrReserve(size, ver);
+      const matrix = reserved.map(row => row.slice());
+      let bitStr = '';
+      inter.forEach((v) => { bitStr += v.toString(2).padStart(8, '0'); });
+      let bi = 0;
+      let dir = -1;
+      for (let x = size - 1; x > 0; x -= 2) {
+        if (x === 6) x--;
+        for (let y = dir < 0 ? size - 1 : 0; dir < 0 ? y >= 0 : y < size; y += dir) {
+          for (let dx = 0; dx < 2; dx++) {
+            const xx = x - dx;
+            if (reserved[y][xx] != null) continue;
+            const bit = bi < bitStr.length ? bitStr[bi++] === '1' : false;
+            matrix[y][xx] = bit;
+          }
+        }
+        dir *= -1;
+      }
+      const mask = 0;
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        if (reserved[y][x] != null) continue;
+        if (qrMaskFn(mask, x, y)) matrix[y][x] = !matrix[y][x];
+      }
+      qrPlaceFormat(matrix, mask);
+      return matrix;
+    }
+    function qrDrawCanvas(canvas, text) {
+      const m = qrBuild(text);
+      const n = m.length;
+      const pad = 3;
+      const scale = Math.max(4, Math.floor(200 / (n + pad * 2)));
+      const dim = (n + pad * 2) * scale;
+      canvas.width = dim;
+      canvas.height = dim;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, dim, dim);
+      ctx.fillStyle = '#111111';
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        if (m[y][x]) ctx.fillRect((x + pad) * scale, (y + pad) * scale, scale, scale);
+      }
+    }
+
+    function getProfile() {
+      try {
+        const raw = localStorage.getItem('lx8_profile');
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (p && typeof p === 'object') return p;
+        }
+      } catch (e) {}
+      return { name: '', phone: '', email: '', company: '', companyPhone: '', companyAddress: '' };
+    }
+    function profileName() {
+      return String((getProfile().name || '')).trim();
+    }
+    function saveProfile(next) {
+      const p = Object.assign({ name: '', phone: '', email: '', company: '', companyPhone: '', companyAddress: '' }, getProfile(), next || {});
+      try { localStorage.setItem('lx8_profile', JSON.stringify(p)); } catch (e) {}
+      if (p.name) {
+        try { lsWrite('lx8_last_tech', p.name); } catch (e) {}
+        try { lsWrite('lx8_tc_name', p.name); } catch (e) {}
+      }
+      return p;
+    }
+
+
+    function profileVCard() {
+      const p = getProfile();
+      const name = String(p.name || '').trim();
+      const phone = String(p.phone || '').trim();
+      const email = String(p.email || '').trim();
+      const company = String(p.company || '').trim();
+      const companyPhone = String(p.companyPhone || '').trim();
+      const companyAddress = String(p.companyAddress || '').trim();
+      if (!name && !phone && !email && !company && !companyPhone && !companyAddress) return '';
+      const lines = ['BEGIN:VCARD', 'VERSION:3.0'];
+      if (name) {
+        lines.push('FN:' + name);
+        const parts = name.split(/\s+/);
+        const last = parts.length > 1 ? parts.pop() : '';
+        const first = parts.join(' ');
+        lines.push('N:' + last + ';' + first + ';;;');
+      }
+      if (company) lines.push('ORG:' + company);
+      if (phone) lines.push('TEL;TYPE=CELL:' + phone);
+      if (companyPhone) lines.push('TEL;TYPE=WORK:' + companyPhone);
+      if (email) lines.push('EMAIL:' + email);
+      if (companyAddress) {
+        const adr = companyAddress.replace(/\r?\n/g, ', ');
+        lines.push('ADR;TYPE=WORK:;;' + adr + ';;;;');
+      }
+      lines.push('END:VCARD');
+      return lines.join('\r\n');
+    }
+    let profileQrObj = null;
+
+    function profileVcfFile() {
+      const card = profileVCard();
+      if (!card) return null;
+      const p = getProfile();
+      const fname = ((p.name || 'contact').replace(/[\\/:*?"<>|]/g, '-').trim() || 'contact') + '.vcf';
+      return new File([card], fname, { type: 'text/vcard' });
+    }
+    async function shareProfileContact(e) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      const card = profileVCard();
+      if (!card) return;
+      const file = profileVcfFile();
+      const p = getProfile();
+      try {
+        if ('NDEFWriter' in window || 'NDEFReader' in window) {
+          const writer = new NDEFReader();
+          await writer.write({
+            records: [{ recordType: 'mime', mediaType: 'text/vcard', data: card }]
+          });
+          if (typeof showToast === 'function') showToast('Ready — hold phones together');
+          else if (typeof toast === 'function') toast('Ready — hold phones together');
+          return;
+        }
+      } catch (err) {
+        console.warn('NFC write failed', err);
+      }
+      try {
+        if (navigator.share) {
+          const data = { title: p.name || 'Contact', text: p.name || 'Contact' };
+          if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+            data.files = [file];
+          } else {
+            data.text = card;
+          }
+          await navigator.share(data);
+          return;
+        }
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+      }
+      try {
+        const blob = new Blob([card], { type: 'text/vcard' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = (file && file.name) || 'contact.vcf';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+      } catch (err) {}
+    }
+    window.shareProfileContact = shareProfileContact;
+
+    function renderProfileQr() {
+      const box = document.getElementById('profileQr');
+      const wrap = document.getElementById('profileQrWrap');
+      const thumb = document.getElementById('profileQrThumb');
+      const card = profileVCard();
+      const can = typeof QRCode !== 'undefined';
+      if (!card || !can) {
+        if (wrap) { wrap.hidden = true; }
+        if (box) box.innerHTML = '';
+        if (thumb) { thumb.hidden = true; thumb.innerHTML = ''; }
+        profileQrObj = null;
+        return;
+      }
+      if (wrap) wrap.hidden = false;
+      if (box) {
+        box.innerHTML = '';
+        profileQrObj = new QRCode(box, {
+          text: card,
+          width: 168,
+          height: 168,
+          colorDark: '#000000',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      }
+      if (thumb) {
+        thumb.hidden = false;
+        thumb.innerHTML = '';
+        new QRCode(thumb, {
+          text: card,
+          width: 44,
+          height: 44,
+          colorDark: '#000000',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      }
+    }
+    function openProfileQrViewer() {
+      const ov = document.getElementById('profileQrViewer');
+      const dest = document.getElementById('profileQrViewerCanvas');
+      const box = document.getElementById('profileQr');
+      if (!ov || !dest || !box) return;
+      const img = box.querySelector('img');
+      const srcCanvas = box.querySelector('canvas');
+      const ctx = dest.getContext('2d');
+      const size = 360;
+      dest.width = size;
+      dest.height = size;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+      const draw = (el) => {
+        try { ctx.drawImage(el, 16, 16, size - 32, size - 32); } catch (e) {}
+      };
+      if (img && img.src) {
+        const pic = new Image();
+        pic.onload = () => draw(pic);
+        pic.src = img.src;
+      } else if (srcCanvas) {
+        draw(srcCanvas);
+      }
+      ov.hidden = false;
+    }
+    function closeProfileQrViewer() {
+      const ov = document.getElementById('profileQrViewer');
+      if (ov) ov.hidden = true;
+    }
+    window.closeProfileQrViewer = closeProfileQrViewer;
+
+    function fillProfileForm() {
+      const p = getProfile();
+      const n = document.getElementById('profileName');
+      const ph = document.getElementById('profilePhone');
+      const em = document.getElementById('profileEmail');
+      if (n) n.value = p.name || '';
+      if (ph) ph.value = p.phone || '';
+      if (em) em.value = p.email || '';
+      const co = document.getElementById('profileCompany');
+      const cph = document.getElementById('profileCompanyPhone');
+      const cad = document.getElementById('profileCompanyAddress');
+      if (co) co.value = p.company || '';
+      if (cph) cph.value = p.companyPhone || '';
+      if (cad) cad.value = p.companyAddress || '';
+      const sum = document.getElementById('profileToggleName');
+      if (sum) sum.textContent = p.name || '';
+      renderProfileQr();
+    }
+
+    function setProfileOpen(open) {
+      const card = document.getElementById('profileCard');
+      const body = document.getElementById('profileBody');
+      const btn = document.getElementById('profileToggle');
+      if (!card || !body || !btn) return;
+      card.classList.toggle('open', !!open);
+      body.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    function bindProfileToggle() {
+      const btn = document.getElementById('profileToggle');
+      if (!btn || btn.dataset.bound === '1') return;
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', (e) => {
+        if (e.target && e.target.closest && e.target.closest('#profileQrThumb')) return;
+        const open = btn.getAttribute('aria-expanded') !== 'true';
+        setProfileOpen(open);
+        if (open) renderProfileQr();
+      });
+      const thumb = document.getElementById('profileQrThumb');
+      if (thumb && thumb.dataset.bound !== '1') {
+        thumb.dataset.bound = '1';
+        thumb.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openProfileQrViewer();
+        });
+      }
+    }
+
+    function bindProfileForm() {
+      ['profileName','profilePhone','profileEmail','profileCompany','profileCompanyPhone','profileCompanyAddress'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el || el.dataset.profileBound === '1') return;
+        el.dataset.profileBound = '1';
+        const write = () => {
+          saveProfile({
+            name: (document.getElementById('profileName') || {}).value || '',
+            phone: (document.getElementById('profilePhone') || {}).value || '',
+            email: (document.getElementById('profileEmail') || {}).value || '',
+            company: (document.getElementById('profileCompany') || {}).value || '',
+            companyPhone: (document.getElementById('profileCompanyPhone') || {}).value || '',
+            companyAddress: (document.getElementById('profileCompanyAddress') || {}).value || ''
+          });
+        };
+        el.addEventListener('input', () => { write(); renderProfileQr(); });
+        el.addEventListener('change', write);
+        el.addEventListener('blur', write);
+      });
+      const qrWrap = document.getElementById('profileQrWrap');
+      if (qrWrap && qrWrap.dataset.qrBound !== '1') {
+        qrWrap.dataset.qrBound = '1';
+        qrWrap.addEventListener('click', (e) => { e.stopPropagation(); openProfileQrViewer(); });
+      }
+      const shareBtn = document.getElementById('profileShareBtn');
+      if (shareBtn && shareBtn.dataset.bound !== '1') {
+        shareBtn.dataset.bound = '1';
+        shareBtn.addEventListener('click', shareProfileContact);
+      }
+      bindProfileToggle();
+      setProfileOpen(false);
+    }
+    window.getProfile = getProfile;
+    window.openProfileQrViewer = openProfileQrViewer;
+    window.profileName = profileName;
+
+    function applyTheme(mode) {
+      const light = mode === 'light';
+      document.documentElement.classList.toggle('theme-light', light);
+      document.body.classList.toggle('theme-light', light);
+      try { localStorage.setItem('lx8_theme', light ? 'light' : 'dark'); } catch (e) {}
+      const darkBtn = document.getElementById('themeDark');
+      const lightBtn = document.getElementById('themeLight');
+      if (darkBtn) darkBtn.classList.toggle('on', !light);
+      if (lightBtn) lightBtn.classList.toggle('on', light);
+      try {
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', light ? '#f2f4f7' : '#000000');
+      } catch (e) {}
+    }
+    function bootTheme() {
+      let mode = 'dark';
+      try { mode = localStorage.getItem('lx8_theme') || 'dark'; } catch (e) {}
+      applyTheme(mode);
+      const darkBtn = document.getElementById('themeDark');
+      const lightBtn = document.getElementById('themeLight');
+      if (darkBtn && darkBtn.dataset.themeBound !== '1') {
+        darkBtn.dataset.themeBound = '1';
+        darkBtn.addEventListener('click', () => applyTheme('dark'));
+      }
+      if (lightBtn && lightBtn.dataset.themeBound !== '1') {
+        lightBtn.dataset.themeBound = '1';
+        lightBtn.addEventListener('click', () => applyTheme('light'));
+      }
+    }
+    bootTheme();
+    bindProfileForm();
+    fillProfileForm();
 
     })();

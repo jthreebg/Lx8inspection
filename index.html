@@ -16,7 +16,10 @@
   <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
   <title>LeMatic Field Service</title>
-  <link rel="stylesheet" href="app.css" />
+    <script>
+    (function(){try{if(localStorage.getItem('lx8_theme')==='light')document.documentElement.classList.add('theme-light');}catch(e){}})();
+  </script>
+  <link rel="stylesheet" href="app.css?v=12" />
   
 
 
@@ -259,6 +262,56 @@
       <div>
         <div class="list-page-kicker">App</div>
         <h2>Settings</h2>
+      </div>
+    </div>
+    <div class="storage-card" id="profileCard">
+      <button type="button" class="profile-toggle" id="profileToggle" aria-expanded="false">
+        <div>
+          <div class="storage-kicker">Profile</div>
+          <div class="profile-toggle-name" id="profileToggleName"></div>
+        </div>
+        <div class="profile-toggle-end">
+          <div id="profileQrThumb" class="profile-qr-thumb" hidden></div>
+          <span class="profile-chevron" aria-hidden="true"></span>
+        </div>
+      </button>
+      <div id="profileBody" class="profile-body" hidden>
+      <div class="form-group" style="margin:12px 0 10px">
+        <label>Name</label>
+        <input type="text" id="profileName" placeholder="Your name" autocomplete="name" />
+      </div>
+      <div class="form-group" style="margin:0 0 10px">
+        <label>Phone</label>
+        <input type="tel" id="profilePhone" placeholder="Phone" autocomplete="tel" />
+      </div>
+      <div class="form-group" style="margin:0 0 10px">
+        <label>Email</label>
+        <input type="email" id="profileEmail" placeholder="Email" autocomplete="email" />
+      </div>
+      <div class="form-group" style="margin:0 0 10px">
+        <label>Company</label>
+        <input type="text" id="profileCompany" placeholder="Company" autocomplete="organization" />
+      </div>
+      <div class="form-group" style="margin:0 0 10px">
+        <label>Company phone</label>
+        <input type="tel" id="profileCompanyPhone" placeholder="Company phone" autocomplete="tel" />
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Company address</label>
+        <textarea id="profileCompanyAddress" placeholder="Company address" rows="2"></textarea>
+      </div>
+      <div id="profileQrWrap" class="profile-qr-wrap" hidden>
+        <div id="profileQr" aria-label="Contact QR code"></div>
+        <div class="profile-qr-hint">Tap code to enlarge</div>
+        <button type="button" class="btn btn-outline profile-share-btn" id="profileShareBtn">Share contact</button>
+      </div>
+      </div>
+    </div>
+    <div class="storage-card" id="themeCard">
+      <div class="storage-kicker">Appearance</div>
+      <div class="theme-toggle" role="group" aria-label="Theme">
+        <button type="button" class="theme-opt" id="themeDark" data-theme="dark">Dark</button>
+        <button type="button" class="theme-opt" id="themeLight" data-theme="light">Light</button>
       </div>
     </div>
     <div class="storage-card" id="homeStorageCard">
@@ -837,8 +890,14 @@
     </button>
   </div>
 
+  
+  <div id="profileQrViewer" class="profile-qr-viewer" hidden onclick="closeProfileQrViewer()">
+    <canvas id="profileQrViewerCanvas" onclick="event.stopPropagation()"></canvas>
+    <div class="profile-qr-viewer-hint">Scan to add contact</div>
+  </div>
   <div class="toast" id="toast"></div>
-  <script src="templates.js"></script>
-  <script src="app.js"></script>
+  <script src="qrcode.min.js?v=12"></script>
+  <script src="templates.js?v=12"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

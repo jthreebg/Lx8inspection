@@ -72,3 +72,12 @@ Open `http://localhost:8080`
 
 ## Note
 If the app is not at the domain root (`/YOUR_REPO/`), keep `start_url` and `scope` as `./` in `manifest.webmanifest`. That already matches a project-site URL.
+
+## Updates not showing on iPhone
+iOS keeps the last installed PWA in cache. After you upload a new build to GitHub:
+
+1. Bump the `?v=` number on `app.css`, `app.js`, `templates.js`, and `sw.js` (already set to 10 in this zip).
+2. Open the app **while online** and leave it on Home for a few seconds.
+3. Swipe it closed, then open it again.
+
+If it is still old: delete the icon from the Home Screen, then Add to Home Screen again from Safari. Safari website data can also be cleared under Settings → Safari → Advanced → Website Data.
