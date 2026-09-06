@@ -804,7 +804,7 @@ const ICO = {
           window.getPunchlistStatsForJob(job).then(s => fillStats(s.open || 0, s.complete || 0)).catch(() => fillStats(0, 0));
         } else if (typeof window.getPunchlistSummaries === 'function') {
           window.getPunchlistSummaries().then(rows => {
-            const row = (rows || []).find(r => r.name === key || r.name === job.customer);
+            const row = (rows || []).find(r => r && r.jobId === job.id) || (rows || []).find(r => r.name === key || r.name === job.customer);
             if (!row) { fillStats(0, 0); return; }
             fillStats(Math.max(0, (row.total || 0) - (row.complete || 0)), row.complete || 0);
           }).catch(() => fillStats(0, 0));
@@ -1508,32 +1508,34 @@ const ICO = {
         });
       }
 
-      // Punchlist summary for this job
-      let punchTotal = 0, punchDone = 0, punchName = '';
+      // Punchlist summary for this job — prefer jobId link from Edit picker
+      let punchTotal = 0, punchDone = 0, punchName = '', punchLinked = false;
       try {
         const key = (typeof punchlistKeyForJob === 'function') ? punchlistKeyForJob(job) : (job.customer || '');
-        punchName = key;
         if (typeof window.getPunchlistSummaries === 'function') {
           const rows = await window.getPunchlistSummaries();
-          const match = rows.find(r => r.name === key);
+          const match = (rows || []).find(r => r && r.jobId && r.jobId === job.id)
+            || (rows || []).find(r => r && r.name === key);
           if (match) {
-            punchTotal = match.total;
-            punchDone = match.complete;
-            punchName = match.name;
+            punchTotal = match.total || 0;
+            punchDone = match.complete || 0;
+            punchName = match.name || key;
+            punchLinked = true;
           }
         }
+        if (!punchName) punchName = key;
       } catch (e) {}
-      if (punchTotal === 0 && !punchName) {
+      if (!punchLinked && punchTotal === 0) {
         document.getElementById('jdPunchCount').textContent = 'None yet';
       } else {
         const open = punchTotal - punchDone;
         document.getElementById('jdPunchCount').textContent =
-          punchTotal === 0 ? 'Ready to add' : (punchTotal + ' item' + (punchTotal !== 1 ? 's' : '') + (open ? ' · ' + open + ' open' : ' · complete'));
+          punchTotal === 0 ? 'Linked · no items yet' : (punchTotal + ' item' + (punchTotal !== 1 ? 's' : '') + (open ? ' · ' + open + ' open' : ' · complete'));
       }
 
       const punchList = document.getElementById('jobDetailPunchList');
-      if (punchTotal === 0) {
-        punchList.innerHTML = `<div class="empty-state compact"><p>No punchlist items yet. Tap Punchlist to add.</p></div>`;
+      if (!punchLinked && punchTotal === 0) {
+        punchList.innerHTML = `<div class="empty-state compact"><p>No punchlist linked. Edit a punchlist and pick this job.</p></div>`;
       } else {
         const open = punchTotal - punchDone;
         const allDone = open === 0;
@@ -5124,7 +5126,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-15', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-16', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
