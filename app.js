@@ -1075,6 +1075,136 @@ const ICO = {
 
     // ========== JOBS ==========
     let editingJobId = null;
+    let pendingAfterJobSave = null; // 'punchlist' | 'inspection' | null
+    let pendingNewJobId = null;
+
+    function newEntityId(prefix, taken) {
+      const used = new Set((taken || []).filter(Boolean).map(String));
+      for (let i = 0; i < 12; i++) {
+        const id = prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        if (!used.has(id)) return id;
+      }
+      return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+    }
+
+    function slugIdPart(value) {
+      return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40);
+    }
+
+    function loadRegistry(key) {
+      const raw = lsRead(key, []);
+      return Array.isArray(raw) ? raw : [];
+    }
+    function saveRegistry(key, list) {
+      lsWrite(key, Array.isArray(list) ? list : []);
+    }
+
+    function resolveBakeryId(name, existingId) {
+      const label = String(name || '').trim();
+      if (!label && existingId) return existingId;
+      const list = loadRegistry('lx8_bakeries');
+      if (existingId) {
+        const hit = list.find(b => b && b.id === existingId);
+        if (hit) {
+          if (label && hit.name !== label) {
+            hit.name = label;
+            hit.updatedAt = new Date().toISOString();
+            saveRegistry('lx8_bakeries', list);
+          }
+          return hit.id;
+        }
+      }
+      const key = slugIdPart(label);
+      let hit = key ? list.find(b => b && slugIdPart(b.name) === key) : null;
+      if (!hit && label) {
+        hit = { id: newEntityId('bakery', list.map(b => b && b.id)), name: label, createdAt: new Date().toISOString() };
+        list.push(hit);
+        saveRegistry('lx8_bakeries', list);
+      }
+      return hit ? hit.id : existingId || null;
+    }
+
+    function resolveMachineId(model, serial, existingId) {
+      const machine = String(model || '').trim() || 'LX-8';
+      const ser = String(serial || '').trim();
+      const list = loadRegistry('lx8_machines');
+      if (existingId) {
+        const hit = list.find(m => m && m.id === existingId);
+        if (hit) {
+          let dirty = false;
+          if (machine && hit.model !== machine) { hit.model = machine; dirty = true; }
+          if (ser && hit.serial !== ser) { hit.serial = ser; dirty = true; }
+          if (dirty) {
+            hit.updatedAt = new Date().toISOString();
+            saveRegistry('lx8_machines', list);
+          }
+          return hit.id;
+        }
+      }
+      let hit = list.find(m => m && String(m.model || '') === machine && String(m.serial || '') === ser && ser);
+      if (!hit && (machine || ser)) {
+        hit = {
+          id: newEntityId('machine', list.map(m => m && m.id)),
+          model: machine,
+          serial: ser,
+          createdAt: new Date().toISOString()
+        };
+        list.push(hit);
+        saveRegistry('lx8_machines', list);
+      }
+      return hit ? hit.id : existingId || null;
+    }
+
+    function stampJobIdentities(job) {
+      if (!job || typeof job !== 'object') return job;
+      const takenJobs = (storeMem.jobs || []).map(j => j && j.id);
+      if (!job.id) job.id = newEntityId('job', takenJobs);
+      job.bakeryId = resolveBakeryId(job.customer || job.site || '', job.bakeryId);
+      const serial = (Array.isArray(job.serials) && job.serials[0]) || job.serial || '';
+      job.machineId = resolveMachineId(job.machine, serial, job.machineId);
+      return job;
+    }
+
+    function ensureJobIdentities(list) {
+      let dirty = false;
+      const taken = (list || []).map(j => j && j.id).filter(Boolean);
+      (list || []).forEach(job => {
+        if (!job) return;
+        if (!job.id) {
+          job.id = newEntityId('job', taken);
+          taken.push(job.id);
+          dirty = true;
+        }
+        const bakeryId = resolveBakeryId(job.customer || job.site || '', job.bakeryId);
+        const serial = (Array.isArray(job.serials) && job.serials[0]) || job.serial || '';
+        const machineId = resolveMachineId(job.machine, serial, job.machineId);
+        if (job.bakeryId !== bakeryId || job.machineId !== machineId) {
+          job.bakeryId = bakeryId;
+          job.machineId = machineId;
+          dirty = true;
+        }
+      });
+      return dirty;
+    }
+
+    function attachRecordIdentity(rec, extras) {
+      if (!rec || typeof rec !== 'object') return rec;
+      const job = extras && extras.job;
+      if (job) {
+        rec.jobId = job.id || rec.jobId || null;
+        rec.bakeryId = job.bakeryId || rec.bakeryId || resolveBakeryId(rec.customer || job.customer || '', rec.bakeryId);
+        rec.machineId = job.machineId || rec.machineId || resolveMachineId(rec.model || job.machine, rec.serial || (job.serials && job.serials[0]) || '', rec.machineId);
+      } else {
+        rec.bakeryId = rec.bakeryId || resolveBakeryId(rec.customer || '', rec.bakeryId);
+        rec.machineId = rec.machineId || resolveMachineId(rec.model, rec.serial, rec.machineId);
+      }
+      return rec;
+    }
 
     const SAMPLE_JOB_ID = 'job_sample_demo';
     function getSampleJob() {
@@ -1153,11 +1283,15 @@ const ICO = {
     function loadJobs() {
       if (storeMem.jobs) {
         storeMem.jobs = ensureSampleJob(storeMem.jobs);
-        if (applyJobStatuses(storeMem.jobs)) saveJobs(storeMem.jobs);
+        const idDirty = ensureJobIdentities(storeMem.jobs);
+        if (applyJobStatuses(storeMem.jobs) || idDirty) saveJobs(storeMem.jobs);
         return storeMem.jobs;
       }
       const raw = lsRead('lx8_jobs', []);
       storeMem.jobs = ensureSampleJob(Array.isArray(raw) ? raw : []);
+      if (ensureJobIdentities(storeMem.jobs)) {
+        try { saveJobs(storeMem.jobs); } catch (e) {}
+      }
       try { saveJobs(storeMem.jobs); } catch (e) {}
       return storeMem.jobs;
     }
@@ -1289,6 +1423,8 @@ const ICO = {
     function openMachineModal() {
       const modal = document.getElementById('machineModal');
       if (!modal) return;
+      if (modal.parentElement !== document.body) document.body.appendChild(modal);
+      modal.classList.add('modal-overlay');
       if (!machineModalMode) machineModalMode = 'job';
       if (machineModalMode === 'job') {
         const title = document.getElementById('machineModalTitle');
@@ -1636,7 +1772,7 @@ const ICO = {
         machineModalMode = 'job';
         pendingInspectJobId = null;
         if (typeof setActiveMachine === 'function') setActiveMachine(model);
-        currentInspection = {
+        currentInspection = attachRecordIdentity({
           id: 'ins_' + Date.now(),
           customer: '',
           model,
@@ -1649,7 +1785,7 @@ const ICO = {
           findings: [],
           currentSectionIndex: 0,
           createdAt: new Date().toISOString()
-        };
+        });
         saveCurrentDraft();
         renderSection();
         showScreen('screenInspect');
@@ -1670,7 +1806,7 @@ const ICO = {
       findings = [];
       currentSectionIndex = 0;
       if (typeof setActiveMachine === 'function') setActiveMachine(model);
-      currentInspection = {
+      currentInspection = attachRecordIdentity({
         id: 'ins_' + Date.now(),
         customer: job.customer || '',
         model,
@@ -1684,7 +1820,7 @@ const ICO = {
         findings: [],
         currentSectionIndex: 0,
         createdAt: new Date().toISOString()
-      };
+      }, { job });
       saveCurrentDraft();
       renderSection();
       showScreen('screenInspect');
@@ -1724,7 +1860,9 @@ const ICO = {
     }
 
     function openNewJob() {
-      editingJobId = null;
+      const taken = loadJobs().map(j => j && j.id);
+      pendingNewJobId = newEntityId('job', taken.concat([pendingNewJobId]));
+      editingJobId = pendingNewJobId;
       initJobForm(null);
       document.getElementById('btnSaveJob').textContent = 'Save Job';
       document.getElementById('btnDeleteJob').classList.add('hidden');
@@ -1764,24 +1902,35 @@ const ICO = {
       payload.status = jobStatusFromDates(payload);
       try { lsWrite('lx8_last_tech', tech); } catch (e) {}
       const list = loadJobs();
-      if (editingJobId) {
-        const idx = list.findIndex(j => j.id === editingJobId);
-        if (idx < 0) { toast('Job not found'); return; }
-        list[idx] = { ...list[idx], ...payload };
+      const existingIdx = editingJobId ? list.findIndex(j => j.id === editingJobId) : -1;
+      if (existingIdx >= 0) {
+        list[existingIdx] = stampJobIdentities({ ...list[existingIdx], ...payload, id: editingJobId });
         toast('Job updated');
       } else {
-        const newId = 'job_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-        list.unshift({
+        const newId = editingJobId || pendingNewJobId || newEntityId('job', list.map(j => j && j.id));
+        const created = stampJobIdentities({
           id: newId,
           createdAt: new Date().toISOString(),
           ...payload
         });
-        editingJobId = newId;
+        list.unshift(created);
+        editingJobId = created.id;
         toast('Job saved');
       }
       saveJobs(list);
       const savedId = editingJobId;
+      const after = pendingAfterJobSave;
+      pendingAfterJobSave = null;
+      pendingNewJobId = null;
       editingJobId = null;
+      if (after === 'punchlist' || after === 'inspection') {
+        const saved = list.find(j => j.id === savedId);
+        if (after === 'punchlist') startPunchlistForCurrentJob(saved);
+        else startInspectionForJob(saved);
+        refreshHomeCurrentJob();
+        refreshStorageCard();
+        return;
+      }
       if (savedId) {
         detailJobId = savedId;
         showScreen('screenJobDetail');
@@ -2059,6 +2208,7 @@ const ICO = {
         summaryNotes: "The baggers are in much better condition now than they were a year ago. The bottom slicer linkage and the hinge slicer drive chain tensioners should be the immediate focus for improvement as both of those items can lead to a loss in efficiency and an increase in downtime.\n\nThe horizontal blades in the hinge slicer are the double notch design. They should be swapped for single notch blades as it is very easy to install blades incorrectly, this will lead to a poor slice and/or damage to the machine.\n\nBlade scrapers for the band slicers could increase the life of the blades and decrease down time due to blades coming off."
       };
       currentInspection.jobId = SAMPLE_JOB_ID;
+      attachRecordIdentity(currentInspection, { job: getSampleJob() });
       currentInspection.results = exampleResults;
       try { window.__SAMPLE_INSPECTION_FULL = JSON.parse(JSON.stringify(currentInspection)); } catch (e) {}
       results = exampleResults;
@@ -2308,6 +2458,8 @@ const ICO = {
     }
 
     function punchlistKeyForJob(job) {
+      if (!job) return null;
+      if (job.id) return job.id;
       return jobDisplayName(job);
     }
 
@@ -2320,35 +2472,10 @@ const ICO = {
     // deriving a fresh text key when this job has never been linked before.
     function resolvePunchlistKeyForJob(job) {
       if (!job) return null;
-      if (!data) data = { jobs: {}, currentJob: '' };
-      if (!data.jobs) data.jobs = {};
-      if (!data.jobIdByKey) data.jobIdByKey = {};
-      if (!data.keyByJobId) data.keyByJobId = {};
-
-      const existingKey = job.id ? data.keyByJobId[job.id] : null;
-      if (existingKey && Object.prototype.hasOwnProperty.call(data.jobs, existingKey)) {
-        // Reuse the bucket this job already owns, even if its display name
-        // (customer/site) has since changed. Keep the link map in sync.
-        data.jobIdByKey[existingKey] = job.id;
-        return existingKey;
+      if (typeof window.resolvePunchlistKeyForJob === 'function' && window.resolvePunchlistKeyForJob !== resolvePunchlistKeyForJob) {
+        return window.resolvePunchlistKeyForJob(job);
       }
-
-      // Never linked yet (or the old bucket vanished): derive a fresh key.
-      // If that text key happens to collide with a bucket linked to a
-      // *different* job, disambiguate instead of merging two jobs' items.
-      let key = punchlistKeyForJob(job);
-      const collidesWithOtherJob = data.jobIdByKey[key] && data.jobIdByKey[key] !== job.id;
-      if (collidesWithOtherJob) {
-        let n = 2;
-        while (data.jobIdByKey[key + ' (' + n + ')'] && data.jobIdByKey[key + ' (' + n + ')'] !== job.id) n++;
-        key = key + ' (' + n + ')';
-      }
-      if (!data.jobs[key]) data.jobs[key] = [];
-      if (job.id) {
-        data.jobIdByKey[key] = job.id;
-        data.keyByJobId[job.id] = key;
-      }
-      return key;
+      return punchlistKeyForJob(job);
     }
 
     function ensurePunchlistBucketForJob(job) {
@@ -2379,6 +2506,8 @@ const ICO = {
       if (!modal || !listEl) return;
 
       title.textContent = purpose === 'punchlist' ? 'Select Job for Punchlist' : 'Select Job for Inspection';
+      const goBtn = document.getElementById('jobPickerGoJobs');
+      if (goBtn) goBtn.textContent = 'Add Job';
 
       const skipLabel = purpose === 'punchlist' ? 'Continue without a job' : 'Continue without a job';
       const skipSub = purpose === 'punchlist'
@@ -2463,7 +2592,7 @@ const ICO = {
         if (job) {
           const model = 'LX-8';
           setActiveMachine(model);
-          currentInspection = {
+          currentInspection = attachRecordIdentity({
             id: 'ins_' + Date.now(),
             customer: job.customer || '',
             model,
@@ -2477,7 +2606,7 @@ const ICO = {
             findings: [],
             currentSectionIndex: 0,
             createdAt: new Date().toISOString()
-          };
+          }, { job });
           linkedJobIdForStart = null;
           saveCurrentDraft();
           renderSection();
@@ -2515,11 +2644,13 @@ const ICO = {
     }
 
     document.getElementById('jobPickerCancel').addEventListener('click', () => closeJobPicker());
-    document.getElementById('jobPickerGoJobs').addEventListener('click', () => {
+    function startAddJobFromPicker(purpose) {
+      pendingAfterJobSave = purpose || pendingJobPickPurpose || null;
       closeJobPicker();
-      showScreen('screenJobsList');
-      setHeader('Jobs');
-      if (typeof refreshJobsList === 'function') refreshJobsList();
+      openNewJob();
+    }
+    document.getElementById('jobPickerGoJobs').addEventListener('click', () => {
+      startAddJobFromPicker(pendingJobPickPurpose);
     });
 
     document.getElementById('jobPickerModal').addEventListener('click', (e) => {
@@ -2592,7 +2723,7 @@ const ICO = {
     });
     document.getElementById('btnNewPunchlist').addEventListener('click', () => {
       closeSearch();
-      startPunchlistForCurrentJob(getActiveCurrentJob());
+      openJobPicker('punchlist');
     });
 
 
@@ -2635,6 +2766,8 @@ const ICO = {
         list[idx].po = po;
         if (linkedJobIdForStart) list[idx].jobId = linkedJobIdForStart;
         list[idx].updatedAt = new Date().toISOString();
+        const linkedJob = list[idx].jobId ? loadJobs().find(j => j && j.id === list[idx].jobId) : null;
+        attachRecordIdentity(list[idx], linkedJob ? { job: linkedJob } : null);
         saveInspections(list);
         currentInspection = list[idx];
         editingInspectionId = null;
@@ -2648,7 +2781,8 @@ const ICO = {
       }
 
       // Create new inspection
-      currentInspection = {
+      const linkedJob = linkedJobIdForStart ? loadJobs().find(j => j && j.id === linkedJobIdForStart) : null;
+      currentInspection = attachRecordIdentity({
         id: 'ins_' + Date.now(),
         customer,
         model,
@@ -2662,7 +2796,7 @@ const ICO = {
         findings: [],
         currentSectionIndex: 0,
         createdAt: new Date().toISOString()
-      };
+      }, linkedJob ? { job: linkedJob } : null);
       linkedJobIdForStart = null;
       results = {};
       findings = [];
@@ -5203,7 +5337,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-15', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-19', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -5343,11 +5477,83 @@ const IDB_NAME = "FieldPunchlistDB";
         }
         if (saved && saved.jobs && saved.currentJob) data = saved;
         else { data = JSON.parse(JSON.stringify(defaultData)); await plSaveData(); }
+        if (migratePunchlistKeys()) await plSaveData();
       } catch (e) {
         data = JSON.parse(JSON.stringify(defaultData));
         try { await openDB(); } catch (_) {}
       }
     }
+
+    function migratePunchlistKeys() {
+      if (!data) data = { jobs: {}, currentJob: '' };
+      if (!data.jobs) data.jobs = {};
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      if (!data.keyByJobId) data.keyByJobId = {};
+      let dirty = false;
+      const fieldJobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
+      fieldJobs.forEach(job => {
+        if (!job || !job.id) return;
+        const nameKey = (typeof jobDisplayName === 'function') ? jobDisplayName(job) : (job.customer || '');
+        const current = data.keyByJobId[job.id];
+        if (current === job.id && data.jobs[job.id]) {
+          data.jobIdByKey[job.id] = job.id;
+          return;
+        }
+        const fromName = (current && data.jobs[current] && current !== job.id)
+          ? current
+          : (data.jobs[nameKey] && (!data.jobIdByKey[nameKey] || data.jobIdByKey[nameKey] === job.id) ? nameKey : null);
+        if (fromName && fromName !== job.id) {
+          const incoming = data.jobs[fromName] || [];
+          const existing = data.jobs[job.id] || [];
+          data.jobs[job.id] = existing.concat(incoming);
+          delete data.jobs[fromName];
+          delete data.jobIdByKey[fromName];
+          dirty = true;
+        }
+        if (!data.jobs[job.id]) data.jobs[job.id] = [];
+        data.jobIdByKey[job.id] = job.id;
+        data.keyByJobId[job.id] = job.id;
+        if (data.currentJob === fromName) data.currentJob = job.id;
+        dirty = true;
+      });
+      Object.keys(data.jobIdByKey).forEach(k => {
+        const id = data.jobIdByKey[k];
+        if (id && k !== id && data.jobs[k] && !data.jobs[id]) {
+          data.jobs[id] = data.jobs[k];
+          delete data.jobs[k];
+          data.jobIdByKey[id] = id;
+          data.keyByJobId[id] = id;
+          if (data.currentJob === k) data.currentJob = id;
+          dirty = true;
+        }
+      });
+      return dirty;
+    }
+
+    window.resolvePunchlistKeyForJob = function(job) {
+      if (!job) return null;
+      if (!data) data = { jobs: {}, currentJob: '' };
+      if (!data.jobs) data.jobs = {};
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      if (!data.keyByJobId) data.keyByJobId = {};
+      if (job.id) {
+        const existingKey = data.keyByJobId[job.id];
+        if (existingKey && existingKey !== job.id && data.jobs[existingKey]) {
+          const incoming = data.jobs[existingKey] || [];
+          data.jobs[job.id] = (data.jobs[job.id] || []).concat(incoming);
+          delete data.jobs[existingKey];
+          delete data.jobIdByKey[existingKey];
+          if (data.currentJob === existingKey) data.currentJob = job.id;
+        }
+        if (!data.jobs[job.id]) data.jobs[job.id] = [];
+        data.jobIdByKey[job.id] = job.id;
+        data.keyByJobId[job.id] = job.id;
+        return job.id;
+      }
+      const key = (typeof punchlistKeyForJob === 'function') ? punchlistKeyForJob(job) : (job.customer || 'General');
+      if (!data.jobs[key]) data.jobs[key] = [];
+      return key;
+    };
 
     async function plSaveData() {
       try {
@@ -5380,7 +5586,7 @@ const IDB_NAME = "FieldPunchlistDB";
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=8").catch(() => {});
+        navigator.serviceWorker.register("./sw.js?v=flat-19").catch(() => {});
       });
     }
 
