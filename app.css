@@ -1396,15 +1396,30 @@
       font-size: 1rem;
       text-align: left;
     }
-        #jobDatesModal.modal-overlay {
+    /* Shared base for every bottom-sheet-style modal overlay (job dates,
+       machine picker, job picker, punchlist item editor). Each modal used
+       to redefine these same properties under its own #id selector; that
+       duplication is why a fix to one (like the safe-area header padding
+       further down) didn't automatically apply to the others. New modals
+       should get this by adding class="modal-overlay" and only override
+       what's genuinely different (usually just z-index). */
+    .modal-overlay {
       position: fixed; inset: 0;
       background: rgba(0,0,0,0.72);
-      z-index: 340;
       display: none;
       align-items: flex-end;
       justify-content: center;
     }
-    #jobDatesModal.modal-overlay.show { display: flex; }
+    .modal-overlay.show { display: flex; }
+    .modal-handle {
+      width: 36px; height: 5px; border-radius: 3px;
+      background: rgba(255,255,255,0.28);
+      margin: 10px auto 0;
+    }
+
+    #jobDatesModal.modal-overlay {
+      z-index: 340;
+    }
     #jobDatesModal .machine-sheet {
       margin-bottom: 0;
       width: 100%; max-width: 520px;
@@ -1416,8 +1431,6 @@
       animation: plSlideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
     }
     #jobDatesModal .modal-handle {
-      width: 36px; height: 5px; border-radius: 3px;
-      background: rgba(255,255,255,0.28);
       margin: 8px auto 10px;
     }
     #jobDatesModal .modal-header {
@@ -1433,14 +1446,8 @@
     #jobDatesModal .modal-actions { padding-top: 8px; gap: 10px; }
 
 #machineModal.modal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.72);
       z-index: 330;
-      display: none;
-      align-items: flex-end;
-      justify-content: center;
     }
-    #machineModal.modal-overlay.show { display: flex; }
     #machineModal .machine-sheet {
       width: 100%;
       max-width: 520px;
@@ -1453,8 +1460,7 @@
       animation: plSlideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
     }
     #machineModal .modal-handle {
-      width: 36px; height: 5px; border-radius: 3px;
-      background: rgba(255,255,255,0.28); margin: 10px auto 8px;
+      margin: 10px auto 8px;
     }
     #machineModal .modal-header h2 { font-size: 17px; font-weight: 650; margin: 0 0 12px; }
     #machineModal .modal-body { text-align: left; padding: 0 0 8px; }
@@ -2848,14 +2854,8 @@
       padding: 8px 20px 4px;
     }
     #jobPickerModal.modal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.72);
       z-index: 320;
-      display: none;
-      align-items: flex-end;
-      justify-content: center;
     }
-    #jobPickerModal.modal-overlay.show { display: flex; }
     #jobPickerModal .modal {
       background: var(--surface, #1a1a1b);
       width: 100%; max-width: 520px; max-height: 88vh;
@@ -2865,10 +2865,6 @@
       overflow-y: auto;
       padding-bottom: var(--bar-pad-bottom);
       animation: plSlideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
-    }
-    #jobPickerModal .modal-handle {
-      width: 36px; height: 5px; border-radius: 3px;
-      background: rgba(255,255,255,0.28); margin: 10px auto 0;
     }
     #jobPickerModal .modal-header {
       display: flex; justify-content: center; align-items: center;
@@ -3241,14 +3237,8 @@
     #fab-add svg { width: 22px; height: 22px; display: block; }
     #fab-add:active { transform: scale(0.92); filter: brightness(0.94); background: #d5dce2; }
     #pl-modal.modal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.72);
       z-index: 300;
-      display: none;
-      align-items: flex-end;
-      justify-content: center;
     }
-    #pl-modal.modal-overlay.show { display: flex; }
     #pl-modal .modal {
       background: var(--surface);
       width: 100%; max-width: 520px; max-height: 92vh;
@@ -3268,8 +3258,7 @@
       to { transform: translateY(0); }
     }
     #pl-modal .modal-handle {
-      width: 36px; height: 5px; border-radius: 3px;
-      background: rgba(255,255,255,0.28); margin: 10px auto 0;
+      margin: 10px auto 0;
     }
     #pl-modal .modal-header {
       display: flex; justify-content: space-between; align-items: center;
@@ -4147,13 +4136,19 @@
       pointer-events: none;
     }
 
-    #pl-modal.modal-overlay.show {
+    #pl-modal.modal-overlay.show,
+    #jobDatesModal.modal-overlay.show,
+    #machineModal.modal-overlay.show,
+    #jobPickerModal.modal-overlay.show {
       padding-top: var(--header-h, calc(69px + env(safe-area-inset-top, 0px)));
       box-sizing: border-box;
       align-items: stretch;
     }
     #pl-modal.modal-overlay.show .modal,
-    #pl-modal.modal-overlay.show #modal-sheet {
+    #pl-modal.modal-overlay.show #modal-sheet,
+    #jobDatesModal.modal-overlay.show .modal,
+    #machineModal.modal-overlay.show .modal,
+    #jobPickerModal.modal-overlay.show .modal {
       max-height: calc(100dvh - var(--header-h, 81px));
       max-height: calc(100svh - var(--header-h, 81px));
       margin-top: 0;

@@ -804,7 +804,7 @@ const ICO = {
           window.getPunchlistStatsForJob(job).then(s => fillStats(s.open || 0, s.complete || 0)).catch(() => fillStats(0, 0));
         } else if (typeof window.getPunchlistSummaries === 'function') {
           window.getPunchlistSummaries().then(rows => {
-            const row = (rows || []).find(r => r && r.jobId === job.id) || (rows || []).find(r => r.name === key || r.name === job.customer);
+            const row = (rows || []).find(r => r.jobId === job.id) || (rows || []).find(r => r.name === key || r.name === job.customer);
             if (!row) { fillStats(0, 0); return; }
             fillStats(Math.max(0, (row.total || 0) - (row.complete || 0)), row.complete || 0);
           }).catch(() => fillStats(0, 0));
@@ -1508,34 +1508,36 @@ const ICO = {
         });
       }
 
-      // Punchlist summary for this job — prefer jobId link from Edit picker
-      let punchTotal = 0, punchDone = 0, punchName = '', punchLinked = false;
+      // Punchlist summary for this job. Match by the stable job id link
+      // first — a punchlist can be linked from the punchlist side under a
+      // bucket name that no longer matches this job's current customer/site
+      // text, so a text-only match would wrongly report "None yet".
+      let punchTotal = 0, punchDone = 0, punchName = '';
       try {
-        const key = (typeof punchlistKeyForJob === 'function') ? punchlistKeyForJob(job) : (job.customer || '');
         if (typeof window.getPunchlistSummaries === 'function') {
           const rows = await window.getPunchlistSummaries();
-          const match = (rows || []).find(r => r && r.jobId && r.jobId === job.id)
-            || (rows || []).find(r => r && r.name === key);
+          const key = (typeof punchlistKeyForJob === 'function') ? punchlistKeyForJob(job) : (job.customer || '');
+          const match = rows.find(r => r.jobId === job.id) || rows.find(r => r.name === key);
           if (match) {
-            punchTotal = match.total || 0;
-            punchDone = match.complete || 0;
-            punchName = match.name || key;
-            punchLinked = true;
+            punchTotal = match.total;
+            punchDone = match.complete;
+            punchName = match.name;
+          } else {
+            punchName = key;
           }
         }
-        if (!punchName) punchName = key;
       } catch (e) {}
-      if (!punchLinked && punchTotal === 0) {
+      if (punchTotal === 0 && !punchName) {
         document.getElementById('jdPunchCount').textContent = 'None yet';
       } else {
         const open = punchTotal - punchDone;
         document.getElementById('jdPunchCount').textContent =
-          punchTotal === 0 ? 'Linked · no items yet' : (punchTotal + ' item' + (punchTotal !== 1 ? 's' : '') + (open ? ' · ' + open + ' open' : ' · complete'));
+          punchTotal === 0 ? 'Ready to add' : (punchTotal + ' item' + (punchTotal !== 1 ? 's' : '') + (open ? ' · ' + open + ' open' : ' · complete'));
       }
 
       const punchList = document.getElementById('jobDetailPunchList');
-      if (!punchLinked && punchTotal === 0) {
-        punchList.innerHTML = `<div class="empty-state compact"><p>No punchlist linked. Edit a punchlist and pick this job.</p></div>`;
+      if (punchTotal === 0) {
+        punchList.innerHTML = `<div class="empty-state compact"><p>No punchlist items yet. Tap Punchlist to add.</p></div>`;
       } else {
         const open = punchTotal - punchDone;
         const allDone = open === 0;
@@ -2294,17 +2296,51 @@ const ICO = {
       return jobDisplayName(job);
     }
 
-    function ensurePunchlistBucketForJob(job) {
-      if (!job) return;
+    // Single source of truth for "which punchlist bucket belongs to this job".
+    // A job's customer/site text can change after a punchlist was already
+    // started for it (edited from the job picker, a typo fixed, etc). If we
+    // recomputed the bucket key from that text every time, an edit would
+    // silently fork a brand-new empty bucket and orphan the existing items.
+    // So: always check the stable id->key link FIRST, and only fall back to
+    // deriving a fresh text key when this job has never been linked before.
+    function resolvePunchlistKeyForJob(job) {
+      if (!job) return null;
       if (!data) data = { jobs: {}, currentJob: '' };
       if (!data.jobs) data.jobs = {};
-      const key = punchlistKeyForJob(job);
-      if (!data.jobs[key]) data.jobs[key] = [];
-      data.currentJob = key;
       if (!data.jobIdByKey) data.jobIdByKey = {};
-      data.jobIdByKey[key] = job.id;
       if (!data.keyByJobId) data.keyByJobId = {};
-      data.keyByJobId[job.id] = key;
+
+      const existingKey = job.id ? data.keyByJobId[job.id] : null;
+      if (existingKey && Object.prototype.hasOwnProperty.call(data.jobs, existingKey)) {
+        // Reuse the bucket this job already owns, even if its display name
+        // (customer/site) has since changed. Keep the link map in sync.
+        data.jobIdByKey[existingKey] = job.id;
+        return existingKey;
+      }
+
+      // Never linked yet (or the old bucket vanished): derive a fresh key.
+      // If that text key happens to collide with a bucket linked to a
+      // *different* job, disambiguate instead of merging two jobs' items.
+      let key = punchlistKeyForJob(job);
+      const collidesWithOtherJob = data.jobIdByKey[key] && data.jobIdByKey[key] !== job.id;
+      if (collidesWithOtherJob) {
+        let n = 2;
+        while (data.jobIdByKey[key + ' (' + n + ')'] && data.jobIdByKey[key + ' (' + n + ')'] !== job.id) n++;
+        key = key + ' (' + n + ')';
+      }
+      if (!data.jobs[key]) data.jobs[key] = [];
+      if (job.id) {
+        data.jobIdByKey[key] = job.id;
+        data.keyByJobId[job.id] = key;
+      }
+      return key;
+    }
+
+    function ensurePunchlistBucketForJob(job) {
+      if (!job) return;
+      const key = resolvePunchlistKeyForJob(job);
+      if (!key) return;
+      data.currentJob = key;
       if (typeof plSaveData === 'function') plSaveData();
       if (typeof populateJobSelect === 'function') populateJobSelect();
       return key;
@@ -5126,7 +5162,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-16', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-15', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -5347,10 +5383,7 @@ const IDB_NAME = "FieldPunchlistDB";
       try {
         const fieldJobs = (typeof loadJobs === "function" ? loadJobs() : []) || [];
         fieldJobs.forEach(job => {
-          const key = (typeof punchlistKeyForJob === "function") ? punchlistKeyForJob(job) : (job.customer || job.id);
-          if (!data.jobs[key]) data.jobs[key] = [];
-          if (!data.jobIdByKey) data.jobIdByKey = {};
-          data.jobIdByKey[key] = job.id;
+          if (typeof resolvePunchlistKeyForJob === "function") resolvePunchlistKeyForJob(job);
         });
       } catch (e) {}
       const jobs = Object.keys(data.jobs);
@@ -6023,14 +6056,8 @@ const IDB_NAME = "FieldPunchlistDB";
       if (!data) data = { jobs: {}, currentJob: '' };
       if (!data.jobs) data.jobs = {};
       if (job) {
-        const site = (job.site || '').trim();
-        const key = site ? ((job.customer || 'Job') + ' – ' + site) : (job.customer || 'Job');
-        if (!data.jobs[key]) data.jobs[key] = [];
+        const key = resolvePunchlistKeyForJob(job);
         data.currentJob = key;
-        if (!data.jobIdByKey) data.jobIdByKey = {};
-        data.jobIdByKey[key] = job.id;
-        if (!data.keyByJobId) data.keyByJobId = {};
-        data.keyByJobId[job.id] = key;
       } else {
         const key = 'General';
         if (!data.jobs[key]) data.jobs[key] = [];
@@ -6048,9 +6075,18 @@ const IDB_NAME = "FieldPunchlistDB";
     window.getPunchlistStatsForJob = async function(jobOrName) {
       await plLoadData();
       if (!data || !data.jobs) return { total: 0, open: 0, complete: 0 };
+      // Prefer the stable id->key link (survives customer/site edits) over a
+      // name match, and only fall back to name/substring matching for plain
+      // string lookups where no job object (and thus no id) is available.
+      const linkedKey = (typeof jobOrName === 'object' && jobOrName && jobOrName.id && data.keyByJobId)
+        ? data.keyByJobId[jobOrName.id]
+        : null;
       const name = typeof jobOrName === 'string' ? jobOrName : (jobOrName && (jobOrName.customer && jobOrName.site ? (jobOrName.customer + ' – ' + jobOrName.site) : (jobOrName.customer || '')));
       const keys = Object.keys(data.jobs);
-      const key = keys.find(k => k === name) || keys.find(k => jobOrName && data.jobIdByKey && data.jobIdByKey[k] === jobOrName.id) || keys.find(k => jobOrName && k.indexOf(jobOrName.customer || '') === 0);
+      const key = (linkedKey && keys.includes(linkedKey) && linkedKey)
+        || keys.find(k => k === name)
+        || keys.find(k => jobOrName && data.jobIdByKey && data.jobIdByKey[k] === jobOrName.id)
+        || keys.find(k => jobOrName && k.indexOf(jobOrName.customer || '') === 0);
       const items = key ? (data.jobs[key] || []) : [];
       const complete = items.filter(i => i && i.status === 'Complete').length;
       return { total: items.length, open: items.length - complete, complete };
