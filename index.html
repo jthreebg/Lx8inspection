@@ -19,7 +19,7 @@
     <script>
     (function(){try{if(localStorage.getItem('lx8_theme')==='light')document.documentElement.classList.add('theme-light');}catch(e){}})();
   </script>
-  <link rel="stylesheet" href="app.css?v=14" />
+  <link rel="stylesheet" href="app.css?v=15" />
   
 
 
@@ -899,9 +899,29 @@
     <canvas id="profileQrViewerCanvas" onclick="event.stopPropagation()"></canvas>
     <div class="profile-qr-viewer-hint">Scan to add contact</div>
   </div>
+  
+  <div id="plLinkJobSheet" class="save-sheet" hidden>
+    <div class="save-sheet-card">
+      <div class="save-sheet-handle" aria-hidden="true"></div>
+      <div style="padding:4px 4px 12px;text-align:center;">
+        <div style="font-size:0.7rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Punchlist</div>
+        <div id="plLinkJobTitle" style="font-size:1.05rem;font-weight:650;margin-bottom:14px;">Link job</div>
+        <div class="form-group" style="margin:0;text-align:left;">
+          <label for="plLinkJobSelect">Job</label>
+          <select id="plLinkJobSelect"></select>
+        </div>
+      </div>
+      <button type="button" class="btn btn-outline" id="plLinkJobView" style="display:none;margin:0 0 10px;">View job details</button>
+      <div class="btn-row" style="position:static;padding:0 0 8px;background:transparent;box-shadow:none;">
+        <button type="button" class="btn btn-outline" id="plLinkJobCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="plLinkJobSave">Save</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
-  <script src="qrcode.min.js?v=14"></script>
-  <script src="templates.js?v=14"></script>
-  <script src="app.js?v=14"></script>
+  <script src="qrcode.min.js?v=15"></script>
+  <script src="templates.js?v=15"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>

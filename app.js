@@ -530,6 +530,71 @@ const ICO = {
     // ========== HOME ==========
     let searchQuery = '';
 
+
+    let linkingPunchlistName = '';
+    function fillPunchlistJobSelect(selectedId) {
+      const sel = document.getElementById('plLinkJobSelect');
+      if (!sel) return;
+      const jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
+      let html = '<option value="">— No job —</option>';
+      jobs.forEach(j => {
+        if (!j || !j.id) return;
+        const label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : (j.customer || j.id);
+        const selAttr = selectedId && selectedId === j.id ? ' selected' : '';
+        html += '<option value="' + String(j.id).replace(/"/g, '&quot;') + '"' + selAttr + '>' + String(label).replace(/</g, '&lt;') + '</option>';
+      });
+      sel.innerHTML = html;
+    }
+    function closePunchlistLinkSheet() {
+      const sheet = document.getElementById('plLinkJobSheet');
+      if (sheet) {
+        sheet.classList.remove('show');
+        sheet.hidden = true;
+        sheet.setAttribute('hidden', '');
+      }
+      linkingPunchlistName = '';
+    }
+    window.openPunchlistLinkSheet = openPunchlistLinkSheet;
+    window.closePunchlistLinkSheet = closePunchlistLinkSheet;
+    function openPunchlistLinkSheet(name) {
+      linkingPunchlistName = name || '';
+      const title = document.getElementById('plLinkJobTitle');
+      if (title) title.textContent = name || 'Link job';
+      let currentId = '';
+      const items = document.querySelectorAll('#recentPunchlistList .list-item');
+      items.forEach((card) => {
+        if (card.getAttribute('data-job-name') === name) currentId = card.getAttribute('data-job-id') || '';
+      });
+      fillPunchlistJobSelect(currentId);
+      const viewBtn = document.getElementById('plLinkJobView');
+      if (viewBtn) viewBtn.style.display = currentId ? 'flex' : 'none';
+      const sheet = document.getElementById('plLinkJobSheet');
+      if (sheet) {
+        sheet.hidden = false;
+        sheet.removeAttribute('hidden');
+        sheet.classList.add('show');
+      }
+    }
+    async function savePunchlistJobLink() {
+      const name = linkingPunchlistName;
+      const sel = document.getElementById('plLinkJobSelect');
+      const jobId = sel ? sel.value : '';
+      if (!name || typeof window.setPunchlistJobLink !== 'function') {
+        closePunchlistLinkSheet();
+        return;
+      }
+      await window.setPunchlistJobLink(name, jobId);
+      closePunchlistLinkSheet();
+      if (typeof refreshPunchlistHome === 'function') await refreshPunchlistHome();
+      toast(jobId ? 'Punchlist linked to job' : 'Job unlinked');
+    }
+    function viewLinkedPunchlistJob() {
+      const sel = document.getElementById('plLinkJobSelect');
+      const jobId = sel ? sel.value : '';
+      closePunchlistLinkSheet();
+      if (jobId && typeof openJobDetail === 'function') openJobDetail(jobId);
+    }
+
     async function refreshPunchlistHome() {
       const container = document.getElementById('recentPunchlistList');
       if (!container) return;
@@ -548,26 +613,38 @@ const ICO = {
             const statusClass = allDone ? 'badge-complete' : (done > 0 ? 'badge-draft' : 'badge-draft');
             const statusLabel = allDone ? 'Complete' : (total === 0 ? 'Empty' : 'Open');
             const rowTone = allDone ? 'list-complete' : '';
+            const jobLine = row.jobLabel
+              ? row.jobLabel
+              : 'No job linked';
             return `
-              <div class="list-item ${rowTone}" data-job-name="${String(row.name).replace(/"/g, '&quot;')}">
+              <div class="list-item ${rowTone}" data-job-name="${String(row.name).replace(/"/g, '&quot;')}" data-job-id="${String(row.jobId || '').replace(/"/g, '&quot;')}">
                 <div class="list-item-main" data-action="open">
                   <div class="title">${row.name}</div>
+                  <div class="sub">${jobLine}</div>
                   <div class="sub">${total} item${total !== 1 ? 's' : ''} · ${done} complete${open ? ' · ' + open + ' open' : ''}</div>
                 </div>
                 <div class="list-item-actions">
+                  <button type="button" class="btn-edit" data-action="edit">Edit</button>
                   <span class="badge ${statusClass}">${statusLabel}</span>
                 </div>
               </div>`;
           }).join('');
           container.querySelectorAll('.list-item').forEach(el => {
             const name = el.getAttribute('data-job-name');
-            el.querySelector('[data-action="open"]').addEventListener('click', async () => {
+            const openBtn = el.querySelector('[data-action="open"]');
+            if (openBtn) openBtn.addEventListener('click', async () => {
               if (typeof window.openPunchlistByName === 'function') {
                 await window.openPunchlistByName(name);
                 showScreen('screenPunchlist');
                 setHeader('Punchlist');
                 if (typeof window.renderList === 'function') window.renderList();
               }
+            });
+            const editBtn = el.querySelector('[data-action="edit"]');
+            if (editBtn) editBtn.addEventListener('click', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openPunchlistLinkSheet(name);
             });
           });
           return;
@@ -2039,6 +2116,34 @@ const ICO = {
       await openPunchlistRecentList();
     }
 
+        const plList = document.getElementById('recentPunchlistList');
+    if (plList && plList.dataset.editBound !== '1') {
+      plList.dataset.editBound = '1';
+      plList.addEventListener('click', (e) => {
+        const btn = e.target && e.target.closest ? e.target.closest('[data-action="edit"]') : null;
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const card = btn.closest('.list-item');
+        const name = card ? card.getAttribute('data-job-name') : '';
+        if (name) openPunchlistLinkSheet(name);
+      });
+    }
+    const plLinkSave = document.getElementById('plLinkJobSave');
+    if (plLinkSave && plLinkSave.dataset.bound !== '1') {
+      plLinkSave.dataset.bound = '1';
+      plLinkSave.addEventListener('click', savePunchlistJobLink);
+    }
+    const plLinkCancel = document.getElementById('plLinkJobCancel');
+    if (plLinkCancel && plLinkCancel.dataset.bound !== '1') {
+      plLinkCancel.dataset.bound = '1';
+      plLinkCancel.addEventListener('click', closePunchlistLinkSheet);
+    }
+    const plLinkView = document.getElementById('plLinkJobView');
+    if (plLinkView && plLinkView.dataset.bound !== '1') {
+      plLinkView.dataset.bound = '1';
+      plLinkView.addEventListener('click', viewLinkedPunchlistJob);
+    }
     document.getElementById('homeTilePunchlist').addEventListener('click', () => {
       resumeLastPunchlistOrList();
     });
@@ -5019,7 +5124,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-14', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-15', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -5982,15 +6087,40 @@ const IDB_NAME = "FieldPunchlistDB";
     window.getPunchlistSummaries = async function() {
       await plLoadData();
       if (!data || !data.jobs) return [];
+      const links = data.jobIdByKey || {};
+      const fieldJobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
       return Object.keys(data.jobs).map(name => {
         const items = data.jobs[name] || [];
         const complete = items.filter(i => i && i.status === 'Complete').length;
-        return { name, total: items.length, complete };
+        const jobId = links[name] || '';
+        const job = fieldJobs.find(j => j && j.id === jobId);
+        const jobLabel = job
+          ? ((typeof jobDisplayName === 'function') ? jobDisplayName(job) : (job.customer || ''))
+          : '';
+        return { name, total: items.length, complete, jobId, jobLabel };
       }).sort((a, b) => {
         // Prefer non-empty, then alpha
         if ((b.total > 0) !== (a.total > 0)) return b.total > 0 ? 1 : -1;
         return String(a.name).localeCompare(String(b.name));
       });
+    };
+    window.setPunchlistJobLink = async function(name, jobId) {
+      await plLoadData();
+      if (!data) data = { jobs: {}, currentJob: '' };
+      if (!data.jobs) data.jobs = {};
+      if (!data.jobs[name]) data.jobs[name] = [];
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      if (!data.keyByJobId) data.keyByJobId = {};
+      if (jobId) {
+        data.jobIdByKey[name] = jobId;
+        data.keyByJobId[jobId] = name;
+      } else {
+        const prev = data.jobIdByKey[name];
+        delete data.jobIdByKey[name];
+        if (prev && data.keyByJobId[prev] === name) delete data.keyByJobId[prev];
+      }
+      await plSaveData();
+      return true;
     };
     window.openPunchlistByName = async function(name) {
       await plLoadData();
@@ -6595,6 +6725,10 @@ const IDB_NAME = "FieldPunchlistDB";
       return html;
     }
     function tcFindJobForToday() {
+      try {
+        const current = (typeof getActiveCurrentJob === 'function') ? getActiveCurrentJob() : null;
+        if (current && current.id) return current;
+      } catch (e) {}
       const jobs = (typeof loadJobs === 'function') ? loadJobs() : [];
       const today = tcDateKey(new Date());
       const matches = [];
@@ -6623,8 +6757,13 @@ const IDB_NAME = "FieldPunchlistDB";
     function tcPopulateJobSelects() {
       const sel = document.getElementById('tcJobSelect');
       if (sel) {
+        let currentId = '';
+        try {
+          const current = (typeof getActiveCurrentJob === 'function') ? getActiveCurrentJob() : null;
+          if (current && current.id) currentId = current.id;
+        } catch (e) {}
         const cur = sel.value;
-        sel.innerHTML = tcJobOptionsHtml(cur || (tcState.active && tcState.active.jobId) || '');
+        sel.innerHTML = tcJobOptionsHtml(cur || (tcState.active && tcState.active.jobId) || currentId || '');
       }
     }
     function tcEnsureActiveClosedIfNeeded() {
