@@ -17,15 +17,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
   <title>LeMatic Field Service</title>
   <link rel="stylesheet" href="app.css" />
-  <style>
-    .screen { display: none !important; }
-    .screen.active { display: block !important; }
-    #screenHome.screen.active {
-      display: flex !important;
-      flex-direction: column !important;
-    }
-    .hidden, input[type=file] { position: absolute !important; width: 0 !important; height: 0 !important; opacity: 0 !important; pointer-events: none !important; }
-  </style>
+
 
 </head>
 <body class="on-home">
@@ -164,9 +156,6 @@
       <div class="storage-actions">
         <button type="button" class="btn" id="btnBackupZip">Backup</button>
         <button type="button" class="btn" id="btnRestoreZip">Restore</button>
-      </div>
-      <div class="storage-actions">
-        <button type="button" class="btn btn-danger" id="btnClearAllData">Clear all app data</button>
       </div>
     </div>
   </div>
@@ -449,7 +438,10 @@
         <div style="font-size:0.8rem;color:var(--muted)" id="sectionCounter">Section 1 of 12</div>
         <div style="font-weight:700;font-size:1.15rem;color:#b8c3ca" id="sectionName">Spread Conveyor</div>
       </div>
-      <div style="font-size:0.85rem;color:var(--muted)" id="itemProgress">0 / 5</div>
+      <div class="inspect-head-actions">
+        <div style="font-size:0.85rem;color:var(--muted);text-align:right" id="itemProgress">0 / 5</div>
+        <button type="button" class="btn-mark-rest" id="btnMarkRestGood">Section N/A</button>
+      </div>
     </div>
     <div id="itemsContainer"></div>
     <div style="height:20px"></div>
@@ -457,30 +449,48 @@
 
   <!-- FINDINGS -->
   <div class="screen" id="screenFindings">
-    <div class="card review-meta">
-      <div id="summaryMeta"></div>
+    <div id="inspectInfoCard" class="inspect-info-card">
+      <div class="inspect-info-kicker">Field service trip report</div>
+      <div class="inspect-info-name" id="inspectInfoCustomer">—</div>
+      <div class="inspect-info-meta" id="inspectInfoMachine"></div>
+      <div class="inspect-info-meta" id="inspectInfoDate"></div>
+      <div id="summaryMeta" class="hidden"></div>
     </div>
-    <div class="stat-row">
-      <div class="stat-card">
-        <div class="num" id="sumTotalItems">0</div>
-        <div class="label">Items Checked</div>
-      </div>
-      <div class="stat-card">
-        <div class="num" id="sumFindings" style="color:var(--danger)">0</div>
-        <div class="label">Findings</div>
-      </div>
+    <div id="irPreviewSheet" class="visit-sheet hidden" hidden></div>
+
+    <div class="inspect-home-tiles">
+      <button type="button" class="home-tile" id="btnInspectHomeStart" onclick="window.startInspectFromHome && window.startInspectFromHome()">
+        <div class="home-tile-title">Start inspection</div>
+      </button>
+      <button type="button" class="home-tile inspect-count-tile" id="tileGood" data-filter="good" onclick="window.filterInspectHome && window.filterInspectHome('good')">
+        <div class="num" id="sumGood">0</div>
+        <div class="home-tile-title">Good</div>
+      </button>
+      <button type="button" class="home-tile inspect-count-tile" id="tileFair" data-filter="fair" onclick="window.filterInspectHome && window.filterInspectHome('fair')">
+        <div class="num" id="sumFair">0</div>
+        <div class="home-tile-title">Fair</div>
+      </button>
+      <button type="button" class="home-tile inspect-count-tile" id="tilePoor" data-filter="poor" onclick="window.filterInspectHome && window.filterInspectHome('poor')">
+        <div class="num" id="sumPoor">0</div>
+        <div class="home-tile-title">Poor</div>
+      </button>
     </div>
-    <div class="summary-section">
+    <div class="stat-row hidden">
+      <div class="stat-card"><div class="num" id="sumTotalItems">0</div></div>
+      <div class="stat-card"><div class="num" id="sumFindings">0</div></div>
+    </div>
+    <div class="summary-section" id="inspectFilterSection">
       <div class="summary-section-head">
-        <h3>Findings</h3>
+        <h3 id="inspectFilterTitle">Items</h3>
       </div>
       <div id="findingsList"></div>
     </div>
-  </div>
 
-  <!-- NOTES -->
-  <div class="screen" id="screenNotes">
-    <div id="notesEditor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Notes"></div>
+    <div class="summary-section" id="inspectNotesSection">
+      <div class="summary-section-head">
+        <h3>Notes</h3>
+      </div>
+          <div id="notesEditor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Notes"></div>
     <textarea id="summaryNotes" class="hidden" aria-hidden="true"></textarea>
     <div id="notesFormatBar" aria-label="Format">
       <button type="button" data-notes-cmd="bold" title="Bold"><svg viewBox="0 0 24 24" fill="none"><path d="M7 5h7.2a3.6 3.6 0 0 1 0 7.2H7V5zm0 7.2h8a3.8 3.8 0 1 1 0 7.6H7v-7.6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
@@ -501,10 +511,16 @@
     </select>
   </div>
 
-  <!-- PREVIEW -->
-  <div class="screen" id="screenInspectPreview">
-    <div id="irPreviewSheet" class="visit-sheet"></div>
+
+    </div>
+
   </div>
+
+  <!-- NOTES -->
+  <div class="screen" id="screenNotes"></div>
+
+  <!-- PREVIEW -->
+  <div class="screen" id="screenInspectPreview"></div>
 
   <!-- Delete confirm modal — Liquid Glass -->
 
@@ -573,13 +589,13 @@
 
   <!-- Bottom bar for inspection -->
   <div class="bottom-bar hidden" id="bottomBar">
-    <div class="bar-inspect" id="barInspect">
-      <button class="btn btn-outline" id="btnPrevSection">← Prev</button>
-      <button class="btn btn-primary" id="btnNextSection">Next →</button>
+    <div class="bar-inspect hidden" id="barInspect">
+      <button class="btn btn-outline hidden" id="btnPrevSection">← Prev</button>
+      <button class="btn btn-primary hidden" id="btnNextSection">Next →</button>
     </div>
     <div class="bar-findings hidden" id="barFindings">
       <button class="btn btn-outline" id="btnFindingsBack">Back</button>
-      <button class="btn btn-primary" id="btnFindingsNext">Next →</button>
+      <button class="btn btn-primary" id="btnFindingsNext">Save</button>
     </div>
     <div class="bar-notes hidden" id="barNotes">
       <button class="btn btn-outline" id="btnNotesBack">Back</button>
@@ -636,6 +652,13 @@
     </div>
   </div>
 
+  <input type="file" id="inspectCamInput" accept="image/*" class="inspect-cam-input" />
+  <button type="button" class="fab" id="fab-inspect-cam" title="Add photo" aria-label="Add photo">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4.8 8.2h2.1l1.15-1.7h7.9l1.15 1.7H19.2A1.8 1.8 0 0 1 21 10v8.2A1.8 1.8 0 0 1 19.2 20H4.8A1.8 1.8 0 0 1 3 18.2V10a1.8 1.8 0 0 1 1.8-1.8z" stroke="currentColor" stroke-width="1.8"/>
+      <circle cx="12" cy="14.1" r="3.05" stroke="currentColor" stroke-width="1.8"/>
+    </svg>
+  </button>
   <button class="fab" id="fab-add" title="Add Item" aria-label="Add Item">
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
@@ -672,6 +695,10 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  <script src="exceljs.min.js"></script>
+  <script src="jspdf.umd.min.js"></script>
+  <script src="jspdf.plugin.autotable.min.js"></script>
+  <script src="pdf-fallback.js"></script>
   <script src="templates.js"></script>
   <script src="app.js"></script>
 </body>

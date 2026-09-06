@@ -12,6 +12,9 @@
     let currentInspection = null;
     let editingInspectionId = null; // when set, start form is in edit-meta mode
     let currentSectionIndex = 0;
+    let currentItemIndex = 0;
+    let inspectListMode = false;
+    let inspectSlideDir = null;
     let extraSectionTab = null;
     let notesSource = 'inspection';
     let results = {}; // item_id -> {condition, notes, impacts, severity, photoDataUrl}
@@ -422,6 +425,7 @@
       currentInspection.results = results;
       currentInspection.findings = findings;
       currentInspection.currentSectionIndex = currentSectionIndex;
+      currentInspection.currentItemIndex = currentItemIndex;
       currentInspection.updatedAt = new Date().toISOString();
       let list = loadInspections();
       const idx = list.findIndex(i => i.id === currentInspection.id);
@@ -433,14 +437,22 @@
     // ========== UI HELPERS ==========
     function showScreen(id) {
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-      document.getElementById(id).classList.add('active');
+      const screenEl = document.getElementById(id);
+      if (screenEl) screenEl.classList.add('active');
+      if (id !== 'screenPunchlist') {
+        const overlay = document.getElementById('pl-modal');
+        if (overlay && overlay.classList.contains('show')) {
+          try { closeModal(); } catch (e) { overlay.classList.remove('show'); }
+        }
+      }
+      document.body.classList.toggle('inspect-active', id === 'screenInspect');
+      if (id === 'screenInspect' && typeof window.bindInspectCamFab === 'function') window.bindInspectCamFab();
       const bottom = document.getElementById('bottomBar');
       const barInspect = document.getElementById('barInspect');
       const bars = {
-        screenInspect: 'barInspect',
         screenFindings: 'barFindings',
-        screenNotes: 'barNotes',
-        screenInspectPreview: 'barPreview'
+        screenNotes: 'barFindings',
+        screenInspectPreview: 'barFindings'
       };
       const barIds = ['barInspect', 'barFindings', 'barNotes', 'barPreview'];
       if (bottom) {
@@ -1842,14 +1854,10 @@
       results = ins.results || {};
       findings = ins.findings || [];
       currentSectionIndex = Math.max(0, ins.currentSectionIndex || 0);
+      currentItemIndex = Math.max(0, ins.currentItemIndex || 0);
       editingInspectionId = null;
-      if (ins.status === 'Complete') {
-        showFindings();
-      } else {
-        renderSection();
-        showScreen('screenInspect');
-        setHeader('Inspecting');
-      }
+      extraSectionTab = 'findings';
+      showFindings();
     }
 
     function editInspectionMeta(id) {
@@ -2354,14 +2362,6 @@
     const restoreZipInput = document.getElementById('restoreZipInput');
     if (btnBackupZip) btnBackupZip.addEventListener('click', () => exportBackupZip());
     if (btnRestoreZip) btnRestoreZip.addEventListener('click', () => restoreZipInput && restoreZipInput.click());
-    const btnClearAllData = document.getElementById('btnClearAllData');
-    if (btnClearAllData) btnClearAllData.addEventListener('click', async () => {
-      const sure = confirm('This deletes every inspection, punchlist, job, and photo on this device. This cannot be undone. Back up first if you want to keep a copy.\n\nContinue?');
-      if (!sure) return;
-      await clearAllAppData();
-      toast('All app data cleared');
-      setTimeout(() => location.reload(), 800);
-    });
     if (restoreZipInput) restoreZipInput.addEventListener('change', ev => {
       const file = ev.target.files && ev.target.files[0];
       ev.target.value = '';
@@ -2548,8 +2548,7 @@
         const label = shortSectionName(s.section);
         return `<div class="${cls}" data-idx="${idx}" title="${s.section}">${label}</div>`;
       }).join('');
-      html += `<div class="section-dot${extraSectionTab === 'findings' ? ' current' : ''}" data-extra="findings">Findings</div>`;
-      html += `<div class="section-dot${extraSectionTab === 'notes' ? ' current' : ''}" data-extra="notes">Notes</div>`;
+      html = `<div class="section-dot${extraSectionTab === 'findings' ? ' current' : ''}" data-extra="findings">Home</div>` + html;
       container.innerHTML = html;
       container.querySelectorAll('.section-dot').forEach(d => {
         d.addEventListener('click', () => {
@@ -2569,12 +2568,25 @@
               }
             }
             notesSource = 'inspection';
-            showScreen('screenNotes');
-            setHeader('Notes');
+            showFindings();
+            setHeader('Inspection');
+            requestAnimationFrame(() => {
+              const el = document.getElementById('inspectNotesSection');
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
             return;
           }
           extraSectionTab = null;
-          currentSectionIndex = parseInt(d.dataset.idx, 10);
+          const tapped = parseInt(d.dataset.idx, 10);
+          if (tapped === currentSectionIndex && document.getElementById('screenInspect').classList.contains('active')) {
+            inspectListMode = !inspectListMode;
+            saveCurrentDraft();
+            renderSection(false);
+            return;
+          }
+          inspectListMode = false;
+          currentSectionIndex = tapped;
+          currentItemIndex = 0;
           showScreen('screenInspect');
           renderSection(true);
         });
@@ -2601,6 +2613,151 @@
 
     function showsFindingPanel(item, value) {
       return isBadResult(item, value) || isFairResult(value);
+    }
+    function isCleanResult(item, value) {
+      if (!value) return false;
+      return !showsFindingPanel(item, value);
+    }
+    function preferredGoodChoice(item) {
+      const choices = String(item.choices || '').split('|').map(s => s.trim()).filter(Boolean);
+      const prefer = ['Good','Pass','Within Spec','OK','Yes'];
+      for (const p of prefer) {
+        const hit = choices.find(c => c.toLowerCase() === p.toLowerCase());
+        if (hit) return hit;
+      }
+      return choices.find(c => !showsFindingPanel(item, c)) || '';
+    }
+    function preferredNAChoice(item) {
+      const choices = String(item.choices || '').split('|').map(s => s.trim()).filter(Boolean);
+      const hit = choices.find(c => c.toLowerCase() === 'n/a' || c.toLowerCase() === 'na');
+      return hit || 'N/A';
+    }
+    function markRestOfSectionGood() {
+      if (!APP_DATA || !APP_DATA.sections) return;
+      const section = APP_DATA.sections[currentSectionIndex];
+      if (!section) return;
+      const items = getItemsForSection(section.section_id);
+      let n = 0;
+      items.forEach(item => {
+        const val = preferredNAChoice(item);
+        results[item.item_id] = Object.assign({}, results[item.item_id] || {}, { condition: val });
+        delete results[item.item_id].impacts;
+        delete results[item.item_id].notes;
+        delete results[item.item_id].severity;
+        n += 1;
+      });
+      updateFindings();
+      saveCurrentDraft();
+      const left = currentSectionItems().findIndex(it => !results[it.item_id] || !results[it.item_id].condition);
+      currentItemIndex = left >= 0 ? left : Math.max(0, currentSectionItems().length - 1);
+      renderSection(false);
+      toast(n ? ('Section marked N/A') : 'Nothing to mark');
+    }
+    function scrollToNextOpenItem(afterId) {
+      goToNextInspectItem();
+    }
+    function currentSectionItems() {
+      if (!APP_DATA || !APP_DATA.sections || !APP_DATA.sections[currentSectionIndex]) return [];
+      return getItemsForSection(APP_DATA.sections[currentSectionIndex].section_id);
+    }
+    function animateInspectOut(dir, then) {
+      if (inspectListMode) { then(); return; }
+      const card = document.querySelector('#itemsContainer .item-card');
+      if (!card) { then(); return; }
+      card.classList.remove('inspect-in-left', 'inspect-in-right');
+      void card.offsetWidth;
+      card.classList.add(dir === 'next' ? 'inspect-out-left' : 'inspect-out-right');
+      let done = false;
+      const finish = () => { if (done) return; done = true; then(); };
+      card.addEventListener('transitionend', finish, { once: true });
+      setTimeout(finish, 560);
+    }
+    function goToNextInspectItem() {
+      if (inspectListMode) {
+        inspectListMode = false;
+        saveCurrentDraft();
+        renderSection(false);
+        return;
+      }
+      const items = currentSectionItems();
+      animateInspectOut('next', () => {
+        inspectSlideDir = 'next';
+        if (currentItemIndex < items.length - 1) {
+          currentItemIndex += 1;
+          saveCurrentDraft();
+          renderSection(false);
+          window.scrollTo(0, 0);
+          return;
+        }
+        if (currentSectionIndex < APP_DATA.sections.length - 1) {
+          currentSectionIndex += 1;
+          currentItemIndex = 0;
+          saveCurrentDraft();
+          renderSection(true);
+          window.scrollTo(0, 0);
+          return;
+        }
+        updateFindings();
+        saveCurrentDraft();
+        showFindings();
+      });
+    }
+
+    let inspectSwipeX = 0, inspectSwipeY = 0, inspectSwipeOn = false;
+    function bindInspectSwipe(container) {
+      if (!container || container.dataset.swipeBound === '1') return;
+      container.dataset.swipeBound = '1';
+      const start = (x, y) => { inspectSwipeOn = true; inspectSwipeX = x; inspectSwipeY = y; };
+      const end = (x, y) => {
+        if (!inspectSwipeOn) return;
+        inspectSwipeOn = false;
+        const dx = x - inspectSwipeX;
+        const dy = y - inspectSwipeY;
+        if (inspectListMode) return;
+        if (Math.abs(dx) < 56) return;
+        if (Math.abs(dx) < Math.abs(dy) * 1.15) return;
+        if (dx < 0) goToNextInspectItem();
+        else goToPrevInspectItem();
+      };
+      container.addEventListener('touchstart', (e) => {
+        if (!e.changedTouches || !e.changedTouches[0]) return;
+        start(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+      }, { passive: true });
+      container.addEventListener('touchend', (e) => {
+        if (!e.changedTouches || !e.changedTouches[0]) return;
+        end(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+      }, { passive: true });
+      container.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        start(e.clientX, e.clientY);
+      });
+      container.addEventListener('pointerup', (e) => end(e.clientX, e.clientY));
+    }
+    function goToPrevInspectItem() {
+      if (inspectListMode) {
+        inspectListMode = false;
+        saveCurrentDraft();
+        renderSection(false);
+        return;
+      }
+      animateInspectOut('prev', () => {
+        inspectSlideDir = 'prev';
+        if (currentItemIndex > 0) {
+          currentItemIndex -= 1;
+          saveCurrentDraft();
+          renderSection(false);
+          window.scrollTo(0, 0);
+          return;
+        }
+        if (currentSectionIndex > 0) {
+          currentSectionIndex -= 1;
+          const prevItems = currentSectionItems();
+          currentItemIndex = Math.max(0, prevItems.length - 1);
+          saveCurrentDraft();
+          renderSection(true);
+          window.scrollTo(0, 0);
+        }
+      });
     }
 
     function choiceTone(value) {
@@ -2629,10 +2786,19 @@
 
       const items = getItemsForSection(section.section_id);
       const answered = items.filter(i => results[i.item_id]?.condition).length;
-      document.getElementById('itemProgress').textContent = `${answered} / ${items.length}`;
+      if (currentItemIndex >= items.length) currentItemIndex = Math.max(0, items.length - 1);
+      if (currentItemIndex < 0) currentItemIndex = 0;
+      const progressEl = document.getElementById('itemProgress');
+      if (progressEl) {
+        progressEl.textContent = items.length
+          ? `${currentItemIndex + 1} / ${items.length} · ${answered} done`
+          : '0 / 0';
+      }
 
       const container = document.getElementById('itemsContainer');
-      container.innerHTML = items.map(item => {
+      const visible = inspectListMode ? items : (items[currentItemIndex] ? [items[currentItemIndex]] : []);
+      container.classList.toggle('inspect-list-mode', !!inspectListMode);
+      container.innerHTML = visible.map(item => {
         const res = results[item.item_id] || {};
         const isAnswered = !!res.condition;
         const isFinding = isBadResult(item, res.condition);
@@ -2642,6 +2808,7 @@
         else if (isFair) cardClass += ' fair';
         else if (res.condition === 'N/A') cardClass += ' na';
         else if (isAnswered) cardClass += ' answered';
+        const compact = inspectListMode && isAnswered && isCleanResult(item, res.condition);
 
         const choices = (item.choices || '').split('|').filter(Boolean);
         const choiceHtml = choices.map(c => {
@@ -2679,23 +2846,31 @@
                 <label>Notes</label>
                 <textarea class="notes-input" data-item="${item.item_id}" placeholder="Describe the issue...">${res.notes || ''}</textarea>
               </div>
-              <div class="photo-area ${res.photoDataUrl ? 'has-photo' : ''}" data-item="${item.item_id}">
-                ${res.photoDataUrl
-                  ? `<img class="photo-preview" src="${res.photoDataUrl}" alt="Photo" /><br><button class="photo-btn" data-item="${item.item_id}">Change Photo</button>`
-                  : `<div class="photo-needed"><span class="ico">${ICO.cam}</span>${isFinding ? 'Photo required' : 'Photo optional'}</div><button class="photo-btn" data-item="${item.item_id}"><span class="ico">${ICO.cam}</span>Take / Choose Photo</button>`
-                }
-                <input type="file" accept="image/*" class="photo-input hidden" data-item="${item.item_id}" />
-              </div>
             </div>`;
         }
 
+        const photoHtml = res.photoDataUrl
+          ? `<div class="photo-area has-photo"><img class="photo-preview" src="${res.photoDataUrl}" alt="" /></div>`
+          : '';
+
         return `
           <div class="${cardClass}" id="item-${item.item_id}">
-            <div class="item-title">${item.inspection_item}</div>
+            <div class="item-title" data-answer="${compact ? (res.condition || '') : ''}">${item.inspection_item}</div>
+            ${photoHtml}
             <div class="choice-grid">${choiceHtml}</div>
             ${findingHtml}
           </div>`;
       }).join('');
+      if (!inspectListMode && inspectSlideDir) {
+        const card = container.querySelector('.item-card');
+        if (card) {
+          card.classList.add(inspectSlideDir === 'next' ? 'inspect-in-right' : 'inspect-in-left');
+          card.addEventListener('animationend', () => {
+            card.classList.remove('inspect-in-right', 'inspect-in-left');
+          }, { once: true });
+        }
+        inspectSlideDir = null;
+      }
 
       // Bind choice buttons
       container.querySelectorAll('.choice-btn').forEach(btn => {
@@ -2713,17 +2888,45 @@
           }
           updateFindings();
           saveCurrentDraft();
-          // Preserve scroll position when re-rendering
-          const scrollY = window.scrollY || window.pageYOffset;
+          const clean = isCleanResult(item, value);
           renderSection(false);
-          // Restore after layout (double rAF is more reliable on mobile)
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-              window.scrollTo(0, scrollY);
+              if (clean) scrollToNextOpenItem(itemId);
+              else {
+                const el = document.getElementById('item-' + itemId);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
             });
           });
         });
       });
+      container.querySelectorAll('.item-card.compact .item-title').forEach(title => {
+        title.addEventListener('click', () => {
+          title.closest('.item-card').classList.toggle('expanded');
+        });
+      });
+      if (inspectListMode) {
+        container.querySelectorAll('.item-card').forEach(card => {
+          card.addEventListener('click', (e) => {
+            if (e.target.closest('.choice-btn, .finding-panel, button, textarea, select, input')) return;
+            const id = parseInt(String(card.id || '').replace('item-', ''), 10);
+            const itemsNow = currentSectionItems();
+            const idx = itemsNow.findIndex(it => it.item_id === id);
+            if (idx < 0) return;
+            inspectListMode = false;
+            currentItemIndex = idx;
+            saveCurrentDraft();
+            inspectSlideDir = 'next';
+            renderSection(false);
+          });
+        });
+      }
+      const markBtn = document.getElementById('btnMarkRestGood');
+      if (markBtn && !markBtn.dataset.bound) {
+        markBtn.dataset.bound = '1';
+        markBtn.addEventListener('click', markRestOfSectionGood);
+      }
 
       // Bind impact tags
       container.querySelectorAll('.impact-tag').forEach(tag => {
@@ -2811,10 +3014,15 @@
         });
       });
 
+      bindInspectSwipe(container);
+
       // Update next button text
-      const isLast = currentSectionIndex === APP_DATA.sections.length - 1;
-      document.getElementById('btnNextSection').textContent = isLast ? 'Findings →' : 'Next →';
-      document.getElementById('btnPrevSection').style.visibility = currentSectionIndex === 0 ? 'hidden' : 'visible';
+      const lastItem = currentItemIndex >= items.length - 1;
+      const lastSection = currentSectionIndex === APP_DATA.sections.length - 1;
+      const nextBtn = document.getElementById('btnNextSection');
+      if (nextBtn) nextBtn.textContent = (lastItem && lastSection) ? 'Finish inspection' : 'Next →';
+      const prevBtn = document.getElementById('btnPrevSection');
+      if (prevBtn) prevBtn.style.visibility = (currentSectionIndex === 0 && currentItemIndex === 0) ? 'hidden' : 'visible';
     }
 
     function updateFindings() {
@@ -2845,25 +3053,11 @@
 
     document.getElementById('btnNextSection').addEventListener('click', () => {
       if (!APP_DATA || !APP_DATA.sections) return;
-      if (currentSectionIndex < APP_DATA.sections.length - 1) {
-        currentSectionIndex++;
-        saveCurrentDraft();
-        renderSection(true);
-        window.scrollTo(0, 0);
-      } else {
-        updateFindings();
-        saveCurrentDraft();
-        showFindings();
-      }
+      goToNextInspectItem();
     });
 
     document.getElementById('btnPrevSection').addEventListener('click', () => {
-      if (currentSectionIndex > 0) {
-        currentSectionIndex--;
-        saveCurrentDraft();
-        renderSection(true);
-        window.scrollTo(0, 0);
-      }
+      goToPrevInspectItem();
     });
 
     // ========== SUMMARY ==========
@@ -2895,16 +3089,164 @@
       }
     }
 
+
+    window.filterInspectHome = function(next) {
+      inspectHomeFilter = inspectHomeFilter === next ? '' : next;
+      document.querySelectorAll('.inspect-count-tile').forEach(b => {
+        b.classList.toggle('on', b.getAttribute('data-filter') === inspectHomeFilter);
+      });
+      renderInspectHomeFilter();
+    };
+    window.startInspectFromHome = function() {
+      extraSectionTab = null;
+      inspectListMode = false;
+      currentSectionIndex = 0;
+      currentItemIndex = 0;
+      showScreen('screenInspect');
+      setHeader('Inspecting');
+      renderSection(true);
+    };
+    function bindInspectHomeTiles() {
+      const startInspectBtn = document.getElementById('btnInspectHomeStart');
+      if (startInspectBtn && startInspectBtn.dataset.bound !== '1') {
+        startInspectBtn.dataset.bound = '1';
+        startInspectBtn.addEventListener('click', () => window.startInspectFromHome());
+      }
+      document.querySelectorAll('.inspect-count-tile').forEach(btn => {
+        if (btn.dataset.bound === '1') return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          window.filterInspectHome(btn.getAttribute('data-filter') || '');
+        });
+      });
+      const wrap = document.getElementById('inspectPreviewWrap');
+      if (wrap && wrap.dataset.bound !== '1') {
+        wrap.dataset.bound = '1';
+        wrap.addEventListener('click', () => wrap.classList.toggle('expanded'));
+      }
+    }
+    let inspectHomeFilter = '';
+    function conditionBucket(value) {
+      const c = String(value || '').toLowerCase();
+      if (!c || c === 'n/a') return '';
+      if (c === 'poor' || c === 'fail' || c === 'out of spec') return 'poor';
+      if (c === 'fair') return 'fair';
+      return 'good';
+    }
+    function inspectConditionCounts() {
+      let good = 0, fair = 0, poor = 0;
+      Object.keys(results || {}).forEach(id => {
+        const b = conditionBucket(results[id] && results[id].condition);
+        if (b === 'good') good++;
+        else if (b === 'fair') fair++;
+        else if (b === 'poor') poor++;
+      });
+      return { good, fair, poor };
+    }
+    function renderInspectHomeFilter() {
+      const listEl = document.getElementById('findingsList');
+      const title = document.getElementById('inspectFilterTitle');
+      if (!listEl) return;
+      if (!inspectHomeFilter) {
+        listEl.innerHTML = '';
+        if (title) title.textContent = '';
+        return;
+      }
+      const rows = [];
+      ((APP_DATA && APP_DATA.items) || []).forEach(item => {
+        const r = results[item.item_id] || results[String(item.item_id)];
+        if (!r || conditionBucket(r.condition) !== inspectHomeFilter) return;
+        rows.push({ item, r });
+      });
+      if (title) title.textContent = inspectHomeFilter.charAt(0).toUpperCase() + inspectHomeFilter.slice(1);
+      if (!rows.length) {
+        listEl.innerHTML = `<div class="empty-state" style="padding:16px"><p>No ${inspectHomeFilter} items</p></div>`;
+        return;
+      }
+      const badgeFor = (cond) => {
+        const b = conditionBucket(cond);
+        if (b === 'poor') return 'badge-findings';
+        if (b === 'fair') return 'badge-draft';
+        return 'badge-complete';
+      };
+      listEl.innerHTML = rows.map(({ item, r }) => {
+        const src = r.photoDataUrl || '';
+        const impacts = Array.isArray(r.impacts) ? r.impacts : [];
+        const extra = [r.condition, impacts.join(', '), r.notes].filter(Boolean).join(' · ');
+        const bucket = conditionBucket(r.condition);
+        const tone = bucket === 'poor' ? 'finding' : bucket === 'fair' ? 'fair' : bucket === 'good' ? 'answered' : '';
+        return `<div class="pl-item finding-pl-card ${tone}" data-open-item="${item.item_id}">
+            <div class="list-item-main">
+              <div class="title">${item.inspection_item || ''}</div>
+              <div class="sub">${item.section || ''}</div>
+              ${extra ? `<div class="action-line">${extra}</div>` : ''}
+            </div>
+            <div class="list-item-actions">
+              <span class="badge ${badgeFor(r.condition)}">${r.condition || inspectHomeFilter}</span>
+              ${src ? `<img class="list-item-photo" src="${src}" alt="">` : ''}
+            </div>
+          </div>`;
+      }).join('');
+      listEl.querySelectorAll('[data-open-item]').forEach(card => {
+        card.addEventListener('click', () => {
+          const id = parseInt(card.getAttribute('data-open-item'), 10);
+          const items = (APP_DATA && APP_DATA.items) || [];
+          const item = items.find(it => it.item_id === id);
+          if (!item) return;
+          const sections = APP_DATA.sections || [];
+          const sidx = sections.findIndex(s => s.section === item.section || s.section_id === item.section_id);
+          extraSectionTab = null;
+          inspectListMode = false;
+          if (sidx >= 0) currentSectionIndex = sidx;
+          const secItems = currentSectionItems();
+          const iidx = secItems.findIndex(it => it.item_id === id);
+          currentItemIndex = iidx >= 0 ? iidx : 0;
+          showScreen('screenInspect');
+          renderSection(true);
+        });
+      });
+    }
     function showFindings() {
       if (!currentInspection) {
         toast('No active inspection');
         showScreen('screenHome');
         return;
       }
+      extraSectionTab = 'findings';
       updateFindings();
+      (function fillInspectInfoCard() {
+        const job = (currentInspection && currentInspection.jobId)
+          ? (loadJobs().find(j => j.id === currentInspection.jobId) || null)
+          : (typeof getActiveCurrentJob === 'function' ? getActiveCurrentJob() : null);
+        const customer = (currentInspection && currentInspection.customer) || (job && job.customer) || 'Inspection';
+        const date = (currentInspection && currentInspection.date) || (job && (job.startDate || job.date)) || '';
+        const model = (currentInspection && currentInspection.model) || (job && job.machine) || '';
+        const serial = (currentInspection && currentInspection.serial) || '';
+        const site = (job && job.site) || '';
+        const tech = (currentInspection && currentInspection.technician) || (job && job.technician) || '';
+        const elC = document.getElementById('inspectInfoCustomer');
+        const elD = document.getElementById('inspectInfoDate');
+        const elM = document.getElementById('inspectInfoMachine');
+        if (elC) elC.textContent = customer;
+        if (elD) elD.textContent = date;
+        const serialBit = serial ? ('S/N ' + serial) : '';
+        const machineLine = [model, serialBit].filter(Boolean).join(' · ');
+        if (elM) elM.textContent = machineLine;
+      })();
+      const counts = inspectConditionCounts();
+      const g = document.getElementById('sumGood');
+      const f = document.getElementById('sumFair');
+      const p = document.getElementById('sumPoor');
+      if (g) g.textContent = counts.good;
+      if (f) f.textContent = counts.fair;
+      if (p) p.textContent = counts.poor;
       const totalAnswered = Object.keys(results).length;
-      document.getElementById('sumTotalItems').textContent = totalAnswered;
-      document.getElementById('sumFindings').textContent = findings.length;
+      const tot = document.getElementById('sumTotalItems');
+      const findN = document.getElementById('sumFindings');
+      if (tot) tot.textContent = totalAnswered;
+      if (findN) findN.textContent = findings.length;
 
       document.getElementById('summaryMeta').innerHTML = `
         <div class="review-customer">${currentInspection.customer || 'Inspection'}</div>
@@ -2918,47 +3260,28 @@
       if (currentInspection.overallCondition) {
         document.getElementById('overallCondition').value = currentInspection.overallCondition;
       }
-      fillCoverCards(currentInspection.coverCards);
+      // list rendered on tile tap only
 
-      const listEl = document.getElementById('findingsList');
-      if (findings.length === 0) {
-        listEl.innerHTML = `<div class="empty-state" style="padding:20px"><div class="icon">${ICO.check}</div><p>No findings.<br>All items passed.</p></div>`;
-      } else {
-        const sevNames = { 1: 'Monitor', 2: 'Repair', 3: 'Critical' };
-        listEl.innerHTML = findings
-          .sort((a, b) => (parseInt(b.severity, 10) || 0) - (parseInt(a.severity, 10) || 0))
-          .map(f => {
-            let sev = parseInt(f.severity, 10) || 0;
-            if (sev > 3) sev = 3;
-            const isFair = f.condition === 'Fair';
-            const high = !isFair && (sev >= 3 || f.condition === 'Poor' || f.condition === 'Fail' || f.condition === 'Out of Spec' || f.condition === 'Damaged');
-            const sevLabel = sevNames[sev] || '';
-            const cardTone = high ? ' sev-high' : (isFair ? ' sev-fair' : '');
-            const pill = sevLabel
-              ? `<span class="badge badge-sev ${high ? 'badge-findings' : 'badge-draft'}">${sevLabel}</span>`
-              : '';
-            const src = f.photoDataUrl || (results[f.item_id] && results[f.item_id].photoDataUrl);
-            return `
-            <div class="finding-summary-card${cardTone}">
-              <div class="finding-summary-top">
-                <div>
-                  <div class="finding-name">${f.item_name}</div>
-                  <div class="finding-section">${f.section}</div>
-                </div>
-                ${pill}
-              </div>
-              <div class="finding-meta">${f.condition}${f.impacts.length ? ' · ' + f.impacts.join(', ') : ''}</div>
-              ${f.notes ? `<div class="finding-notes">${f.notes}</div>` : ''}
-              ${src ? `<img src="${src}" class="photo-preview" style="margin-top:8px" />` : ''}
-            </div>`;
-          }).join('');
+      const meta = document.getElementById('summaryMeta');
+      if (meta) {
+        meta.innerHTML = `
+          <div class="review-customer">${currentInspection.customer || 'Inspection'}</div>
+          <div class="review-line">${currentInspection.model || ''} · S/N ${currentInspection.serial || ''}</div>
+          <div class="review-line">${currentInspection.date || ''}</div>`;
       }
-
+      renderInspectHomeFilter();
+      try { closeSearch(); } catch (e) {}
+      const scrim = document.getElementById('searchScrim');
+      if (scrim) { scrim.classList.remove('show'); scrim.hidden = true; }
       showScreen('screenFindings');
-      setHeader('Findings');
+      setHeader('Inspection');
+      renderSectionDots(false);
+      bindInspectHomeTiles();
+
     }
 
-    function renderInspectPreview() {
+    function renderInspectPreview(force) {
+      if (!force) return;
       saveCoverCards();
       updateFindings();
       const items = (APP_DATA && APP_DATA.items) || [];
@@ -3008,7 +3331,7 @@
         <div class="h">On site</div>
         <div class="body">${esc(getNotesPlain() || '—')}</div>
       `;
-      showScreen('screenInspectPreview');
+      showFindings();
     }
 
     document.getElementById('btnFindingsBack').addEventListener('click', () => {
@@ -3016,12 +3339,33 @@
       showScreen('screenInspect');
       setHeader('Inspecting');
     });
+    const startInspectBtn = document.getElementById('btnInspectHomeStart');
+    if (startInspectBtn) startInspectBtn.addEventListener('click', () => {
+      extraSectionTab = null;
+      inspectListMode = false;
+      const items = currentSectionItems();
+      const open = items.findIndex(it => !results[it.item_id] || !results[it.item_id].condition);
+      if (open >= 0) currentItemIndex = open;
+      showScreen('screenInspect');
+      setHeader('Inspecting');
+      renderSection(true);
+    });
+    document.querySelectorAll('.inspect-count-tile').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = btn.getAttribute('data-filter') || '';
+        inspectHomeFilter = inspectHomeFilter === next ? '' : next;
+        document.querySelectorAll('.inspect-count-tile').forEach(b => b.classList.toggle('on', b.getAttribute('data-filter') === inspectHomeFilter));
+        renderInspectHomeFilter();
+      });
+    });
+
     document.getElementById('btnFindingsNext').addEventListener('click', () => {
-      if (currentInspection && !document.getElementById('summaryNotes').value && currentInspection.summaryNotes) {
-        setNotesContent(currentInspection.summaryNotes);
+      if (typeof syncNotesField === 'function') syncNotesField();
+      if (currentInspection) {
+        currentInspection.summaryNotes = (document.getElementById('summaryNotes') || {}).value || currentInspection.summaryNotes;
+        saveCurrentDraft();
       }
-      notesSource = 'inspection';
-      showScreen('screenNotes');
+      if (typeof openSaveSheet === 'function') openSaveSheet();
     });
     function notesLooksHTML(s) {
       return /<(p|div|h1|h2|h3|ul|ol|li|b|i|u|strong|em|br|span)[>\s/]/i.test(s || '');
@@ -3102,7 +3446,7 @@
     function openFullNotes(source, value) {
       notesSource = source || 'inspection';
       setNotesContent(value || '');
-      showScreen('screenNotes');
+      showFindings();
       setHeader(source === 'visit-letter' ? 'On Site' : 'Notes');
       initNotesEditor();
       requestAnimationFrame(() => {
@@ -3145,12 +3489,12 @@
         syncNotesField();
         currentInspection.summaryNotes = document.getElementById('summaryNotes').value;
       }
-      renderInspectPreview();
+      renderInspectPreview(true);
     });
 
         document.getElementById('btnPreviewBack').addEventListener('click', () => {
       notesSource = 'inspection';
-      showScreen('screenNotes');
+      showFindings();
     });
     function openSaveSheet() {
       const scrim = document.getElementById('saveSheetScrim');
@@ -3179,10 +3523,7 @@
     document.getElementById('saveSheetCancel').addEventListener('click', closeSaveSheet);
     document.getElementById('saveSheetPdf').addEventListener('click', () => {
       closeSaveSheet();
-      generatePDFReport().catch(err => {
-        console.warn(err);
-        toast('Could not build PDF file');
-      });
+      generatePDFReport();
     });
     document.getElementById('saveSheetDocx').addEventListener('click', () => {
       closeSaveSheet();
@@ -3218,14 +3559,13 @@
     // ========== PDF REPORT ==========
     function findRelatedVisit(ins) { return null; }
     const LEMATIC_LOGO_JPG = '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';
-    async function generatePDFReport() {
+    function generatePDFReport() {
       if (!currentInspection) {
         toast('No inspection data');
         return;
       }
-      const ready = await ensureJsPDFLibs();
-      if (!ready) {
-        toast('Could not load the PDF library. Check your connection and try again.');
+      if (typeof window.jspdf === 'undefined') {
+        toast('PDF library still loading… try again in a moment');
         return;
       }
 
@@ -4178,7 +4518,11 @@
       if (currentInspection && currentInspection.status !== 'Complete') {
         saveCurrentDraft();
       }
-      closeSearch();
+      try { closeModal(); } catch (e) {}
+      try { closeSearch(); } catch (e) {}
+      document.body.classList.remove('chrome-hidden', 'inspect-active', 'on-inspect-flow');
+      const overlay = document.getElementById('pl-modal');
+      if (overlay) overlay.classList.remove('show');
       showScreen('screenHome');
       setHeader('LeMatic Inspection');
       refreshHome();
@@ -4368,12 +4712,12 @@
 
     function closeSearch() {
       const bar = document.getElementById('searchBar');
-      bar.classList.remove('show', 'has-query');
+      if (bar) bar.classList.remove('show', 'has-query');
       document.body.classList.remove('search-open');
       searchQuery = '';
-      document.getElementById('inpSearch').value = '';
-      hideSearchResults();
-      refreshHome();
+      const inp = document.getElementById('inpSearch');
+      if (inp) inp.value = '';
+      if (typeof hideSearchResults === 'function') hideSearchResults();
     }
 
     document.getElementById('inpSearch').addEventListener('input', (e) => {
@@ -4527,7 +4871,7 @@
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-2').catch((err) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-1').catch((err) => {
           console.warn('Service worker registration failed:', err);
         });
       });
@@ -4695,6 +5039,12 @@ const IDB_NAME = "FieldPunchlistDB";
 
     window.addEventListener("online", () => { updateOnlineStatus(); toast("Back online"); });
     window.addEventListener("offline", updateOnlineStatus);
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js?v=8").catch(() => {});
+      });
+    }
 
     function getItems() { return data.jobs[data.currentJob] || []; }
     function setItems(items) { data.jobs[data.currentJob] = items; plSaveData(); }
@@ -5551,36 +5901,10 @@ const IDB_NAME = "FieldPunchlistDB";
       });
     }
 
-    // Wipes both IndexedDB databases (inspections/photos + punchlist) and
-    // every localStorage key this app writes. The two features grew
-    // separate storage systems, so a full reset has to touch both explicitly -
-    // there is no single "clear everything" primitive to call.
-    async function clearAllAppData() {
-      const lsKeys = [
-        'lx8_visits_meta', 'lx8_inspections', 'lx8_visits',
-        'lx8_jobs', 'lx8_last_tech', 'lx8_last_punchlist',
-        LEGACY_KEY
-      ];
-      lsKeys.forEach((k) => { try { localStorage.removeItem(k); } catch (e) {} });
-
-      function deleteDb(name) {
-        return new Promise((resolve) => {
-          try {
-            const req = indexedDB.deleteDatabase(name);
-            req.onsuccess = () => resolve();
-            req.onerror = () => resolve();
-            req.onblocked = () => resolve();
-          } catch (e) { resolve(); }
-        });
-      }
-      await deleteDb(LX_DB_NAME);
-      await deleteDb(IDB_NAME);
-    }
-
     async function ensureExcelLibs() {
       if (typeof ExcelJS !== 'undefined') return;
       const urls = [
-        'exceljs.min.js',
+        'vendor/exceljs.min.js',
         'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js'
       ];
       for (const url of urls) {
@@ -5589,35 +5913,6 @@ const IDB_NAME = "FieldPunchlistDB";
           if (typeof ExcelJS !== 'undefined') return;
         } catch (e) {}
       }
-    }
-
-    async function ensureJsPDFLibs() {
-      if (typeof window.jspdf === 'undefined') {
-        const urls = [
-          'jspdf.umd.min.js',
-          'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
-        ];
-        for (const url of urls) {
-          try {
-            await loadScriptOnce(url);
-            if (typeof window.jspdf !== 'undefined') break;
-          } catch (e) {}
-        }
-      }
-      if (typeof window.jspdf === 'undefined') return false;
-      if (!window.jspdf.jsPDF.API.autoTable) {
-        const urls = [
-          'jspdf.plugin.autotable.min.js',
-          'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'
-        ];
-        for (const url of urls) {
-          try {
-            await loadScriptOnce(url);
-            if (window.jspdf.jsPDF.API.autoTable) break;
-          } catch (e) {}
-        }
-      }
-      return true;
     }
 
     async function downloadBlob(blob, filename) {
@@ -5646,10 +5941,9 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
 
-    async function exportPunchlistPdf() {
-      const ready = await ensureJsPDFLibs();
-      if (!ready) {
-        toast('Could not load the PDF library. Check your connection and try again.');
+    function exportPunchlistPdf() {
+      if (typeof window.jspdf === 'undefined') {
+        toast('PDF library still loading… try again in a moment');
         return;
       }
       const items = getItems();
@@ -5894,10 +6188,7 @@ const IDB_NAME = "FieldPunchlistDB";
     const plExportPdf = document.getElementById('plExportPdf');
     if (plExportPdf) plExportPdf.addEventListener('click', () => {
       closePlExportSheet();
-      exportPunchlistPdf().catch(err => {
-        console.warn(err);
-        toast('Could not build PDF file');
-      });
+      exportPunchlistPdf();
     });
     const plExportXlsx = document.getElementById('plExportXlsx');
     if (plExportXlsx) plExportXlsx.addEventListener('click', () => {
@@ -5927,3 +6218,58 @@ const IDB_NAME = "FieldPunchlistDB";
   
     })();
   
+
+    function readFileDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+    }
+    window.attachInspectCameraPhoto = async function(file) {
+      if (!file) return;
+      const items = currentSectionItems();
+      const item = items[currentItemIndex];
+      if (!item) { toast('No item to attach to'); return; }
+      const itemId = item.item_id;
+      if (!results[itemId]) results[itemId] = {};
+      try {
+        let dataUrl = '';
+        try { dataUrl = await readFileDataUrl(file); } catch (e) { dataUrl = ''; }
+        try {
+          const blob = await compressImageFile(file, 1600, 0.72);
+          const id = 'ins_' + ((currentInspection && currentInspection.id) || 'draft') + '_' + itemId + '_' + Date.now();
+          await idbPutPhoto({ id, blob: blob || file, caption: '', createdAt: Date.now() });
+          results[itemId].photoId = id;
+          if (blob) dataUrl = await readFileDataUrl(blob).catch(() => dataUrl);
+        } catch (e) {}
+        if (!dataUrl) { toast('Could not attach photo'); return; }
+        results[itemId].photoDataUrl = dataUrl;
+        updateFindings();
+        saveCurrentDraft();
+        renderSection(false);
+        toast('Photo attached');
+      } catch (err) {
+        toast('Could not attach photo');
+      }
+    };
+    window.bindInspectCamFab = function() {
+      const fab = document.getElementById('fab-inspect-cam');
+      const input = document.getElementById('inspectCamInput');
+      if (!fab || !input) return;
+      if (fab.dataset.bound === '1') return;
+      fab.dataset.bound = '1';
+      fab.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        input.value = '';
+        input.click();
+      });
+      input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        input.value = '';
+        if (file) window.attachInspectCameraPhoto(file);
+      });
+    };
+    window.bindInspectCamFab();
