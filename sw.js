@@ -1,4 +1,4 @@
-const CACHE = 'lematic-fs-flat-v48';
+const CACHE = 'lematic-fs-flat-v52';
 const PRECACHE = [
   './',
   './index.html',

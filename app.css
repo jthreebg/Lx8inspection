@@ -5100,3 +5100,23 @@
       cursor: zoom-in;
       pointer-events: auto !important;
     }
+
+    #screenPunchlist .pl-item { position: relative; overflow: hidden; }
+    #screenPunchlist .pl-item.list-complete::before,
+    #screenPunchlist .pl-item.priority-high::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 5px;
+      border-radius: 16px 0 0 16px;
+    }
+    #screenPunchlist .pl-item.list-complete::before { background: #34d399; }
+    #screenPunchlist .pl-item.priority-high::before { background: #ff453a; }
+    html.theme-light #screenPunchlist .pl-item.list-complete {
+      background: linear-gradient(180deg, #f3fbf6 0%, #e8f7ef 100%) !important;
+      border-color: rgba(52,211,153,0.45) !important;
+    }
+    html.theme-light #screenPunchlist .pl-item.priority-high {
+      background: linear-gradient(180deg, #fff5f5 0%, #fdecec 100%) !important;
+      border-color: rgba(255,69,58,0.40) !important;
+    }

@@ -4717,6 +4717,8 @@ const ICO = {
       return (~c) >>> 0;
     }
     function zipStore(files) {
+      window.zipStore = zipStore;
+      window.crc32Bytes = crc32Bytes;
       const enc = new TextEncoder();
       const parts = [];
       const central = [];
@@ -5921,8 +5923,10 @@ const IDB_NAME = "FieldPunchlistDB";
 
       list.innerHTML = filtered.map(item => {
         const classes = ["pl-item"];
-        if (item.status === "Complete") classes.push("list-complete");
-        else if (item.priority === "High") classes.push("priority-high");
+        const st = String(item.status || "").toLowerCase();
+        const pri = String(item.priority || "").toLowerCase();
+        if (st === "complete" || st === "done" || st === "completed") classes.push("list-complete");
+        else if (pri === "high" || pri === "critical") classes.push("priority-high");
         return `
         <div class="${classes.join(" ")}" data-id="${item.id}" onclick="toggleItem(${item.id}, event)">
           <div class="list-item-main">
@@ -6760,7 +6764,7 @@ const IDB_NAME = "FieldPunchlistDB";
         toast('PDF library not available');
         return;
       }
-      const items = getItems();
+      const rawItems = (typeof getItems === 'function' ? getItems() : []) || [];
       const jobKey = data.currentJob || '';
       const jobName = (typeof punchlistDisplayName === 'function') ? punchlistDisplayName(jobKey) : (jobKey || 'Punchlist');
       const jobs = (typeof loadJobs === 'function') ? loadJobs() : [];
@@ -6823,20 +6827,36 @@ const IDB_NAME = "FieldPunchlistDB";
         if (v === 'complete' || v === 'done' || v === 'completed') return 'Complete';
         if (v === 'in progress' || v === 'progress') return 'In Progress';
         if (v.indexOf('waiting') >= 0) return 'Waiting Parts';
-        return String(s || '').trim() || 'Not Started';
+        return 'Not Started';
+      }
+      function statusRank(s) {
+        const n = normStatus(s);
+        if (n === 'Complete') return 4;
+        if (n === 'In Progress') return 2;
+        if (n === 'Waiting Parts') return 1;
+        return 0;
       }
 
-      const head = [['Item', 'Line', 'Location', 'Description', 'Action', 'Department', 'Comments', 'Status']];
-      const body = (items.length ? items : [{}]).map((item, idx) => [
-        idx + 1,
-        item.line || '',
-        item.location || '',
-        item.description || '',
-        item.action || '',
-        item.department || '',
-        item.comments || '',
-        normStatus(item.status)
-      ]);
+      const items = rawItems.slice().sort(function (a, b) {
+        const ra = statusRank(a && a.status);
+        const rb = statusRank(b && b.status);
+        if (ra !== rb) return ra - rb;
+        return 0;
+      });
+
+      const head = [['#', 'Line', 'Location', 'Description', 'Action', 'Department', 'Comments', 'Status']];
+      const body = (items.length ? items : [{}]).map(function (item, idx) {
+        return [
+          idx + 1,
+          item.line || '',
+          item.location || '',
+          item.description || '',
+          item.action || '',
+          item.department || '',
+          item.comments || '',
+          normStatus(item.status)
+        ];
+      });
 
       if (typeof doc.autoTable === 'function') {
         doc.autoTable({
@@ -6872,15 +6892,17 @@ const IDB_NAME = "FieldPunchlistDB";
           },
           didParseCell: function (data) {
             if (data.section !== 'body') return;
-            const status = String(data.row.raw[7] || '').toLowerCase();
-            const pri = String((items[data.row.index] || {}).priority || '').toLowerCase();
+            const status = String(data.row.raw[7] || '');
+            const sl = status.toLowerCase();
             if (data.column.index === 7) {
-              if (status === 'complete') data.cell.styles.textColor = [27, 122, 74];
-              else if (status === 'in progress') data.cell.styles.textColor = [10, 132, 255];
-              else if (status.indexOf('waiting') >= 0) data.cell.styles.textColor = [184, 134, 11];
               data.cell.styles.fontStyle = 'bold';
+              if (sl === 'complete') data.cell.styles.textColor = [27, 122, 74];
+              else if (sl === 'in progress') data.cell.styles.textColor = [10, 132, 255];
+              else if (sl.indexOf('waiting') >= 0) data.cell.styles.textColor = [184, 134, 11];
+              else data.cell.styles.textColor = [196, 57, 57];
             }
-            if (pri === 'high' || pri === 'critical') {
+            const pri = String((items[data.row.index] || {}).priority || '').toLowerCase();
+            if (sl !== 'complete' && (pri === 'high' || pri === 'critical')) {
               data.cell.styles.fillColor = [252, 232, 234];
             }
           },
@@ -6892,10 +6914,63 @@ const IDB_NAME = "FieldPunchlistDB";
         doc.text('Punchlist table requires the PDF table plugin.', L, 40);
       }
 
+      const photos = items.map(function (item, idx) {
+        return { item: item, num: idx + 1, src: item && item.photo };
+      }).filter(function (p) { return p.src && String(p.src).indexOf('data:image') === 0; });
+
+      if (photos.length) {
+        doc.addPage('letter', 'landscape');
+        paintChrome();
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(20, 20, 24);
+        doc.text('Photos', L, 16);
+        let x = L;
+        let y = 20;
+        const boxW = 88;
+        const boxH = 62;
+        const gap = 6;
+        photos.forEach(function (p, i) {
+          if (y + boxH + 12 > H - 10) {
+            doc.addPage('letter', 'landscape');
+            paintChrome();
+            x = L;
+            y = 16;
+          }
+          if (x + boxW > W - 8) {
+            x = L;
+            y += boxH + 14;
+            if (y + boxH + 12 > H - 10) {
+              doc.addPage('letter', 'landscape');
+              paintChrome();
+              x = L;
+              y = 16;
+            }
+          }
+          doc.setDrawColor(200, 204, 210);
+          doc.setFillColor(248, 249, 251);
+          doc.roundedRect(x, y, boxW, boxH, 1.5, 1.5, 'FD');
+          try {
+            const fmt = (String(p.src).indexOf('image/png') >= 0) ? 'PNG' : 'JPEG';
+            doc.addImage(p.src, fmt, x + 2, y + 2, boxW - 4, boxH - 12, undefined, 'FAST');
+          } catch (e) {}
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(20, 20, 24);
+          const cap = '#' + p.num + '  ' + String((p.item && (p.item.description || p.item.location || p.item.line)) || 'Photo').substring(0, 42);
+          doc.text(cap, x + 2, y + boxH - 3);
+          x += boxW + gap;
+        });
+      }
+
       const safe = String(jobName).replace(/[\\/:*?"<>|]/g, '-').trim() || 'Punchlist';
       doc.save(safe + ' Punchlist.pdf');
       toast('Punchlist PDF downloaded');
     }
+
+
+    
+    
 
 
     async function exportPunchlistExcel() {
@@ -6967,6 +7042,40 @@ const IDB_NAME = "FieldPunchlistDB";
           const ref = String(cf.ref);
           if (ref.indexOf("F6") === 0) cf.ref = "F6:F" + last;
           if (ref.indexOf("H6") === 0) cf.ref = "H6:H" + last;
+        });
+      }
+
+      const photoItems = items.map((item, idx) => ({ item, num: idx + 1 })).filter(p => p.item && p.item.photo && String(p.item.photo).indexOf('data:image') === 0);
+      if (photoItems.length) {
+        const pws = wb.addWorksheet('Photos', { properties: { tabColor: { argb: 'FFD4223B' } } });
+        pws.getColumn(1).width = 12;
+        pws.getColumn(2).width = 48;
+        pws.getColumn(3).width = 48;
+        pws.getCell('A1').value = 'Item';
+        pws.getCell('B1').value = 'Description';
+        pws.getCell('C1').value = 'Photo';
+        ['A1','B1','C1'].forEach(addr => {
+          pws.getCell(addr).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          pws.getCell(addr).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF141418' } };
+        });
+        photoItems.forEach((p, i) => {
+          const rowIdx = i + 2;
+          const row = pws.getRow(rowIdx);
+          row.height = 120;
+          row.getCell(1).value = p.num;
+          row.getCell(2).value = p.item.description || p.item.location || p.item.line || '';
+          row.getCell(2).alignment = { wrapText: true, vertical: 'top' };
+          try {
+            const src = String(p.item.photo);
+            const isPng = src.indexOf('image/png') >= 0;
+            const base64 = src.replace(/^data:image\/[^;]+;base64,/, '');
+            const imgId = wb.addImage({ base64: base64, extension: isPng ? 'png' : 'jpeg' });
+            pws.addImage(imgId, {
+              tl: { col: 2, row: rowIdx - 1 },
+              ext: { width: 220, height: 150 },
+              editAs: 'oneCell'
+            });
+          } catch (e) {}
         });
       }
 
