@@ -1545,6 +1545,27 @@
     #screenJobForm {
       padding-bottom: var(--locked-bar-space);
     }
+    
+    #screenPunchlistEdit {
+      padding-bottom: var(--locked-bar-space, 90px);
+    }
+    #screenPunchlistEdit #plEditDelete {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: calc(100% - 32px);
+      max-width: 488px;
+      height: 48px;
+      min-height: 48px;
+      max-height: 48px;
+      margin: 8px 16px 12px;
+      padding: 0 16px;
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 48px;
+      border-radius: var(--radius-pill);
+      box-sizing: border-box;
+    }
     #screenJobForm #btnDeleteJob {
       display: flex;
       align-items: center;
@@ -2409,8 +2430,17 @@
       padding: 24px;
     }
 
-    .modal-backdrop.show {
-      display: flex;
+    .modal-backdrop.show,
+    #deleteModal.show {
+      display: flex !important;
+      z-index: 30000 !important;
+      pointer-events: auto !important;
+    }
+    #deleteModal .modal-sheet,
+    #deleteModal .modal-actions,
+    #deleteModalConfirm,
+    #deleteModalCancel {
+      pointer-events: auto !important;
     }
     .modal-sheet {
       width: 100%;
@@ -4373,8 +4403,6 @@
       background: #000000 !important;
       z-index: 400;
     }
-    body.kb-open #pl-modal .btn-row,
-    body.kb-open #pl-modal .pl-item-bar,
     body.kb-open #screenJobForm .btn-row,
     body.kb-open #screenStart .btn-row,
     body.kb-open .btn-row.tc-edit-bar {
@@ -4382,6 +4410,13 @@
       visibility: hidden !important;
       opacity: 0 !important;
       pointer-events: none !important;
+    }
+    #pl-modal.show .btn-row,
+    #pl-modal.show .pl-item-bar {
+      display: flex !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      pointer-events: auto !important;
     }
 
 
@@ -4980,4 +5015,88 @@
       background: #ffffff !important;
       color: #111827 !important;
       border-color: rgba(15,23,42,0.18) !important;
+    }
+
+    /* Light mode: item sheet header matches card */
+    html.theme-light #pl-modal .modal,
+    html.theme-light #modal-sheet,
+    html.theme-light #pl-modal .modal-header,
+    html.theme-light #pl-modal .modal-body {
+      background: #ffffff !important;
+    }
+    html.theme-light #pl-modal .modal-header {
+      border-bottom-color: rgba(15, 23, 42, 0.08) !important;
+    }
+    html.theme-light #pl-modal .modal-handle {
+      background: rgba(15, 23, 42, 0.22) !important;
+    }
+
+    /* Time card clock buttons: no grey bar */
+    html.theme-light .tc-status-card .btn-row,
+    html.theme-light #tcStatusCard .btn-row,
+    html.theme-light #screenTime .tc-status-card .btn-row {
+      background: transparent !important;
+      box-shadow: none !important;
+      border: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      position: static !important;
+      padding: 0 !important;
+      margin: 16px 0 0 !important;
+    }
+
+    /* Inspection section title under tabs */
+    html.theme-light #sectionName {
+      color: #1c1c1e !important;
+    }
+    html.theme-light #sectionCounter,
+    html.theme-light #itemProgress {
+      color: #4b5563 !important;
+    }
+
+    /* Camera on each inspection card; hide floating FAB */
+    #fab-inspect-cam,
+    body.inspect-active #fab-inspect-cam {
+      display: none !important;
+    }
+    .item-card-cam-btn {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      margin: 0;
+      border: none;
+      border-radius: 50%;
+      background: #e8eef2;
+      color: #0d0d0f;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 3;
+      cursor: pointer;
+    }
+    .item-card-cam-btn svg {
+      width: 20px;
+      height: 20px;
+      display: block;
+    }
+    .item-card-cam-btn:active { transform: scale(0.94); background: #d5dce2; }
+    html.theme-light .item-card-cam-btn {
+      background: #e8eaee;
+      color: #111827;
+    }
+    .item-card { padding-right: 58px; }
+
+    #inspectJobSelect {
+      pointer-events: auto !important;
+      opacity: 1 !important;
+    }
+    .item-card .photo-preview,
+    .item-card .photo-area.has-photo,
+    #findingsList .photo-preview {
+      cursor: zoom-in;
+      pointer-events: auto !important;
     }

@@ -474,6 +474,7 @@ const ICO = {
       document.body.classList.toggle('on-time', id === 'screenTime' || id === 'screenTimeEdit');
       document.body.classList.toggle('on-settings', id === 'screenSettings');
       document.body.classList.toggle('on-punchlist', id === 'screenPunchlist');
+      document.body.classList.toggle('on-pl-edit', id === 'screenPunchlistEdit');
       document.body.classList.toggle('on-jobs-list', id === 'screenJobsList');
       const fab = document.getElementById('fab-add');
       if (fab) {
@@ -531,6 +532,105 @@ const ICO = {
     let searchQuery = '';
 
 
+
+    let editingPunchlistKey = '';
+    let punchlistEditIsNew = false;
+
+    function fillPunchlistEditJobSelect(selectedId) {
+      const sel = document.getElementById('plEditJob');
+      if (!sel) return;
+      const jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
+      let html = '<option value="">— No job —</option>';
+      jobs.forEach(j => {
+        if (!j || !j.id) return;
+        const label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : (j.customer || 'Job');
+        if (typeof isInternalId === 'function' && isInternalId(label)) return;
+        const selAttr = selectedId && selectedId === j.id ? ' selected' : '';
+        html += '<option value="' + String(j.id).replace(/"/g, '&quot;') + '"' + selAttr + '>' + String(label).replace(/</g, '&lt;') + '</option>';
+      });
+      sel.innerHTML = html;
+    }
+
+    function openPunchlistEdit(key, opts) {
+      opts = opts || {};
+      punchlistEditIsNew = !!opts.isNew;
+      editingPunchlistKey = key || '';
+      const heading = document.getElementById('plEditHeading');
+      if (heading) heading.textContent = punchlistEditIsNew ? 'New punchlist' : 'Edit punchlist';
+      const nameEl = document.getElementById('plEditName');
+      let currentName = (typeof punchlistDisplayName === 'function') ? punchlistDisplayName(key) : '';
+      if (typeof isInternalId === 'function' && isInternalId(currentName)) currentName = '';
+      if (nameEl) {
+        nameEl.value = punchlistEditIsNew ? '' : currentName;
+        nameEl.placeholder = 'Punchlist name';
+      }
+      let jobId = '';
+      try {
+        if (typeof window.getPunchlistJobId === 'function') jobId = window.getPunchlistJobId(key) || '';
+      } catch (e) {}
+      if (!jobId && opts.job && opts.job.id) jobId = opts.job.id;
+      fillPunchlistEditJobSelect(jobId);
+      showScreen('screenPunchlistEdit');
+      setHeader('Punchlist');
+      document.body.classList.add('on-pl-edit');
+      setTimeout(() => { try { if (nameEl) nameEl.focus(); } catch (e) {} }, 80);
+    }
+
+    function requestDeletePunchlist() {
+      const key = editingPunchlistKey || ((typeof window.getCurrentPunchlistKey === 'function') ? window.getCurrentPunchlistKey() : '');
+      if (!key) { toast('No punchlist to delete'); return; }
+      const name = (typeof punchlistDisplayName === 'function') ? punchlistDisplayName(key) : 'Punchlist';
+      if (typeof showDeleteConfirm === 'function') {
+        showDeleteConfirm(key, 'punchlist', 'Delete punchlist?', '"' + name + '" and its items will be permanently deleted.');
+      } else {
+        pendingDeleteId = key;
+        pendingDeleteKind = 'punchlist';
+        const modal = document.getElementById('deleteModal');
+        document.getElementById('deleteModalTitle').textContent = 'Delete punchlist?';
+        document.getElementById('deleteModalLabel').textContent = '"' + name + '" and its items will be permanently deleted.';
+        modal.classList.remove('hidden');
+        modal.classList.add('show');
+      }
+    }
+
+    async function savePunchlistEdit() {
+      const key = editingPunchlistKey;
+      if (!key) { toast('Punchlist not found'); return; }
+      const nameEl = document.getElementById('plEditName');
+      let name = ((nameEl && nameEl.value) || '').trim() || 'Punchlist';
+      if (typeof isInternalId === 'function' && isInternalId(name)) { toast('Choose a different name'); return; }
+      const jobSel = document.getElementById('plEditJob');
+      const jobId = jobSel ? jobSel.value : '';
+      if (typeof window.updatePunchlistMeta !== 'function') { toast('Could not save'); return; }
+      await window.updatePunchlistMeta(key, name, jobId);
+      document.body.classList.remove('on-pl-edit');
+      editingPunchlistKey = '';
+      punchlistEditIsNew = false;
+      showScreen('screenPunchlist');
+      setHeader('Punchlist');
+      if (typeof populateJobSelect === 'function') populateJobSelect();
+      if (typeof window.renderList === 'function') window.renderList();
+      toast('Saved ' + name);
+    }
+
+    function cancelPunchlistEdit() {
+      document.body.classList.remove('on-pl-edit');
+      const wasNew = punchlistEditIsNew;
+      punchlistEditIsNew = false;
+      editingPunchlistKey = '';
+      if (wasNew) {
+        if (typeof openPunchlistRecentList === 'function') openPunchlistRecentList();
+        else {
+          showScreen('screenPunchlistList');
+          setHeader('Punchlist');
+          if (typeof refreshPunchlistHome === 'function') refreshPunchlistHome();
+        }
+        return;
+      }
+      showScreen('screenPunchlist');
+      setHeader('Punchlist');
+    }
+
     let linkingPunchlistName = '';
     function fillPunchlistJobSelect(selectedId) {
       const sel = document.getElementById('plLinkJobSelect');
@@ -539,7 +639,7 @@ const ICO = {
       let html = '<option value="">— No job —</option>';
       jobs.forEach(j => {
         if (!j || !j.id) return;
-        const label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : (j.customer || j.id);
+        const label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : (j.customer || 'Job');
         const selAttr = selectedId && selectedId === j.id ? ' selected' : '';
         html += '<option value="' + String(j.id).replace(/"/g, '&quot;') + '"' + selAttr + '>' + String(label).replace(/</g, '&lt;') + '</option>';
       });
@@ -617,7 +717,7 @@ const ICO = {
               ? row.jobLabel
               : 'No job linked';
             return `
-              <div class="list-item ${rowTone}" data-job-name="${String(row.name).replace(/"/g, '&quot;')}" data-job-id="${String(row.jobId || '').replace(/"/g, '&quot;')}">
+              <div class="list-item ${rowTone}" data-job-name="${String(row.key || row.name).replace(/"/g, '&quot;')}" data-job-id="${String(row.jobId || '').replace(/"/g, '&quot;')}">
                 <div class="list-item-main" data-action="open">
                   <div class="title">${row.name}</div>
                   <div class="sub">${jobLine}</div>
@@ -644,7 +744,7 @@ const ICO = {
             if (editBtn) editBtn.addEventListener('click', (e) => {
               e.preventDefault();
               e.stopPropagation();
-              openPunchlistLinkSheet(name);
+              openPunchlistEdit(name, { isNew: false });
             });
           });
           return;
@@ -1140,18 +1240,18 @@ const ICO = {
     }
     function loadJobs() {
       if (storeMem.jobs) {
-        storeMem.jobs = ensureSampleJob(storeMem.jobs);
+        storeMem.jobs = ensureJobsIdentities(ensureSampleJob(storeMem.jobs));
         if (applyJobStatuses(storeMem.jobs)) saveJobs(storeMem.jobs);
         return storeMem.jobs;
       }
       const raw = lsRead('lx8_jobs', []);
-      storeMem.jobs = ensureSampleJob(Array.isArray(raw) ? raw : []);
+      storeMem.jobs = ensureJobsIdentities(ensureSampleJob(Array.isArray(raw) ? raw : []));
       try { saveJobs(storeMem.jobs); } catch (e) {}
       return storeMem.jobs;
     }
 
     function saveJobs(list) {
-      storeMem.jobs = Array.isArray(list) ? list : [];
+      storeMem.jobs = ensureJobsIdentities(Array.isArray(list) ? list : []);
       const ok = lsWrite('lx8_jobs', storeMem.jobs);
       if (!ok) {
         try {
@@ -1425,6 +1525,73 @@ const ICO = {
       refreshJobDetail();
     }
 
+
+    function jobDetailTimecardEntries(job) {
+      let entries = [];
+      try {
+        if (typeof window.tcLoad === 'function') window.tcLoad();
+      } catch (e) {}
+      try {
+        if (window.tcState && Array.isArray(window.tcState.entries)) entries = window.tcState.entries;
+      } catch (e) {}
+      if (!entries.length) {
+        try {
+          const raw = JSON.parse(localStorage.getItem('lx8_timecards') || 'null');
+          if (raw && Array.isArray(raw.entries)) entries = raw.entries;
+        } catch (e) {}
+      }
+      if (!job) return entries.slice();
+      const match = (typeof window.tcEntryMatchesJob === 'function')
+        ? (en) => window.tcEntryMatchesJob(en, job)
+        : (en) => !!(en && job && en.jobId && job.id && String(en.jobId) === String(job.id));
+      return entries.filter(match);
+    }
+    function jobDetailEntryHours(en) {
+      try {
+        if (typeof window.tcEntryHours === 'function') return Number(window.tcEntryHours(en) || 0);
+      } catch (e) {}
+      if (!en) return 0;
+      if (en.manualHours != null && en.manualHours !== '' && !isNaN(Number(en.manualHours))) return Number(en.manualHours);
+      if (en.clockIn && en.clockOut) return Math.max(0, (Number(en.clockOut) - Number(en.clockIn)) / 3600000);
+      return 0;
+    }
+    function renderJobDetailTimecards(job) {
+      const rows = jobDetailTimecardEntries(job).slice().sort((a, b) => {
+        const av = Number(a.clockIn || Date.parse(a.date || '') || 0);
+        const bv = Number(b.clockIn || Date.parse(b.date || '') || 0);
+        return bv - av;
+      });
+      let total = 0;
+      rows.forEach(en => { total += jobDetailEntryHours(en); });
+      total = Math.round(total * 100) / 100;
+      const hv = document.getElementById('jdHoursValue');
+      if (hv) hv.textContent = rows.length ? (total.toFixed(2) + ' h on this job') : 'No hours yet';
+      const listEl = document.getElementById('jobDetailTimeList');
+      if (!listEl) return;
+      if (!rows.length) {
+        listEl.innerHTML = '<div class="empty-state compact"><p>No time cards linked to this job yet.</p></div>';
+        return;
+      }
+      listEl.innerHTML = rows.map(en => {
+        const hrs = jobDetailEntryHours(en);
+        const day = en.date || '';
+        const type = en.type ? String(en.type) : '';
+        return '<div class="list-item" data-tc-id="' + String(en.id || '').replace(/"/g, '&quot;') + '">' +
+          '<div class="list-item-main" data-action="open-tc">' +
+          '<div class="title">' + jobEsc(day || 'Time entry') + '</div>' +
+          '<div class="sub">' + jobEsc([hrs.toFixed(2) + ' h', type].filter(Boolean).join(' · ')) + '</div>' +
+          '</div></div>';
+      }).join('');
+      listEl.querySelectorAll('[data-action="open-tc"]').forEach(el => {
+        el.addEventListener('click', () => {
+          const id = el.closest('.list-item') && el.closest('.list-item').getAttribute('data-tc-id');
+          const open = window.tcOpenEdit || (typeof tcOpenEdit === 'function' ? tcOpenEdit : null);
+          const cards = window.openTimeCards || (typeof openTimeCards === 'function' ? openTimeCards : null);
+          if (id && open) open(id);
+          else if (cards) cards();
+        });
+      });
+    }
     async function refreshJobDetail() {
       const job = loadJobs().find(j => j.id === detailJobId);
       if (!job) {
@@ -1450,13 +1617,7 @@ const ICO = {
       document.getElementById('jdTech').textContent = dash(job.technician);
       document.getElementById('jdDates').textContent = formatJobDateRange(job) || '—';
       document.getElementById('jdPO').textContent = dash(job.po);
-      try {
-        const hv = document.getElementById('jdHoursValue');
-        if (hv && typeof tcHoursForJob === 'function') {
-          const h = tcHoursForJob(job.id);
-          hv.textContent = h.toFixed(2) + ' h on this job';
-        }
-      } catch (e) {}
+      renderJobDetailTimecards(job);
 
       const scopeCard = document.getElementById('jobDetailScopeCard');
       const scope = (job.scope || '').trim();
@@ -1662,6 +1823,8 @@ const ICO = {
         date: job.date || new Date().toISOString().slice(0, 10),
         po: job.po || '',
         jobId: job.id,
+        bakeryId: bakeryIdFromJob(job),
+        machineId: serial ? machineIdFromSerial(serial) : '',
         status: 'Draft',
         results: {},
         findings: [],
@@ -1695,11 +1858,9 @@ const ICO = {
           toast('Punchlist not ready');
           return;
         }
-        await window.openPunchlistForJob(job);
-        showScreen('screenPunchlist');
-        setHeader('Punchlist');
-        if (typeof window.renderList === 'function') window.renderList();
-        toast('Punchlist: ' + jobDisplayName(job));
+        const key = await window.createPunchlistForJob(job);
+        openPunchlistEdit(key, { isNew: true, job: job });
+        return;
       } catch (e) {
         console.error(e);
         toast('Could not open punchlist');
@@ -1754,11 +1915,11 @@ const ICO = {
         toast('Job updated');
       } else {
         const newId = 'job_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-        list.unshift({
+        list.unshift(ensureJobIdentity({
           id: newId,
           createdAt: new Date().toISOString(),
           ...payload
-        });
+        }));
         editingJobId = newId;
         toast('Job saved');
       }
@@ -1780,7 +1941,7 @@ const ICO = {
     }
 
     function deleteJobCurrent() {
-      const id = editingJobId;
+      const id = editingJobId || detailJobId;
       if (!id) {
         toast('No job to delete');
         return;
@@ -1849,12 +2010,30 @@ const ICO = {
       modal.setAttribute('aria-hidden', 'false');
     }
 
+
+    function showDeleteConfirm(id, kind, title, label) {
+      pendingDeleteId = id;
+      pendingDeleteKind = kind || 'inspection';
+      const titleEl = document.getElementById('deleteModalTitle');
+      const labelEl = document.getElementById('deleteModalLabel');
+      const modal = document.getElementById('deleteModal');
+      if (titleEl) titleEl.textContent = title || 'Delete?';
+      if (labelEl) labelEl.textContent = label || 'This cannot be undone.';
+      if (!modal) { toast('Delete dialog missing'); return; }
+      modal.classList.remove('hidden');
+      modal.classList.add('show');
+      modal.style.display = 'flex';
+      modal.style.zIndex = '30000';
+      modal.setAttribute('aria-hidden', 'false');
+    }
     function closeDeleteModal() {
       pendingDeleteId = null;
       pendingDeleteKind = 'inspection';
       const modal = document.getElementById('deleteModal');
       modal.classList.add('hidden');
       modal.classList.remove('show');
+      modal.style.display = '';
+      modal.style.zIndex = '';
       modal.setAttribute('aria-hidden', 'true');
     }
 
@@ -1922,12 +2101,25 @@ const ICO = {
         closeDeleteModal();
         return;
       }
-      if (kind === 'visit') performDeleteVisit(id);
-      else if (kind === 'job') performDeleteJob(id);
-      else if (kind === 'punchlist-item') performDeletePunchlistItem(id);
-      else if (kind === 'punchlist-photo') { removePhoto(); closePunchlistPhoto(); closeDeleteModal(); }
-      else if (kind === 'timecard') performDeleteTimecard(id);
-      else performDeleteInspection(id);
+      const run = (fn, arg) => {
+        const impl = (typeof fn === 'function') ? fn : null;
+        if (!impl) { toast('Delete failed'); closeDeleteModal(); return; }
+        impl(arg);
+      };
+      if (kind === 'visit') run(window.performDeleteVisit || performDeleteVisit, id);
+      else if (kind === 'job') run(window.performDeleteJob || performDeleteJob, id);
+      else if (kind === 'punchlist-item') run(window.performDeletePunchlistItem || performDeletePunchlistItem, id);
+      else if (kind === 'punchlist-photo') {
+        const fn = window.removePhoto || removePhoto;
+        if (typeof fn === 'function') fn();
+        if (typeof closePunchlistPhoto === 'function') closePunchlistPhoto();
+        closeDeleteModal();
+        toast('Photo deleted');
+      }
+      else if (kind === 'punchlist') run(window.performDeletePunchlist || performDeletePunchlist, id);
+      else if (kind === 'timecard') run(window.performDeleteTimecard, id);
+      else if (kind === 'inspect-photo') run(window.performDeleteInspectPhoto || performDeleteInspectPhoto, id);
+      else run(window.performDeleteInspection || performDeleteInspection, id);
     });
 
     // Tap backdrop to cancel
@@ -1970,10 +2162,10 @@ const ICO = {
       document.getElementById('customerList').innerHTML = customers.map(c => `<option value="${c}">`).join('');
       // Linked job chip
       linkedJobIdForStart = ins.jobId || null;
-      if (ins.jobId && typeof loadJobs === 'function') {
-        const linked = loadJobs().find(j => j.id === ins.jobId);
-        applyJobToInspectionForm(linked || { id: ins.jobId, customer: ins.customer, technician: ins.technician, date: ins.date, po: ins.po });
-        // re-apply inspection values (applyJob may overwrite)
+      fillInspectJobSelect(ins.jobId || '');
+      const group = document.getElementById('jobLinkGroup');
+      if (group) group.classList.remove('hidden');
+      if (true) {
         document.getElementById('inpCustomer').value = ins.customer || '';
         document.getElementById('inpModel').value = ins.model || 'LX-8';
         document.getElementById('inpSerial').value = ins.serial || '';
@@ -2004,10 +2196,9 @@ const ICO = {
       document.getElementById('inpDate').value = new Date().toISOString().slice(0, 10);
       document.getElementById('inpPO').value = '';
       linkedJobIdForStart = null;
+      fillInspectJobSelect('');
       const group = document.getElementById('jobLinkGroup');
-      if (group) group.classList.add('hidden');
-      const chip = document.getElementById('jobLinkChip');
-      if (chip) chip.textContent = '—';
+      if (group) group.classList.remove('hidden');
       // Autocomplete suggestions only (does not fill the fields)
       const list = loadInspections();
       const customers = [...new Set(list.map(i => i.customer).filter(Boolean))];
@@ -2097,7 +2288,7 @@ const ICO = {
           const rows = typeof window.getPunchlistSummaries === 'function'
             ? await window.getPunchlistSummaries()
             : [];
-          const match = rows.find(r => r.name === last);
+          const match = rows.find(r => r && (r.name === last || r.key === last || r.jobId === last));
           // Resume when the list exists and is "in progress":
           // empty (ready to capture) or has open items. If fully complete, show All lists.
           if (match) {
@@ -2274,10 +2465,48 @@ const ICO = {
     let pendingJobPickPurpose = null; // 'inspection' | 'punchlist'
     let linkedJobIdForStart = null;
 
+
+    function newEntityId(prefix) {
+      return String(prefix || 'id') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+    function isInternalId(value) {
+      return /^(job|ins|pl|tc|vis|bakery|machine)_/i.test(String(value || '').trim());
+    }
+    function slugId(prefix, text) {
+      const s = String(text || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+      return s ? (prefix + '_' + s) : '';
+    }
+    function bakeryIdFromJob(job) {
+      if (!job) return '';
+      return job.bakeryId || slugId('bakery', job.customer || job.site || '');
+    }
+    function machineIdFromSerial(serial) {
+      return slugId('machine', serial);
+    }
+    function ensureJobIdentity(job) {
+      if (!job || typeof job !== 'object') return job;
+      if (!job.id || !isInternalId(job.id)) job.id = newEntityId('job');
+      if (!job.bakeryId) job.bakeryId = bakeryIdFromJob(job);
+      const serials = Array.isArray(job.serials) ? job.serials : (job.serial ? [job.serial] : []);
+      job.serials = serials.filter(Boolean);
+      job.machineIds = job.serials.map(machineIdFromSerial).filter(Boolean);
+      if (!job.createdAt) job.createdAt = new Date().toISOString();
+      return job;
+    }
+    function ensureJobsIdentities(list) {
+      const out = (list || []).map(ensureJobIdentity);
+      return out;
+    }
+    function jobById(id) {
+      if (!id) return null;
+      return (loadJobs() || []).find(j => j && j.id === id) || null;
+    }
     function jobDisplayName(job) {
       if (!job) return 'Job';
-      const site = (job.site || '').trim();
-      return site ? (job.customer || 'Job') + ' – ' + site : (job.customer || 'Job');
+      const customer = String(job.customer || '').trim();
+      const site = String(job.site || '').trim();
+      const label = site ? ((customer || 'Job') + ' – ' + site) : (customer || 'Job');
+      return isInternalId(label) ? 'Job' : label;
     }
 
     function jobSubLine(job) {
@@ -2291,7 +2520,24 @@ const ICO = {
     }
 
     function punchlistKeyForJob(job) {
-      return jobDisplayName(job);
+      if (!job) return '';
+      ensureJobIdentity(job);
+      return job.id;
+    }
+    function punchlistDisplayName(keyOrJob) {
+      if (!keyOrJob) return 'Punchlist';
+      if (typeof keyOrJob === 'object') return jobDisplayName(keyOrJob);
+      const key = String(keyOrJob);
+      try {
+        if (typeof window.getPunchlistName === 'function') {
+          const named = window.getPunchlistName(key);
+          if (named && !isInternalId(named)) return named;
+        }
+      } catch (e) {}
+      if (!isInternalId(key)) return key;
+      const job = jobById(key);
+      if (job) return jobDisplayName(job);
+      return 'Punchlist';
     }
 
     function ensurePunchlistBucketForJob(job) {
@@ -2363,30 +2609,73 @@ const ICO = {
       modal.setAttribute('aria-hidden', 'false');
     }
 
+    function fillInspectJobSelect(selectedId) {
+      const sel = document.getElementById('inspectJobSelect');
+      if (!sel) return;
+      if (typeof tcJobOptionsHtml === 'function') {
+        sel.innerHTML = tcJobOptionsHtml(selectedId || '');
+      } else {
+        const jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
+        let html = '<option value="">— No job —</option>';
+        jobs.forEach(j => {
+          if (!j || !j.id) return;
+          const label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : (j.customer || 'Job');
+          const selAttr = selectedId && selectedId === j.id ? ' selected' : '';
+          html += '<option value="' + String(j.id).replace(/"/g, '&quot;') + '"' + selAttr + '>' + String(label).replace(/</g, '&lt;') + '</option>';
+        });
+        sel.innerHTML = html;
+      }
+      sel.disabled = false;
+      sel.removeAttribute('disabled');
+      if (selectedId) {
+        sel.value = selectedId;
+        if (sel.value !== selectedId) {
+          const opt = document.createElement('option');
+          opt.value = selectedId;
+          opt.textContent = 'Current job';
+          opt.selected = true;
+          sel.appendChild(opt);
+          sel.value = selectedId;
+        }
+      }
+    }
     function applyJobToInspectionForm(job) {
       linkedJobIdForStart = job ? job.id : null;
       const group = document.getElementById('jobLinkGroup');
-      const chip = document.getElementById('jobLinkChip');
+      if (group) group.classList.remove('hidden');
+      fillInspectJobSelect(job ? job.id : (linkedJobIdForStart || ''));
       if (job) {
-        if (group) group.classList.remove('hidden');
-        if (chip) {
-          const sub = jobSubLine(job);
-          chip.innerHTML = jobEsc(jobDisplayName(job)) + (sub ? `<span class="jl-sub">${jobEsc(sub)}</span>` : '');
-        }
-        document.getElementById('inpCustomer').value = job.customer || '';
-        document.getElementById('inpTechnician').value = job.technician || profileName() || '';
-        document.getElementById('inpDate').value = job.date || new Date().toISOString().slice(0, 10);
-        document.getElementById('inpPO').value = job.po || '';
-        // Prefer site as a helpful default for serial/location context only if serial empty
-        if (job.site && !document.getElementById('inpSerial').value) {
+        const cust = document.getElementById('inpCustomer');
+        const tech = document.getElementById('inpTechnician');
+        const date = document.getElementById('inpDate');
+        const po = document.getElementById('inpPO');
+        if (cust && !cust.value) cust.value = job.customer || '';
+        if (tech && !tech.value) tech.value = job.technician || ((typeof profileName === 'function') ? profileName() : '') || '';
+        if (date && !date.value) date.value = job.date || new Date().toISOString().slice(0, 10);
+        if (po && !po.value) po.value = job.po || '';
+        if (job.site && document.getElementById('inpSerial') && !document.getElementById('inpSerial').value) {
           document.getElementById('inpSerial').placeholder = job.site;
         }
-      } else {
-        linkedJobIdForStart = null;
-        if (group) group.classList.add('hidden');
-        if (chip) chip.textContent = '—';
       }
     }
+    (function bindInspectJobSelect() {
+      const sel = document.getElementById('inspectJobSelect');
+      if (!sel || sel.dataset.bound === '1') return;
+      sel.dataset.bound = '1';
+      sel.addEventListener('change', () => {
+        const id = sel.value || '';
+        linkedJobIdForStart = id || null;
+        if (!id) return;
+        const job = (typeof loadJobs === 'function' ? loadJobs() : []).find(j => j && j.id === id);
+        if (!job) return;
+        const cust = document.getElementById('inpCustomer');
+        if (cust) cust.value = job.customer || cust.value;
+        const tech = document.getElementById('inpTechnician');
+        if (tech && !tech.value) tech.value = job.technician || ((typeof profileName === 'function') ? profileName() : '') || '';
+        const model = document.getElementById('inpModel');
+        if (model && job.machine) model.value = job.machine;
+      });
+    })();
 
     async function onJobPicked(jobId) {
       const purpose = pendingJobPickPurpose;
@@ -2525,11 +2814,9 @@ const ICO = {
           toast('Punchlist not ready');
           return;
         }
-        const label = await window.openPunchlistForJob(job || null);
-        showScreen('screenPunchlist');
-        setHeader('Punchlist');
-        if (typeof window.renderList === 'function') window.renderList();
-        toast(job ? ('Punchlist: ' + jobDisplayName(job)) : 'Punchlist (no job)');
+        const key = await window.createPunchlistForJob(job || null);
+        openPunchlistEdit(key, { isNew: true, job: job || null });
+        return;
       } catch (err) {
         console.error(err);
         toast('Could not open punchlist');
@@ -2539,6 +2826,37 @@ const ICO = {
       closeSearch();
       startInspectionForJob(getActiveCurrentJob());
     });
+    
+    (function bindPunchlistEditUi() {
+      const save = document.getElementById('plEditSave');
+      const cancel = document.getElementById('plEditCancel');
+      const rename = document.getElementById('btnRenamePunchlist');
+      if (save && save.dataset.bound !== '1') {
+        save.dataset.bound = '1';
+        save.addEventListener('click', () => { savePunchlistEdit().catch(err => { console.error(err); toast('Could not save'); }); });
+      }
+      if (cancel && cancel.dataset.bound !== '1') {
+        cancel.dataset.bound = '1';
+        cancel.addEventListener('click', cancelPunchlistEdit);
+      }
+      const delPl = document.getElementById('plEditDelete');
+      if (delPl && delPl.dataset.bound !== '1') {
+        delPl.dataset.bound = '1';
+        delPl.addEventListener('click', (e) => {
+          e.preventDefault();
+          requestDeletePunchlist();
+        });
+      }
+      if (rename && rename.dataset.bound !== '1') {
+        rename.dataset.bound = '1';
+        rename.addEventListener('click', () => {
+          const key = (typeof window.getCurrentPunchlistKey === 'function') ? window.getCurrentPunchlistKey() : '';
+          if (!key) { toast('No punchlist'); return; }
+          openPunchlistEdit(key, { isNew: false });
+        });
+      }
+    })();
+
     document.getElementById('btnNewPunchlist').addEventListener('click', () => {
       closeSearch();
       startPunchlistForCurrentJob(getActiveCurrentJob());
@@ -2582,7 +2900,10 @@ const ICO = {
         list[idx].technician = tech;
         list[idx].date = date;
         list[idx].po = po;
-        if (linkedJobIdForStart) list[idx].jobId = linkedJobIdForStart;
+        const jobSel = document.getElementById('inspectJobSelect');
+        const pickedJob = (jobSel && jobSel.value) ? jobSel.value : (linkedJobIdForStart || null);
+        list[idx].jobId = pickedJob || null;
+        linkedJobIdForStart = pickedJob || null;
         list[idx].updatedAt = new Date().toISOString();
         saveInspections(list);
         currentInspection = list[idx];
@@ -2605,7 +2926,7 @@ const ICO = {
         technician: tech,
         date,
         po,
-        jobId: linkedJobIdForStart || null,
+        jobId: (document.getElementById('inspectJobSelect') && document.getElementById('inspectJobSelect').value) || linkedJobIdForStart || null,
         status: 'Draft',
         results: {},
         findings: [],
@@ -2974,6 +3295,7 @@ const ICO = {
 
         return `
           <div class="${cardClass}" id="item-${item.item_id}">
+            <button type="button" class="item-card-cam-btn" data-item="${item.item_id}" title="Add photo" aria-label="Add photo"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.8 8.2h2.1l1.15-1.7h7.9l1.15 1.7H19.2A1.8 1.8 0 0 1 21 10v8.2A1.8 1.8 0 0 1 19.2 20H4.8A1.8 1.8 0 0 1 3 18.2V10a1.8 1.8 0 0 1 1.8-1.8z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="14.1" r="3.05" stroke="currentColor" stroke-width="1.8"/></svg></button>
             <div class="item-title" data-answer="${compact ? (res.condition || '') : ''}">${item.inspection_item}</div>
             ${photoHtml}
             <div class="choice-grid">${choiceHtml}</div>
@@ -2990,6 +3312,28 @@ const ICO = {
         }
         inspectSlideDir = null;
       }
+
+      container.querySelectorAll('.item-card .photo-preview').forEach(img => {
+        img.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const card = img.closest('.item-card');
+          const raw = card && card.id ? String(card.id).replace(/^item-/, '') : '';
+          if (typeof openPhotoViewer === 'function') openPhotoViewer(img.src, 'inspect', raw);
+          else if (typeof openPunchlistPhoto === 'function') openPunchlistPhoto(e, img.src);
+        });
+      });
+      container.querySelectorAll('.item-card-cam-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          window.__inspectCamItemId = btn.getAttribute('data-item');
+          const input = document.getElementById('inspectCamInput');
+          if (!input) { toast('Camera not ready'); return; }
+          input.value = '';
+          input.click();
+        });
+      });
 
       // Bind choice buttons
       container.querySelectorAll('.choice-btn').forEach(btn => {
@@ -3598,6 +3942,11 @@ const ICO = {
         setHeader('LeMatic Inspection');
         refreshHome();
       }
+      if (document.body.classList.contains('on-pl-edit') ||
+          (document.querySelector('.screen.active') && document.querySelector('.screen.active').id === 'screenPunchlistEdit')) {
+        cancelPunchlistEdit();
+        return;
+      }
       if (document.body.classList.contains('on-punchlist') ||
           (document.querySelector('.screen.active') && document.querySelector('.screen.active').id === 'screenPunchlist')) {
         try { closeModal(); } catch (e) {}
@@ -3713,13 +4062,14 @@ const ICO = {
     // ========== PDF REPORT ==========
     function findRelatedVisit(ins) { return null; }
     const LEMATIC_LOGO_JPG = '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';
-    function generatePDFReport() {
+    async function generatePDFReport() {
       if (!currentInspection) {
         toast('No inspection data');
         return;
       }
+      try { await ensureExcelLibs(); } catch (e) {}
       if (typeof window.jspdf === 'undefined') {
-        toast('PDF library still loading… try again in a moment');
+        toast('PDF library not available');
         return;
       }
 
@@ -4944,7 +5294,7 @@ const ICO = {
         ]).then(([list, items]) => {
           const extra = (list || []).filter(r => String(r.name || '').toLowerCase().includes(q)).map(r => ({
             kind: 'punchlist',
-            id: r.name,
+            id: r.key || r.name,
             name: r.name,
             kicker: 'Punchlist',
             title: r.name,
@@ -5266,6 +5616,7 @@ const IDB_NAME = "FieldPunchlistDB";
         }
         if (saved && saved.jobs && saved.currentJob) data = saved;
         else { data = JSON.parse(JSON.stringify(defaultData)); await plSaveData(); }
+        try { migratePunchlistJobKeys(); } catch (e) {}
       } catch (e) {
         data = JSON.parse(JSON.stringify(defaultData));
         try { await openDB(); } catch (_) {}
@@ -5347,10 +5698,13 @@ const IDB_NAME = "FieldPunchlistDB";
       try {
         const fieldJobs = (typeof loadJobs === "function" ? loadJobs() : []) || [];
         fieldJobs.forEach(job => {
-          const key = (typeof punchlistKeyForJob === "function") ? punchlistKeyForJob(job) : (job.customer || job.id);
-          if (!data.jobs[key]) data.jobs[key] = [];
-          if (!data.jobIdByKey) data.jobIdByKey = {};
-          data.jobIdByKey[key] = job.id;
+          if (!job || !job.id) return;
+          if (!data.listNames) data.listNames = {};
+          Object.keys(data.jobs || {}).forEach(key => {
+            if (data.jobIdByKey && data.jobIdByKey[key] === job.id && !data.listNames[key]) {
+              data.listNames[key] = (typeof jobDisplayName === 'function') ? jobDisplayName(job) : (job.customer || 'Punchlist');
+            }
+          });
         });
       } catch (e) {}
       const jobs = Object.keys(data.jobs);
@@ -5360,9 +5714,10 @@ const IDB_NAME = "FieldPunchlistDB";
         jobs.push("Default");
       }
       if (!data.currentJob || !data.jobs[data.currentJob]) data.currentJob = jobs[0];
-      sel.innerHTML = jobs.map(j =>
-        `<option value="${escapeHtml(j)}" ${j === data.currentJob ? "selected" : ""}>${escapeHtml(j)}</option>`
-      ).join("");
+      sel.innerHTML = jobs.map(j => {
+        const label = (typeof punchlistDisplayName === 'function') ? punchlistDisplayName(j) : j;
+        return `<option value="${escapeHtml(j)}" ${j === data.currentJob ? "selected" : ""}>${escapeHtml(label)}</option>`;
+      }).join("");
     }
 
     function itemMatchesFilter(item) {
@@ -5482,7 +5837,7 @@ const IDB_NAME = "FieldPunchlistDB";
         </div>
       `;
       document.getElementById("pl-modal").classList.add("show");
-
+      if (typeof pinPlModalBar === 'function') pinPlModalBar();
       const fieldSel = document.getElementById("f-filter-field");
       fieldSel.addEventListener("change", () => {
         filterField = fieldSel.value;
@@ -5596,11 +5951,78 @@ const IDB_NAME = "FieldPunchlistDB";
       openDetail(id);
     }
 
+
+    let photoViewerMode = 'punchlist';
+    let photoViewerItemId = null;
+    function openPhotoViewer(src, mode, itemId) {
+      if (!src) return;
+      photoViewerMode = mode || 'punchlist';
+      photoViewerItemId = itemId || null;
+      const viewer = document.getElementById('pl-photo-viewer');
+      const img = document.getElementById('pl-photo-viewer-img');
+      if (!viewer || !img) return;
+      img.src = src;
+      viewer.hidden = false;
+      viewer.setAttribute('aria-hidden', 'false');
+    }
+    function requestDeleteViewerPhoto(ev) {
+      if (ev) ev.stopPropagation();
+      if (photoViewerMode === 'inspect') {
+        requestDeleteInspectPhoto(ev);
+        return;
+      }
+      if (typeof requestDeletePunchlistPhoto === 'function') requestDeletePunchlistPhoto(ev);
+    }
+    function requestDeleteInspectPhoto(ev) {
+      if (ev) ev.stopPropagation();
+      const id = photoViewerItemId || 'inspect-photo';
+      if (typeof showDeleteConfirm === 'function') {
+        showDeleteConfirm(id, 'inspect-photo', 'Delete photo?', 'This photo will be removed from the inspection item.');
+      } else {
+        pendingDeleteId = id;
+        pendingDeleteKind = 'inspect-photo';
+        const modal = document.getElementById('deleteModal');
+        if (modal) {
+          document.getElementById('deleteModalTitle').textContent = 'Delete photo?';
+          document.getElementById('deleteModalLabel').textContent = 'This photo will be removed from the inspection item.';
+          modal.classList.remove('hidden');
+          modal.classList.add('show');
+        }
+      }
+    }
+    function performDeleteInspectPhoto() {
+      const itemId = photoViewerItemId;
+      if (itemId != null && results) {
+        const key = Object.keys(results).find(k => String(k) === String(itemId)) || itemId;
+        if (results[key]) {
+          delete results[key].photoDataUrl;
+          delete results[key].photoId;
+        }
+      }
+      try { if (typeof saveCurrentDraft === 'function') saveCurrentDraft(); } catch (e) {}
+      try { if (typeof closePunchlistPhoto === 'function') closePunchlistPhoto(); } catch (e) {}
+      const viewer = document.getElementById('pl-photo-viewer');
+      if (viewer) {
+        viewer.hidden = true;
+        viewer.setAttribute('aria-hidden', 'true');
+      }
+      const img = document.getElementById('pl-photo-viewer-img');
+      if (img) img.removeAttribute('src');
+      photoViewerItemId = null;
+      try { if (typeof renderSection === 'function') renderSection(false); } catch (e) {}
+      if (typeof closeDeleteModal === 'function') closeDeleteModal();
+      toast('Photo deleted');
+    }
+    window.requestDeleteViewerPhoto = requestDeleteViewerPhoto;
+    window.openPhotoViewer = openPhotoViewer;
+    window.performDeleteInspectPhoto = performDeleteInspectPhoto;
     function openPunchlistPhoto(ev, src) {
       if (ev) {
         ev.preventDefault();
         ev.stopPropagation();
       }
+      photoViewerMode = 'punchlist';
+      photoViewerItemId = null;
       if (!src) return;
       const viewer = document.getElementById("pl-photo-viewer");
       const img = document.getElementById("pl-photo-viewer-img");
@@ -5630,7 +6052,7 @@ const IDB_NAME = "FieldPunchlistDB";
         if (typeof window.setLastPunchlistName === "function") window.setLastPunchlistName(data.currentJob);
         else localStorage.setItem("lx8_last_punchlist", data.currentJob);
       } catch (err) {}
-      toast("Switched to " + data.currentJob);
+      toast("Switched to " + ((typeof punchlistDisplayName === "function") ? punchlistDisplayName(data.currentJob) : data.currentJob));
     });
 
     document.getElementById("btn-filter").addEventListener("click", openFilterSheet);
@@ -5644,7 +6066,7 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
     function showForm(item, isNew) {
-      document.getElementById("modal-title").textContent = isNew ? "New Item" : `Item #${item.id}`;
+      document.getElementById("modal-title").textContent = isNew ? "New Item" : (item.description || "Item");
       const trashBtn = document.getElementById("modal-trash");
       if (trashBtn) {
         trashBtn.style.display = "none";
@@ -5725,13 +6147,15 @@ const IDB_NAME = "FieldPunchlistDB";
         </div>
       `;
       document.getElementById("pl-modal").classList.add("show");
+      if (typeof pinPlModalBar === 'function') pinPlModalBar();
       const delBtn = document.getElementById("btn-delete-item");
       if (delBtn) {
-        const idToDelete = item && item.id != null ? item.id : editingId;
         delBtn.addEventListener("click", function(e) {
           e.preventDefault();
           e.stopPropagation();
-          deleteItem(idToDelete);
+          const idToDelete = (item && item.id != null) ? item.id : editingId;
+          if (typeof window.deleteItem === 'function') window.deleteItem(idToDelete);
+          else deleteItem(idToDelete);
         });
       }
     }
@@ -5749,6 +6173,9 @@ const IDB_NAME = "FieldPunchlistDB";
           preview.classList.remove("hidden");
         }
         if (wrap) wrap.classList.remove("hidden");
+        try { e.target.value = ''; } catch (err) {}
+        try { e.target.blur(); } catch (err) {}
+        if (typeof showPlActionBars === 'function') showPlActionBars();
       };
       reader.readAsDataURL(file);
     }
@@ -5774,8 +6201,12 @@ const IDB_NAME = "FieldPunchlistDB";
       }
       if (wrap) wrap.classList.add("hidden");
       if (editingId) {
-        const item = getItems().find(i => i.id === editingId);
-        if (item) item.photo = null;
+        const items = getItems();
+        const idx = items.findIndex(i => String(i.id) === String(editingId));
+        if (idx >= 0) {
+          items[idx] = { ...items[idx], photo: null };
+          setItems(items);
+        }
       }
     }
 
@@ -5944,7 +6375,7 @@ const IDB_NAME = "FieldPunchlistDB";
         <div class="job-manage-list">
           ${jobNames.map(j => `
             <div class="job-manage-item">
-              <span>${escapeHtml(j)} ${j === data.currentJob ? "(current)" : ""}</span>
+              <span>${escapeHtml((typeof punchlistDisplayName === "function") ? punchlistDisplayName(j) : j)} ${j === data.currentJob ? "(current)" : ""}</span>
               ${jobNames.length > 1 ? `
                 <button type="button" class="icon-btn danger" data-job="${escapeHtml(j)}" title="Delete job">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M10 11v6M14 11v6"/></svg>
@@ -5982,7 +6413,7 @@ const IDB_NAME = "FieldPunchlistDB";
       populateJobSelect();
       closeModal();
       renderList();
-      toast("Job created: " + name);
+      toast("Punchlist created: " + name);
     }
 
     function deleteJob(name) {
@@ -6017,43 +6448,110 @@ const IDB_NAME = "FieldPunchlistDB";
     window.renderList = renderList;
     window.plRenderList = renderList;
     window.plLoadData = plLoadData;
+    window.plSaveData = plSaveData;
     window.populateJobSelect = populateJobSelect;
-    window.openPunchlistForJob = async function(job) {
+
+    window.getPunchlistName = function(key) {
+      if (!key) return 'Punchlist';
+      if (data && data.listNames && data.listNames[key]) return data.listNames[key];
+      if (!isInternalId(key)) return String(key);
+      return 'Punchlist';
+    };
+    window.getPunchlistJobId = function(key) {
+      if (!data || !data.jobIdByKey) return '';
+      return data.jobIdByKey[key] || '';
+    };
+    window.getCurrentPunchlistKey = function() {
+      return (data && data.currentJob) || '';
+    };
+    window.updatePunchlistMeta = async function(key, name, jobId) {
       await plLoadData();
       if (!data) data = { jobs: {}, currentJob: '' };
       if (!data.jobs) data.jobs = {};
-      if (job) {
-        const site = (job.site || '').trim();
-        const key = site ? ((job.customer || 'Job') + ' – ' + site) : (job.customer || 'Job');
-        if (!data.jobs[key]) data.jobs[key] = [];
-        data.currentJob = key;
-        if (!data.jobIdByKey) data.jobIdByKey = {};
-        data.jobIdByKey[key] = job.id;
-        if (!data.keyByJobId) data.keyByJobId = {};
-        data.keyByJobId[job.id] = key;
+      if (!data.jobs[key]) data.jobs[key] = [];
+      if (!data.listNames) data.listNames = {};
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      if (!data.keyByJobId) data.keyByJobId = {};
+      data.listNames[key] = String(name || '').trim() || 'Punchlist';
+      const prev = data.jobIdByKey[key];
+      if (jobId) {
+        data.jobIdByKey[key] = jobId;
+        data.keyByJobId[jobId] = key;
       } else {
-        const key = 'General';
-        if (!data.jobs[key]) data.jobs[key] = [];
-        data.currentJob = key;
+        delete data.jobIdByKey[key];
+        if (prev && data.keyByJobId[prev] === key) delete data.keyByJobId[prev];
       }
+      data.currentJob = key;
+      await plSaveData();
+      return true;
+    };
+
+    window.performDeletePunchlist = async function(key) {
+      await plLoadData();
+      if (!data || !data.jobs || !key || !data.jobs[key]) {
+        toast('Punchlist not found');
+        if (typeof closeDeleteModal === 'function') closeDeleteModal();
+        return;
+      }
+      delete data.jobs[key];
+      if (data.listNames) delete data.listNames[key];
+      if (data.jobIdByKey) delete data.jobIdByKey[key];
+      if (data.currentJob === key) {
+        const left = Object.keys(data.jobs);
+        data.currentJob = left[0] || '';
+      }
+      await plSaveData();
+      if (typeof closeDeleteModal === 'function') closeDeleteModal();
+      toast('Punchlist deleted');
+      if (typeof populateJobSelect === 'function') populateJobSelect();
+      if (typeof openPunchlistRecentList === 'function') openPunchlistRecentList();
+      else if (typeof refreshPunchlistHome === 'function') refreshPunchlistHome();
+    };
+    window.createPunchlistForJob = async function(job) {
+      await plLoadData();
+      if (!data) data = { jobs: {}, currentJob: '' };
+      if (!data.jobs) data.jobs = {};
+      if (!data.listNames) data.listNames = {};
+      if (!data.jobIdByKey) data.jobIdByKey = {};
+      if (!data.keyByJobId) data.keyByJobId = {};
+      const key = (typeof newEntityId === 'function') ? newEntityId('pl') : ('pl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+      data.jobs[key] = [];
+      const label = 'Punchlist';
+      data.listNames[key] = label;
+      if (job && job.id) {
+        try { if (typeof ensureJobIdentity === 'function') ensureJobIdentity(job); } catch (e) {}
+        data.jobIdByKey[key] = job.id;
+        data.keyByJobId[job.id] = key;
+      }
+      data.currentJob = key;
       await plSaveData();
       populateJobSelect();
       renderList();
       try {
-        if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(data.currentJob);
-        else localStorage.setItem('lx8_last_punchlist', data.currentJob);
+        if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(key);
       } catch (e) {}
-      return data.currentJob;
+      return key;
+    };
+    window.openPunchlistForJob = async function(job) {
+      return window.createPunchlistForJob(job);
     };
     window.getPunchlistStatsForJob = async function(jobOrName) {
       await plLoadData();
       if (!data || !data.jobs) return { total: 0, open: 0, complete: 0 };
-      const name = typeof jobOrName === 'string' ? jobOrName : (jobOrName && (jobOrName.customer && jobOrName.site ? (jobOrName.customer + ' – ' + jobOrName.site) : (jobOrName.customer || '')));
-      const keys = Object.keys(data.jobs);
-      const key = keys.find(k => k === name) || keys.find(k => jobOrName && data.jobIdByKey && data.jobIdByKey[k] === jobOrName.id) || keys.find(k => jobOrName && k.indexOf(jobOrName.customer || '') === 0);
-      const items = key ? (data.jobs[key] || []) : [];
-      const complete = items.filter(i => i && i.status === 'Complete').length;
-      return { total: items.length, open: items.length - complete, complete };
+      const jobId = (jobOrName && typeof jobOrName === 'object') ? jobOrName.id : '';
+      const name = typeof jobOrName === 'string' ? jobOrName : '';
+      const keys = Object.keys(data.jobs).filter(k => {
+        if (jobId && data.jobIdByKey && data.jobIdByKey[k] === jobId) return true;
+        if (name && (k === name || (data.listNames && data.listNames[k] === name))) return true;
+        return false;
+      });
+      let total = 0, complete = 0;
+      keys.forEach(k => {
+        const items = data.jobs[k] || [];
+        total += items.length;
+        complete += items.filter(it => it && it.status === 'Complete').length;
+      });
+      return { total, complete, open: Math.max(0, total - complete) };
     };
     window.searchPunchlistItems = async function(q) {
       await plLoadData();
@@ -6070,7 +6568,8 @@ const IDB_NAME = "FieldPunchlistDB";
             .map(x => String(x || "").toLowerCase()).join(" ");
           if (hay.indexOf(needle) >= 0) {
             out.push({
-              job: name,
+              job: (typeof punchlistDisplayName === 'function') ? punchlistDisplayName(name) : name,
+              jobKey: name,
               id: item.id,
               description: item.description || "Punchlist item",
               status: item.status || "",
@@ -6099,7 +6598,8 @@ const IDB_NAME = "FieldPunchlistDB";
         const jobLabel = job
           ? ((typeof jobDisplayName === 'function') ? jobDisplayName(job) : (job.customer || ''))
           : '';
-        return { name, total: items.length, complete, jobId, jobLabel };
+        const displayName = (typeof punchlistDisplayName === 'function') ? punchlistDisplayName(name) : name;
+        return { name: displayName, key: name, total: items.length, complete, jobId, jobLabel: jobLabel || displayName };
       }).sort((a, b) => {
         // Prefer non-empty, then alpha
         if ((b.total > 0) !== (a.total > 0)) return b.total > 0 ? 1 : -1;
@@ -6128,8 +6628,18 @@ const IDB_NAME = "FieldPunchlistDB";
       await plLoadData();
       if (!data) data = { jobs: {}, currentJob: '' };
       if (!data.jobs) data.jobs = {};
-      if (!data.jobs[name]) data.jobs[name] = [];
-      data.currentJob = name;
+      let key = name;
+      if (!data.jobs[key]) {
+        if (data.keyByJobId && data.keyByJobId[name]) key = data.keyByJobId[name];
+        else if (data.jobIdByKey && data.jobIdByKey[name] && data.jobs[data.jobIdByKey[name]]) key = data.jobIdByKey[name];
+        else if (data.listNames) {
+          const found = Object.keys(data.listNames).find(k => data.listNames[k] === name && data.jobs[k]);
+          if (found) key = found;
+        }
+      }
+      if (!data.jobs[key]) data.jobs[key] = [];
+      data.currentJob = key;
+      name = key;
       await plSaveData();
       populateJobSelect();
       renderList();
@@ -6185,6 +6695,9 @@ const IDB_NAME = "FieldPunchlistDB";
       });
     }
 
+    async function ensureExportLibs() {
+      return ensureExcelLibs();
+    }
     async function ensureExcelLibs() {
       if (typeof ExcelJS === 'undefined') {
         const urls = [
@@ -6241,16 +6754,18 @@ const IDB_NAME = "FieldPunchlistDB";
     }
 
 
-    function exportPunchlistPdf() {
+    async function exportPunchlistPdf() {
+      try { await ensureExcelLibs(); } catch (e) {}
       if (typeof window.jspdf === 'undefined') {
-        toast('PDF library still loading… try again in a moment');
+        toast('PDF library not available');
         return;
       }
       const items = getItems();
-      const jobName = data.currentJob || 'Punchlist';
+      const jobKey = data.currentJob || '';
+      const jobName = (typeof punchlistDisplayName === 'function') ? punchlistDisplayName(jobKey) : (jobKey || 'Punchlist');
       const jobs = (typeof loadJobs === 'function') ? loadJobs() : [];
-      const job = jobs.find(j => j && (j.id === jobName || (typeof jobDisplayName === 'function' && jobDisplayName(j) === jobName) || j.customer === jobName)) || null;
-      const customer = (job && job.customer) || jobName || 'Customer';
+      const job = jobs.find(j => j && (j.id === jobKey || (typeof jobDisplayName === 'function' && jobDisplayName(j) === jobName) || j.customer === jobName)) || null;
+      const customer = (job && job.customer) || (isInternalId(jobName) ? 'Customer' : jobName) || 'Customer';
       const site = (job && job.site) || '';
       const tech = (job && job.technician) || '';
       const dateRange = (typeof formatJobDateRange === 'function' && job) ? formatJobDateRange(job) : '';
@@ -6527,17 +7042,97 @@ const IDB_NAME = "FieldPunchlistDB";
       selectedType: 'bakery',
       tickTimer: null
     };
+    window.tcState = tcState;
 
 
+    function tcNormText(s) {
+      return String(s || '').toLowerCase().replace(/[–—−]/g, '-').replace(/[^a-z0-9]+/g, ' ').trim();
+    }
+    function tcJobLabelSet(job) {
+      const set = new Set();
+      if (!job) return set;
+      const display = (typeof jobDisplayName === 'function') ? jobDisplayName(job) : '';
+      const joined = [job.customer, job.site].filter(Boolean).join(' ');
+      [job.id, job.customer, job.site, job.bakeryName, job.name, display, joined,
+        [job.customer, job.site].filter(Boolean).join(' - ')]
+        .map(tcNormText)
+        .filter(Boolean)
+        .forEach(v => set.add(v));
+      return set;
+    }
+    function tcLiveJobIdSet(jobs) {
+      const set = new Set();
+      (jobs || []).forEach(j => { if (j && j.id) set.add(String(j.id)); });
+      return set;
+    }
+    function tcEntryMatchesJob(en, job, jobsList) {
+      if (!en || !job) return false;
+      if (en.jobId && job.id && String(en.jobId) === String(job.id)) return true;
+      const jobs = jobsList || ((typeof loadJobs === 'function' ? loadJobs() : []) || []);
+      if (en.jobId && tcLiveJobIdSet(jobs).has(String(en.jobId)) && String(en.jobId) !== String(job.id)) {
+        return false;
+      }
+      const labels = tcJobLabelSet(job);
+      const bits = [en.jobId, en.bakeryName, en.jobName, en.job, en.customer, en.site, en.bakery];
+      for (let i = 0; i < bits.length; i++) {
+        const n = tcNormText(bits[i]);
+        if (!n) continue;
+        if (labels.has(n)) return true;
+        for (const lab of labels) {
+          if (!lab || lab.length < 4) continue;
+          if (n.indexOf(lab) !== -1 || lab.indexOf(n) !== -1) return true;
+        }
+      }
+      return false;
+    }
+    function tcNormalizeEntryJobs() {
+      let jobs = [];
+      try { jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || []; } catch (e) {}
+      if (!jobs.length) return;
+      const live = tcLiveJobIdSet(jobs);
+      let changed = false;
+      (tcState.entries || []).forEach(en => {
+        if (!en) return;
+        if (en.jobId && live.has(String(en.jobId))) return;
+        const match = jobs.find(j => tcEntryMatchesJob(Object.assign({}, en, { jobId: '' }), j, jobs));
+        if (match && match.id) {
+          en.jobId = match.id;
+          if (!en.bakeryName) {
+            en.bakeryName = (typeof jobDisplayName === 'function') ? jobDisplayName(match) : (match.customer || '');
+          }
+          changed = true;
+        }
+      });
+      if (changed) {
+        try { tcSave(); } catch (e) {}
+      }
+    }
+    window.tcNormText = tcNormText;
+    window.tcJobLabelSet = tcJobLabelSet;
+    window.tcEntryMatchesJob = tcEntryMatchesJob;
+    window.tcNormalizeEntryJobs = tcNormalizeEntryJobs;
+    function tcEntriesForJob(jobOrId) {
+      try { tcLoad(); } catch (e) {}
+      const job = (jobOrId && typeof jobOrId === 'object')
+        ? jobOrId
+        : ((typeof loadJobs === 'function' ? loadJobs() : []) || []).find(j => j && j.id === jobOrId);
+      if (!job) return [];
+      return (tcState.entries || []).filter(en => tcEntryMatchesJob(en, job));
+    }
+    window.tcEntriesForJob = tcEntriesForJob;
     function tcHoursForJob(jobId) {
       if (!jobId) return 0;
       try { tcLoad(); } catch (e) {}
+      const job = ((typeof loadJobs === 'function' ? loadJobs() : []) || []).find(j => j && j.id === jobId);
       let total = 0;
-      (tcState.entries || []).forEach(en => {
-        if (en && en.jobId === jobId) total += tcEntryHours(en);
-      });
+      (job ? tcEntriesForJob(job) : (tcState.entries || []).filter(en => en && en.jobId === jobId))
+        .forEach(en => { total += tcEntryHours(en); });
       return Math.round(total * 100) / 100;
     }
+    window.tcHoursForJob = tcHoursForJob;
+    window.tcEntriesForJob = tcEntriesForJob;
+    window.tcEntryHours = tcEntryHours;
+    window.tcLoad = tcLoad;
 
     function tcUid() {
       return 'tc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
@@ -6550,6 +7145,7 @@ const IDB_NAME = "FieldPunchlistDB";
           tcState.active = raw.active || null;
         }
       } catch (e) { tcState.entries = []; tcState.active = null; }
+      try { tcNormalizeEntryJobs(); } catch (e) {}
       tcEnsureSampleWeek();
     }
     function tcSave() {
@@ -6720,7 +7316,7 @@ const IDB_NAME = "FieldPunchlistDB";
       let html = '<option value="">— No job —</option>';
       jobs.forEach(j => {
         if (!j || !j.id) return;
-        const label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : (j.customer || j.id);
+        const label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : (j.customer || 'Job');
         const sel = selectedId && selectedId === j.id ? ' selected' : '';
         html += '<option value="' + String(j.id).replace(/"/g, '&quot;') + '"' + sel + '>' + String(label).replace(/</g, '&lt;') + '</option>';
       });
@@ -7099,6 +7695,13 @@ function tcRenderEntryList(listEl, offset) {
       if (!entry) return;
       tcState.editId = id;
       tcHoursManualOverride = false;
+      try {
+        const del = document.getElementById('btnTcEditDelete');
+        if (del && del.dataset.delBound !== '1') {
+          del.dataset.delBound = '1';
+          del.addEventListener('click', (e) => { e.preventDefault(); tcDeleteEdit(e); });
+        }
+      } catch (e) {}
       document.getElementById('tcEditTitle').textContent = 'Edit hours';
       const editScreen = document.getElementById('screenTimeEdit');
       if (editScreen) editScreen.classList.remove('add-mode');
@@ -7193,26 +7796,35 @@ function tcRenderEntryList(listEl, offset) {
       document.body.classList.remove('on-time-edit');
       tcRenderWeekDetail();
       toast('Saved');
+      try { if (typeof refreshJobDetail === 'function' && detailJobId) refreshJobDetail(); } catch (e) {}
     }
-    function tcDeleteEdit() {
-      if (!tcState.editId) {
-        showScreen('screenTimeWeek');
-        document.body.classList.add('on-time-week');
+    function tcDeleteEdit(ev) {
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+      const id = tcState.editId || (tcState.active && tcState.active.id) || '';
+      if (!id) {
+        toast('No time entry to delete');
         return;
       }
-      pendingDeleteId = tcState.editId;
-      pendingDeleteKind = 'timecard';
-      document.getElementById('deleteModalTitle').textContent = 'Delete time entry?';
-      document.getElementById('deleteModalLabel').textContent =
-        'This time entry will be permanently deleted.';
-      const modal = document.getElementById('deleteModal');
-      modal.classList.remove('hidden');
-      modal.classList.add('show');
-      modal.setAttribute('aria-hidden', 'false');
+      if (typeof showDeleteConfirm === 'function') {
+        showDeleteConfirm(id, 'timecard', 'Delete time entry?', 'This time entry will be permanently deleted.');
+      } else {
+        pendingDeleteId = id;
+        pendingDeleteKind = 'timecard';
+        const modal = document.getElementById('deleteModal');
+        if (modal) {
+          document.getElementById('deleteModalTitle').textContent = 'Delete time entry?';
+          document.getElementById('deleteModalLabel').textContent = 'This time entry will be permanently deleted.';
+          modal.classList.remove('hidden');
+          modal.classList.add('show');
+          modal.style.display = 'flex';
+          modal.style.zIndex = '30000';
+        }
+      }
     }
     function performDeleteTimecard(id) {
       if (!id) { closeDeleteModal(); return; }
-      tcState.entries = tcState.entries.filter(e => e.id !== id);
+      const sid = String(id);
+      tcState.entries = (tcState.entries || []).filter(e => String(e.id) !== sid);
       if (tcState.active && tcState.active.id === id) tcState.active = null;
       if (tcState.editId === id) tcState.editId = null;
       tcSave();
@@ -7223,6 +7835,8 @@ function tcRenderEntryList(listEl, offset) {
       tcRenderWeekDetail();
       toast('Deleted');
     }
+    window.performDeleteTimecard = performDeleteTimecard;
+    window.tcDeleteEdit = tcDeleteEdit;
 
     function tcCloseNameSheet() {
       const sheet = document.getElementById('tcNameSheet');
@@ -7493,6 +8107,18 @@ function tcRenderEntryList(listEl, offset) {
     }
 
     tcLoad();
+
+    (function bindTcDeleteBtn() {
+      const btn = document.getElementById('btnTcEditDelete');
+      if (!btn || btn.dataset.delBound === '1') return;
+      btn.dataset.delBound = '1';
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof tcDeleteEdit === 'function') tcDeleteEdit(e);
+        else if (typeof window.tcDeleteEdit === 'function') window.tcDeleteEdit(e);
+      });
+    })();
     bindTimeCards();
     setTimeout(bindTimeCards, 300);
 
@@ -7512,7 +8138,14 @@ function tcRenderEntryList(listEl, offset) {
     window.attachInspectCameraPhoto = async function(file) {
       if (!file) return;
       const items = currentSectionItems();
-      const item = items[currentItemIndex];
+      let item = null;
+      const wanted = window.__inspectCamItemId;
+      if (wanted != null && wanted !== '') {
+        item = (APP_DATA.items || []).find(i => String(i.item_id) === String(wanted))
+          || items.find(i => String(i.item_id) === String(wanted));
+      }
+      if (!item) item = items[currentItemIndex];
+      window.__inspectCamItemId = null;
       if (!item) { toast('No item to attach to'); return; }
       const itemId = item.item_id;
       if (!results[itemId]) results[itemId] = {};
@@ -7539,15 +8172,10 @@ function tcRenderEntryList(listEl, offset) {
     window.bindInspectCamFab = function() {
       const fab = document.getElementById('fab-inspect-cam');
       const input = document.getElementById('inspectCamInput');
-      if (!fab || !input) return;
-      if (fab.dataset.bound === '1') return;
-      fab.dataset.bound = '1';
-      fab.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        input.value = '';
-        input.click();
-      });
+      if (fab) fab.style.display = 'none';
+      if (!input) return;
+      if (input.dataset.bound === '1') return;
+      input.dataset.bound = '1';
       input.addEventListener('change', () => {
         const file = input.files && input.files[0];
         input.value = '';
@@ -7559,15 +8187,46 @@ function tcRenderEntryList(listEl, offset) {
 
 
     
+
+    function pinPlModalBar() {
+      const overlay = document.getElementById('pl-modal');
+      const sheet = document.getElementById('modal-sheet');
+      const body = document.getElementById('modal-body');
+      if (!overlay) return;
+      const bars = Array.from(overlay.querySelectorAll('.btn-row'));
+      const keep = (body && body.querySelector('.btn-row')) || bars[bars.length - 1];
+      bars.forEach(bar => {
+        if (bar !== keep) bar.remove();
+      });
+      if (keep && keep.parentElement !== overlay) overlay.appendChild(keep);
+      if (typeof showPlActionBars === 'function') showPlActionBars();
+    }
+    function showPlActionBars() {
+      document.body.classList.remove('kb-open');
+      document.querySelectorAll('#pl-modal .btn-row, #pl-modal .pl-item-bar').forEach((bar) => {
+        bar.style.setProperty('display', 'flex', 'important');
+        bar.style.setProperty('visibility', 'visible', 'important');
+        bar.style.setProperty('opacity', '1', 'important');
+        bar.style.setProperty('pointer-events', 'auto', 'important');
+      });
+    }
+
     (function bindKeyboardPin() {
       if (window.__kbPinBound) return;
       window.__kbPinBound = true;
-      const SEL = '#pl-modal .btn-row, #pl-modal .pl-item-bar, #screenJobForm .btn-row, #screenStart .btn-row, .btn-row.tc-edit-bar';
+      const SEL = '#screenJobForm .btn-row, #screenStart .btn-row, .btn-row.tc-edit-bar';
       const field = (el) => {
         if (!el || el === document.body) return false;
+        if (el.closest && el.closest('#pl-modal')) return false;
         const tag = (el.tagName || '').toLowerCase();
-        if (tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable) return true;
-        return !!(el.closest && el.closest('input, textarea, select, [contenteditable="true"]'));
+        if (tag === 'select') return false;
+        if (tag === 'input') {
+          const type = String(el.type || 'text').toLowerCase();
+          if (['file', 'button', 'checkbox', 'radio', 'hidden', 'submit', 'reset', 'range', 'color'].includes(type)) return false;
+          return true;
+        }
+        if (tag === 'textarea' || el.isContentEditable) return true;
+        return !!(el.closest && el.closest('textarea, input[type="text"], input[type="search"], input[type="number"], input[type="tel"], input[type="email"], input[type="date"], [contenteditable="true"]'));
       };
       const apply = (hide) => {
         document.body.classList.toggle('kb-open', !!hide);
@@ -7575,9 +8234,11 @@ function tcRenderEntryList(listEl, offset) {
           bar.style.setProperty('display', hide ? 'none' : 'flex', 'important');
           bar.style.setProperty('visibility', hide ? 'hidden' : 'visible', 'important');
         });
+        showPlActionBars();
       };
       document.addEventListener('focusin', (e) => {
         if (field(e.target)) apply(true);
+        else if (e.target && e.target.closest && e.target.closest('#pl-modal')) showPlActionBars();
       }, true);
       document.addEventListener('focusout', (e) => {
         setTimeout(() => {
