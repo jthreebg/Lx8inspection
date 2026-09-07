@@ -1,21 +1,14 @@
-const CACHE = 'lematic-fs-flat-v52';
+const CACHE = 'lematic-fs-flat-v54';
 const PRECACHE = [
   './',
   './index.html',
-  './app.css?v=46',
-  './app.js?v=46',
-  './templates.js?v=46',
-  './qrcode.min.js?v=46',
-  './exceljs.min.js',
-  './jspdf.umd.min.js',
-  './jspdf.plugin.autotable.min.js',
-  './Punchlist-Template.xlsx',
-  './timecard-template.xlsx',
+  './app.css?v=53',
+  './app.js?v=53',
+  './templates.js?v=53',
+  './qrcode.min.js?v=53',
   './manifest.webmanifest',
   './apple-touch-icon.png',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-512-maskable.png'
+  './icon-192.png'
 ];
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -34,14 +27,14 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
+    const cached = await cache.match(req) || await cache.match(url.pathname);
     try {
-      const fresh = await fetch(req, { cache: 'no-store' });
+      const fresh = await fetch(req);
       if (fresh && fresh.ok) cache.put(req, fresh.clone());
-      return fresh;
+      return cached || fresh;
     } catch (e) {
-      const cached = await cache.match(req) || await cache.match(url.pathname) || await cache.match('./index.html');
       if (cached) return cached;
-      throw e;
+      return cache.match('./index.html');
     }
   })());
 });

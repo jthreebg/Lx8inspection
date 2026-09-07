@@ -7125,6 +7125,19 @@ const IDB_NAME = "FieldPunchlistDB";
     const plExportCancel = document.getElementById('plExportCancel');
     if (plExportCancel) plExportCancel.addEventListener('click', closePlExportSheet);
 
+    function prefetchExportLibs() {
+      const run = function() {
+        try {
+          if (typeof ensureExcelLibs === 'function') ensureExcelLibs();
+          else if (typeof loadScriptOnce === 'function') {
+            loadScriptOnce('exceljs.min.js');
+            loadScriptOnce('jspdf.umd.min.js');
+          }
+        } catch (e) {}
+      };
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 4000 });
+      else setTimeout(run, 1800);
+    }
     async function initPunchlist() {
       await plLoadData();
       populateJobSelect();
@@ -8231,7 +8244,7 @@ function tcRenderEntryList(listEl, offset) {
     bindTimeCards();
     setTimeout(bindTimeCards, 300);
 
-    initPunchlist().catch(err => console.warn('Punchlist init', err));
+    prefetchExportLibs(); initPunchlist().catch(err => console.warn('Punchlist init', err));
   
 
   
