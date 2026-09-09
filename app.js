@@ -27,7 +27,7 @@ const ICO = {
       APP_DATA = pack || { sections: [], items: [], lists: {} };
       return APP_DATA;
     }
-    async function loadData() {
+    async function loadData({ init = true } = {}) {
       if (window.MACHINE_TEMPLATES && window.MACHINE_TEMPLATES['LX-8']) {
         setActiveMachine('LX-8');
       } else if (window.EMBEDDED_DATA && window.EMBEDDED_DATA.sections && window.EMBEDDED_DATA.sections.length) {
@@ -41,7 +41,8 @@ const ICO = {
           APP_DATA = { sections: [], items: [], lists: {} };
         }
       }
-      initApp();
+      if (init) initApp();
+      return APP_DATA;
     }
 
     // ========== STORAGE (IndexedDB + localStorage fallback) ==========
@@ -371,20 +372,16 @@ const ICO = {
       let inspections = lsRead('lx8_inspections', []);
       try {
         await idbOpen();
-        const idbVisits = await idbGetKv('visits');
-        const idbIns = await idbGetKv('inspections');
+        // Read the two metadata stores in parallel. Photo blobs are deliberately
+        // hydrated after the first screen is painted so startup stays responsive.
+        const [idbVisits, idbIns] = await Promise.all([
+          idbGetKv('visits').catch(() => null),
+          idbGetKv('inspections').catch(() => null)
+        ]);
         if (Array.isArray(idbVisits) && idbVisits.length) visits = idbVisits;
         if (Array.isArray(idbIns) && idbIns.length) inspections = idbIns;
-        if (Array.isArray(idbVisits) && visits === idbVisits) {
-          /* already IDB */
-        } else if (Array.isArray(visits) && visits.length) {
-          await idbSetKv('visits', visits).catch(() => {});
-        }
-        inspections = await hydrateInspectionBlobs(inspections);
-        for (const v of visits) {
-          if (v.photos && v.photos.length) {
-            v.photos = await Promise.all(v.photos.map(hydratePhotoUrl));
-          }
+        if (!(Array.isArray(idbVisits) && idbVisits.length) && Array.isArray(visits) && visits.length) {
+          idbSetKv('visits', visits).catch(() => {});
         }
       } catch (e) {
         console.warn('IndexedDB unavailable, using localStorage', e);
@@ -395,6 +392,23 @@ const ICO = {
       try {
         if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
       } catch (e) {}
+    }
+
+    // Hydrate photo blobs after the initial UI is ready. This preserves the
+    // existing photo behavior without making every app launch wait on blobs.
+    function hydrateStoredPhotosInBackground() {
+      const run = async () => {
+        try {
+          const inspections = storeMem.inspections || [];
+          const visits = storeMem.visits || [];
+          if (inspections.length) storeMem.inspections = await hydrateInspectionBlobs(inspections);
+          for (const v of visits) {
+            if (v.photos && v.photos.length) v.photos = await Promise.all(v.photos.map(hydratePhotoUrl));
+          }
+        } catch (e) { console.warn('Background photo hydration failed', e); }
+      };
+      if ('requestIdleCallback' in window) requestIdleCallback(run, {timeout: 1500});
+      else setTimeout(run, 250);
     }
 
     function saveInspections(list) {
@@ -435,7 +449,18 @@ const ICO = {
     }
 
     // ========== UI HELPERS ==========
+    // Navigation history is screen-based so the header back chevron always
+    // returns to the page the user actually came from.  Individual pages
+    // (such as a selected time-card week) keep their own state separately.
+    const navHistory = [];
+    let navGoingBack = false;
+
     function showScreen(id) {
+      const current = document.querySelector('.screen.active');
+      const currentId = current ? current.id : '';
+      if (!navGoingBack && currentId && currentId !== id) {
+        navHistory.push(currentId);
+      }
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
       const screenEl = document.getElementById(id);
       if (screenEl) screenEl.classList.add('active');
@@ -3935,52 +3960,92 @@ const ICO = {
       closeFullNotes();
     }
     document.getElementById('btnNotesBack').addEventListener('click', leaveNotesToFindings);
-    document.getElementById('btnHeaderBack').addEventListener('click', () => {
-      if (document.body.classList.contains('on-notes')) closeFullNotes();
-      if (document.body.classList.contains('on-settings')) {
-        showScreen('screenHome');
-        setHeader('LeMatic Inspection');
-        refreshHome();
-      }
-      if (document.body.classList.contains('on-pl-edit') ||
-          (document.querySelector('.screen.active') && document.querySelector('.screen.active').id === 'screenPunchlistEdit')) {
-        cancelPunchlistEdit();
-        return;
-      }
-      if (document.body.classList.contains('on-punchlist') ||
-          (document.querySelector('.screen.active') && document.querySelector('.screen.active').id === 'screenPunchlist')) {
-        try { closeModal(); } catch (e) {}
-        if (typeof openPunchlistRecentList === 'function') openPunchlistRecentList();
-        else {
-          showScreen('screenPunchlistList');
-          setHeader('Punchlist');
-          if (typeof refreshPunchlistHome === 'function') refreshPunchlistHome();
+    function closeOpenOverlaysForBack() {
+      let closed = false;
+      const has = (id, selector = '.show') => {
+        const el = document.getElementById(id);
+        return !!(el && el.classList.contains(selector.replace('.', '')));
+      };
+      try {
+        if (has('pl-modal')) { closeModal(); closed = true; }
+        if (has('deleteModal')) { closeDeleteModal(); closed = true; }
+        if (has('machineModal')) { closeMachineModal(); closed = true; }
+        if (has('jobDatesModal')) { closeHomeJobDatesEditor(); closed = true; }
+        if (has('jobPickerModal')) { closeJobPicker(); closed = true; }
+        if (has('plExportSheet')) { closePlExportSheet(); closed = true; }
+        if (has('saveSheet')) { closeSaveSheet(); closed = true; }
+        if (has('tcWeekPickSheet')) { tcCloseWeekPick(); closed = true; }
+        if (has('plLinkJobSheet')) { closePunchlistLinkSheet(); closed = true; }
+        if (has('tcNameSheet')) {
+          const el = document.getElementById('tcNameSheet');
+          el.classList.remove('show'); el.hidden = true; el.setAttribute('hidden','');
+          closed = true;
         }
-        return;
-      }
+        const ir = document.getElementById('irPreviewSheet');
+        if (ir && !ir.hidden) { ir.hidden = true; ir.classList.remove('show'); closed = true; }
+        const qr = document.getElementById('profileQrViewer');
+        if (qr && !qr.hidden) { closeProfileQrViewer(); closed = true; }
+        if (document.body.classList.contains('search-open')) { closeSearch(); closed = true; }
+      } catch (e) {}
+      return closed;
+    }
+
+    document.getElementById('btnHeaderBack').addEventListener('click', () => {
+      // Back first dismisses any open sheet, dialog, modal, or search UI.
+      // A second tap then navigates to the previous page.
+      if (closeOpenOverlaysForBack()) return;
+
+      const active = document.querySelector('.screen.active');
+      const activeId = active ? active.id : '';
+
+      // Preserve any unsaved inspection work before leaving its flow.
       if (document.body.classList.contains('inspect-active') ||
           document.body.classList.contains('on-findings') ||
           document.body.classList.contains('on-inspect-notes') ||
           document.body.classList.contains('on-inspect-preview')) {
         try { if (typeof saveCurrentDraft === 'function') saveCurrentDraft(); } catch (e) {}
-        document.body.classList.remove('inspect-active', 'on-findings', 'on-inspect-notes', 'on-inspect-preview', 'chrome-hidden', 'on-inspect-flow');
-        showScreen('screenInspectList');
-        setHeader('Inspections');
-        if (typeof refreshHome === 'function') refreshHome();
+      }
+
+      // Punchlist edit needs its existing cleanup, but the destination is
+      // still determined by the actual navigation history.
+      if (document.body.classList.contains('on-pl-edit') || activeId === 'screenPunchlistEdit') {
+        const previousId = navHistory.pop() || 'screenPunchlistList';
+        navGoingBack = true;
+        try { cancelPunchlistEdit(); } catch (e) {}
+        try {
+          showScreen(previousId);
+        } finally {
+          navGoingBack = false;
+        }
         return;
       }
-      if (document.body.classList.contains('on-time-edit')) {
-        // One level back → week detail
-        showScreen('screenTimeWeek');
-        document.body.classList.add('on-time-week');
-        document.body.classList.remove('on-time-edit', 'on-time', 'on-home');
-        if (typeof tcRenderWeekDetail === 'function') tcRenderWeekDetail();
-      } else if (document.body.classList.contains('on-time-week')) {
-        // One level back → time cards home
-        showScreen('screenTime');
-        document.body.classList.add('on-time');
-        document.body.classList.remove('on-time-week', 'on-time-edit', 'on-home');
+
+      let previousId = navHistory.pop();
+      if (!previousId) {
+        previousId = 'screenHome';
+      }
+
+      navGoingBack = true;
+      try {
+        showScreen(previousId);
+      } finally {
+        navGoingBack = false;
+      }
+
+      if (previousId === 'screenHome') {
+        setHeader('LeMatic Inspection');
+        if (typeof refreshHome === 'function') refreshHome();
+      } else if (previousId === 'screenInspectList') {
+        setHeader('Inspections');
+        if (typeof refreshHome === 'function') refreshHome();
+      } else if (previousId === 'screenPunchlistList') {
+        setHeader('Punchlist');
+        if (typeof refreshPunchlistHome === 'function') refreshPunchlistHome();
+      } else if (previousId === 'screenTime') {
+        setHeader('Time Cards');
         if (typeof tcRefresh === 'function') tcRefresh();
+      } else if (previousId === 'screenTimeWeek') {
+        if (typeof tcRenderWeekDetail === 'function') tcRenderWeekDetail();
       }
     });
     document.getElementById('btnNotesNext').addEventListener('click', () => {
@@ -5023,6 +5088,7 @@ const ICO = {
       if (typeof refreshStorageCard === 'function') refreshStorageCard();
     });
     document.getElementById('btnHome').addEventListener('click', () => {
+      navHistory.length = 0;
       if (currentInspection && currentInspection.status !== 'Complete') {
         saveCurrentDraft();
       }
@@ -5035,6 +5101,7 @@ const ICO = {
       setHeader('LeMatic Inspection');
       refreshHome();
       measureHeaderHeight();
+      hydrateStoredPhotosInBackground();
       requestAnimationFrame(() => {
         measureHeaderHeight();
         window.scrollTo(0, 0);
@@ -5456,8 +5523,20 @@ const ICO = {
       });
     }
 
-    // Start
-    bootStorage().then(() => loadData()).catch(() => loadData());
+    // Fast first paint: the LX-8 template is already bundled, so there is no
+    // reason to hold the initial screen while IndexedDB is opened and hydrated.
+    // Storage hydration continues in the background and refreshes the home screen
+    // when it is ready. This preserves the existing data behavior while making
+    // cold starts much more responsive, especially on iPhone.
+    if (window.MACHINE_TEMPLATES && window.MACHINE_TEMPLATES['LX-8']) {
+      setActiveMachine('LX-8');
+    } else if (window.EMBEDDED_DATA && window.EMBEDDED_DATA.sections && window.EMBEDDED_DATA.sections.length) {
+      APP_DATA = window.EMBEDDED_DATA;
+    }
+    initApp();
+    bootStorage().then(() => {
+      try { refreshHome(); } catch (e) {}
+    }).catch(() => {});
 
     // Register service worker (PWA) and keep drafts on device
     
@@ -5653,12 +5732,6 @@ const IDB_NAME = "FieldPunchlistDB";
 
     window.addEventListener("online", () => { updateOnlineStatus(); toast("Back online"); });
     window.addEventListener("offline", updateOnlineStatus);
-
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=8").catch(() => {});
-      });
-    }
 
     function getItems() { return data.jobs[data.currentJob] || []; }
     function setItems(items) { data.jobs[data.currentJob] = items; plSaveData(); }
@@ -7868,8 +7941,11 @@ function tcRenderEntryList(listEl, offset) {
       const auto = tcFindJobForToday();
       document.getElementById('tcEditJob').innerHTML = tcJobOptionsHtml(auto ? auto.id : '');
       document.getElementById('tcEditHours').value = '8';
-      document.getElementById('tcEditClockIn').value = '';
-      document.getElementById('tcEditClockOut').value = '';
+      // Default workday times for new entries. These are time-only controls;
+      // the Date field remains the single calendar-date source of truth.
+      document.getElementById('tcEditClockIn').value = '08:00';
+      document.getElementById('tcEditClockOut').value = '18:00';
+      document.getElementById('tcEditHours').value = '10';
       document.getElementById('tcEditNotes').value = '';
       showScreen('screenTimeEdit');
       document.body.classList.add('on-time-edit');

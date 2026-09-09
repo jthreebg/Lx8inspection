@@ -1,11 +1,11 @@
-const CACHE = 'lematic-fs-flat-v54';
+const CACHE = 'lematic-fs-flat-v55';
 const PRECACHE = [
   './',
   './index.html',
-  './app.css?v=53',
-  './app.js?v=53',
-  './templates.js?v=53',
-  './qrcode.min.js?v=53',
+  './app.css?v=55',
+  './app.js?v=55',
+  './templates.js?v=55',
+  './qrcode.min.js?v=55',
   './manifest.webmanifest',
   './apple-touch-icon.png',
   './icon-192.png'
@@ -28,12 +28,21 @@ self.addEventListener('fetch', (event) => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const cached = await cache.match(req) || await cache.match(url.pathname);
+    // Cache-first makes repeat launches instant. A background refresh keeps
+    // the app current without blocking the first paint on network latency.
+    if (cached) {
+      event.waitUntil(
+        fetch(req).then((fresh) => {
+          if (fresh && fresh.ok) return cache.put(req, fresh);
+        }).catch(() => {})
+      );
+      return cached;
+    }
     try {
       const fresh = await fetch(req);
       if (fresh && fresh.ok) cache.put(req, fresh.clone());
-      return cached || fresh;
+      return fresh;
     } catch (e) {
-      if (cached) return cached;
       return cache.match('./index.html');
     }
   })());

@@ -714,8 +714,24 @@
       appearance: none;
     }
     #screenTimeEdit .form-group input[type="date"],
-    #screenTimeEdit .form-group input[type="datetime-local"] {
+    #screenTimeEdit .form-group input[type="datetime-local"],
+    #screenTimeEdit .form-group input[type="time"] {
+      width: 100%;
       min-width: 0;
+      min-height: 48px;
+      height: 48px;
+      box-sizing: border-box;
+      padding: 14px;
+      font-size: 1rem;
+      line-height: 1.2;
+    }
+
+    /* iOS/Safari can render an empty time input at its intrinsic width.
+       Keep Clock In/Out the same full-width size as every other form field. */
+    #screenTimeEdit .form-group input[type="time"] {
+      display: block;
+      width: 100% !important;
+      max-width: none;
     }
     #screenTimeEdit .tc-hours-hint {
       font-size: 0.75rem; color: var(--muted); margin-top: 6px;
