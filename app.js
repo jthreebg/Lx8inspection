@@ -501,6 +501,15 @@ const ICO = {
       document.body.classList.toggle('on-punchlist', id === 'screenPunchlist');
       document.body.classList.toggle('on-pl-edit', id === 'screenPunchlistEdit');
       document.body.classList.toggle('on-jobs-list', id === 'screenJobsList');
+      // Show the global header back chevron on every navigable page.
+      // Home, the Settings landing page, and the main Time Cards landing page
+      // keep their existing header behavior; all other screens can now return
+      // to the actual previous screen via navHistory.
+      const genericBackScreens = new Set([
+        'screenJobsList', 'screenJobDetail', 'screenJobForm',
+        'screenInspectList', 'screenPunchlistList', 'screenPunchlistEdit'
+      ]);
+      document.body.classList.toggle('has-screen-back', genericBackScreens.has(id));
       const fab = document.getElementById('fab-add');
       if (fab) {
         if (id === 'screenJobsList') {

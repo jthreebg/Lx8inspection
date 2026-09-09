@@ -896,6 +896,8 @@
       display: flex; align-items: center; gap: 12px; flex-shrink: 0;
     }
     #btnHeaderBack { display: none; }
+    body.has-screen-back #btnHeaderBack { display: flex !important; margin-right: 4px; }
+    body.has-screen-back .header-logo { margin-left: 10px; }
     #btnInspectHome { display: none !important; }
     body.on-home #btnHome { display: none !important; }
     
@@ -4550,6 +4552,32 @@
     html.theme-light .btn-primary {
       background: #1c1c1e;
       color: #ffffff;
+    }
+
+    /* Punchlist edit: keep the edit form fully in the light theme. */
+    html.theme-light #screenPunchlistEdit {
+      color: #1c1c1e;
+    }
+    html.theme-light #screenPunchlistEdit .card {
+      background: #ffffff !important;
+      color: #1c1c1e !important;
+      border-color: rgba(15,23,42,0.10) !important;
+      box-shadow: 0 8px 24px rgba(15,23,42,0.06) !important;
+    }
+    html.theme-light #screenPunchlistEdit .form-group label {
+      color: #4b5563 !important;
+    }
+    html.theme-light #screenPunchlistEdit input,
+    html.theme-light #screenPunchlistEdit select {
+      background: #ffffff !important;
+      color: #1c1c1e !important;
+      border-color: rgba(15,23,42,0.14) !important;
+      color-scheme: light !important;
+    }
+    html.theme-light #screenPunchlistEdit .btn-row {
+      background: #e8eaee !important;
+      color: #1c1c1e !important;
+      box-shadow: none !important;
     }
     html.theme-light #pl-modal .btn-row,
     html.theme-light #pl-modal .pl-item-bar,
