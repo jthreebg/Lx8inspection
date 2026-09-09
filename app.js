@@ -7601,7 +7601,13 @@ const IDB_NAME = "FieldPunchlistDB";
         '</div>';
       const card = document.getElementById('tcWeekCardMain');
       if (!card) return;
-      card.addEventListener('click', () => tcOpenWeek(tcState.weekOffset || 0));
+      card.addEventListener('click', () => {
+        // Always open the week actually displayed on this card. Do not use the
+        // mutable global weekOffset here because it can be changed by the picker
+        // without the card having been re-rendered yet.
+        const displayedOffset = parseInt(card.getAttribute('data-offset'), 10);
+        tcOpenWeek(Number.isFinite(displayedOffset) ? displayedOffset : (tcState.weekOffset || 0));
+      });
       let sx = 0, sy = 0, tracking = false;
       const onStart = (x, y) => { sx = x; sy = y; tracking = true; };
       const onEnd = (x, y) => {
@@ -7795,8 +7801,16 @@ function tcRenderEntryList(listEl, offset) {
         if (hint) hint.textContent = 'Enter clock in and out to calculate hours, or type hours directly';
         return;
       }
-      const a = new Date(cin.value).getTime();
-      const b = new Date(cout.value).getTime();
+      const dateEl = document.getElementById('tcEditDate');
+      const baseDate = (dateEl && dateEl.value) ? dateEl.value : tcDateKey(Date.now());
+      const parseTime = (value) => {
+        const m = String(value || '').match(/^(\d{2}):(\d{2})$/);
+        if (!m) return NaN;
+        return new Date(baseDate + 'T' + m[1] + ':' + m[2] + ':00').getTime();
+      };
+      const a = parseTime(cin.value);
+      let b = parseTime(cout.value);
+      if (!isNaN(a) && !isNaN(b) && b < a) b += 24 * 3600000;
       if (isNaN(a) || isNaN(b) || b <= a) {
         if (hint) hint.textContent = 'Clock out must be after clock in';
         return;
@@ -7831,13 +7845,13 @@ function tcRenderEntryList(listEl, offset) {
       document.getElementById('tcEditType').value = entry.type || 'bakery';
       document.getElementById('tcEditJob').innerHTML = tcJobOptionsHtml(entry.jobId || '');
       document.getElementById('tcEditHours').value = tcEntryHours(entry);
-      const toLocal = (ms) => {
+      const toTime = (ms) => {
         if (!ms) return '';
         const d = new Date(ms);
-        return d.getFullYear() + '-' + tcPad(d.getMonth()+1) + '-' + tcPad(d.getDate()) + 'T' + tcPad(d.getHours()) + ':' + tcPad(d.getMinutes());
+        return tcPad(d.getHours()) + ':' + tcPad(d.getMinutes());
       };
-      document.getElementById('tcEditClockIn').value = toLocal(entry.clockIn);
-      document.getElementById('tcEditClockOut').value = toLocal(entry.clockOut);
+      document.getElementById('tcEditClockIn').value = toTime(entry.clockIn);
+      document.getElementById('tcEditClockOut').value = toTime(entry.clockOut);
       document.getElementById('tcEditNotes').value = entry.notes || '';
       showScreen('screenTimeEdit');
       document.body.classList.add('on-time-edit');
@@ -7873,15 +7887,28 @@ function tcRenderEntryList(listEl, offset) {
       const manualHours = (!isNaN(hoursVal)) ? Math.max(0, Math.min(24, hoursVal)) : null;
       let clockIn = null;
       let clockOut = null;
-      if (cinStr) clockIn = new Date(cinStr).getTime();
-      if (coutStr) clockOut = new Date(coutStr).getTime();
+      // The entry Date is the single source of truth for the calendar date.
+      // Clock in/out fields contain time only, so changing a time can never
+      // silently change the entry's date.
+      const baseDate = date || tcDateKey(Date.now());
+      const timeOnDate = (timeStr, fallbackHour) => {
+        if (!timeStr) return null;
+        const m = String(timeStr).match(/^(\d{2}):(\d{2})$/);
+        if (!m) return null;
+        const d = new Date(baseDate + 'T' + m[1] + ':' + m[2] + ':00');
+        return isNaN(d.getTime()) ? null : d.getTime();
+      };
+      if (cinStr) clockIn = timeOnDate(cinStr, 8);
+      if (coutStr) clockOut = timeOnDate(coutStr, 0);
+      // If clock-out is earlier than clock-in, treat it as the following day.
+      // This keeps overnight entries possible while still having one displayed Date.
+      if (clockIn && clockOut && clockOut < clockIn) clockOut += 24 * 3600000;
       // Manual hours only (no clock times): store hours without fabricating clock range
       if (manualHours != null && tcHoursManualOverride && !cinStr && !coutStr) {
         clockIn = date ? new Date(date + 'T12:00:00').getTime() : Date.now();
         clockOut = null;
       } else {
         if (!clockIn) clockIn = date ? new Date(date + 'T08:00:00').getTime() : Date.now();
-        if (clockOut && clockOut < clockIn) clockOut = clockIn;
         if (clockOut && clockOut - clockIn > TC_MAX_MS) clockOut = clockIn + TC_MAX_MS;
         if (manualHours != null && !coutStr && !tcHoursManualOverride) {
           clockOut = clockIn + Math.round(manualHours * 3600000);
