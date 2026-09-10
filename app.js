@@ -5770,7 +5770,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-v60', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-v61', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -8447,6 +8447,24 @@ function tcRenderEntryList(listEl, offset) {
       return groups;
     }
 
+    function tcExportRowChunks(entries, size) {
+      const rows = Array.isArray(preRows) ? preRows : tcExportGroupRows(entries);
+      const n = Math.max(1, size || 14);
+      const chunks = [];
+      for (let i = 0; i < rows.length; i += n) chunks.push(rows.slice(i, i + n));
+      return chunks.length ? chunks : [[]];
+    }
+    function tcExportEntriesFromRows(rows) {
+      return (rows || []).map(r => ({
+        date: r.date,
+        bakeryName: r.bakeryName,
+        type: 'bakery',
+        hours: r.bakery,
+        bakery: r.bakery,
+        travel: r.travel,
+        shop: r.shop
+      }));
+    }
     function tcExportGroupRows(entries) {
       const byKey = {};
       entries.forEach(en => {
@@ -8483,7 +8501,7 @@ function tcRenderEntryList(listEl, offset) {
       return ws;
     }
 
-    function tcPopulateExportSheet(ws, techName, weekKey, entries) {
+    function tcPopulateExportSheet(ws, techName, weekKey, entries, preRows) {
       try {
         ws.mergeCells('B9:F9');
         const banner = ws.getCell('B9');
@@ -8505,7 +8523,7 @@ function tcRenderEntryList(listEl, offset) {
       ws.getCell('B12').value = 'Name: ' + techName;
       ws.getCell('C12').value = 'Week Beginning:';
       ws.getCell('D12').value = tcExportFormatWeekBegin(weekKey);
-      const rows = tcExportGroupRows(entries);
+      const rows = Array.isArray(preRows) ? preRows : tcExportGroupRows(entries);
       const first = 17, maxRows = 14;
       const thin = { style: 'thin', color: { argb: 'FF000000' } };
       const box = { top: thin, left: thin, bottom: thin, right: thin };
@@ -8534,11 +8552,11 @@ function tcRenderEntryList(listEl, offset) {
         ? tcExportEntriesForSelectedDays(tcExportSelection.days)
         : tcExportEntriesForSelectedWeeks(tcExportSelection.weeks);
       const total = entries.reduce((sum,e) => sum + tcEntryHours(e), 0);
-      const groups = tcExportGroupByWeek(entries);
       const jobs = new Set(entries.map(e => e.bakeryName || 'No job').filter(Boolean));
       const count = tcExportSelection.mode === 'days' ? tcExportSelection.days.size : tcExportSelection.weeks.size;
       const label = tcExportSelection.mode === 'days' ? (count === 1 ? 'day' : 'days') : (count === 1 ? 'week' : 'weeks');
-      list.innerHTML = '<strong>' + count + ' ' + label + ' selected</strong><span>' + groups.size + ' Excel ' + (groups.size === 1 ? 'sheet' : 'sheets') + ' · ' + total.toFixed(2) + ' hours · ' + jobs.size + ' ' + (jobs.size === 1 ? 'job' : 'jobs') + '</span>';
+      const sheets = tcExportRowChunks(entries, 14).length;
+      list.innerHTML = '<strong>' + count + ' ' + label + ' selected</strong><span>' + sheets + ' Excel ' + (sheets === 1 ? 'sheet' : 'sheets') + ' · ' + total.toFixed(2) + ' hours · ' + jobs.size + ' ' + (jobs.size === 1 ? 'job' : 'jobs') + '</span>';
     }
 
     function tcRenderExportList() {
@@ -8588,6 +8606,8 @@ function tcRenderEntryList(listEl, offset) {
       if (!sheet || !scrim) return;
       sheet.hidden = false; sheet.removeAttribute('hidden');
       scrim.hidden = false; scrim.removeAttribute('hidden');
+      const seg = document.getElementById('tcExportSeg');
+      if (seg) seg.setAttribute('data-mode', tcExportSelection.mode || 'weeks');
       requestAnimationFrame(() => { sheet.classList.add('show'); scrim.classList.add('show'); });
       tcRenderExportList();
     }
@@ -8608,28 +8628,36 @@ function tcRenderEntryList(listEl, offset) {
       await ensureExcelLibs();
       if (typeof ExcelJS === 'undefined') { toast('Excel library not available'); return; }
 
-      const groups = tcExportGroupByWeek(entries);
-      const weekKeys = Array.from(groups.keys()).sort();
+      const chunks = tcExportRowChunks(entries, 14);
       const tcRes = await fetch('timecard-template.xlsx');
       if (!tcRes.ok) throw new Error('Could not load timecard-template.xlsx');
       const buf = await tcRes.arrayBuffer();
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(buf);
       const templateWs = wb.worksheets[0];
-      // First selected week reuses the template sheet; later weeks are exact model clones.
-      const firstKey = weekKeys[0];
-      templateWs.name = tcExportSheetName(firstKey, 0);
-      tcPopulateExportSheet(templateWs, techName, firstKey, groups.get(firstKey) || []);
-      for (let i = 1; i < weekKeys.length; i++) {
-        const key = weekKeys[i];
-        const ws = tcCloneWorksheetFromTemplate(wb, templateWs, tcExportSheetName(key, i), i + 1);
-        tcPopulateExportSheet(ws, techName, key, groups.get(key) || []);
+      function chunkWeekKey(rows) {
+        const firstDate = (rows && rows[0] && rows[0].date) || '';
+        if (!firstDate) return tcDateKey(Date.now());
+        const d = new Date(firstDate + 'T12:00:00');
+        const day = d.getDay();
+        const mo = day === 0 ? -6 : 1 - day;
+        const start = new Date(d.getFullYear(), d.getMonth(), d.getDate() + mo);
+        return tcDateKey(start);
       }
+      const firstKey = chunkWeekKey(chunks[0]);
+      templateWs.name = tcExportSheetName(firstKey, 0);
+      tcPopulateExportSheet(templateWs, techName, firstKey, entries, chunks[0]);
+      for (let i = 1; i < chunks.length; i++) {
+        const key = chunkWeekKey(chunks[i]);
+        const ws = tcCloneWorksheetFromTemplate(wb, templateWs, tcExportSheetName(key, i), i + 1);
+        tcPopulateExportSheet(ws, techName, key, entries, chunks[i]);
+      }
+      const weekKeys = [firstKey];
       const out = await wb.xlsx.writeBuffer();
       const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const safe = String(techName).replace(/[\\/:*?"<>|]/g, '-').trim() || 'TimeCard';
       const firstBegin = tcExportFormatWeekBegin(firstKey).replace(/\//g, '-');
-      const suffix = weekKeys.length === 1 ? firstBegin : (weekKeys.length + '-Weeks');
+      const suffix = chunks.length === 1 ? firstBegin : (chunks.length + '-Sheets');
       const fname = safe + ' Time Card ' + suffix + '.xlsx';
       try {
         if (typeof downloadBlob === 'function') await downloadBlob(blob, fname);
@@ -8651,8 +8679,8 @@ function tcRenderEntryList(listEl, offset) {
       on('tcExportClose', tcCloseExportSheet);
       on('tcExportCancel', tcCloseExportSheet);
       on('tcExportScrim', tcCloseExportSheet);
-      on('tcExportTabWeeks', () => { tcExportSelection.mode = 'weeks'; document.getElementById('tcExportTabWeeks').classList.add('on'); document.getElementById('tcExportTabDays').classList.remove('on'); document.getElementById('tcExportTabWeeks').setAttribute('aria-selected','true'); document.getElementById('tcExportTabDays').setAttribute('aria-selected','false'); tcRenderExportList(); });
-      on('tcExportTabDays', () => { tcExportSelection.mode = 'days'; document.getElementById('tcExportTabDays').classList.add('on'); document.getElementById('tcExportTabWeeks').classList.remove('on'); document.getElementById('tcExportTabDays').setAttribute('aria-selected','true'); document.getElementById('tcExportTabWeeks').setAttribute('aria-selected','false'); tcRenderExportList(); });
+      on('tcExportTabWeeks', () => { tcExportSelection.mode = 'weeks'; document.getElementById('tcExportTabWeeks').classList.add('on'); document.getElementById('tcExportTabDays').classList.remove('on'); document.getElementById('tcExportTabWeeks').setAttribute('aria-selected','true'); document.getElementById('tcExportTabDays').setAttribute('aria-selected','false'); const seg = document.getElementById('tcExportSeg'); if (seg) seg.setAttribute('data-mode','weeks'); tcRenderExportList(); });
+      on('tcExportTabDays', () => { tcExportSelection.mode = 'days'; document.getElementById('tcExportTabDays').classList.add('on'); document.getElementById('tcExportTabWeeks').classList.remove('on'); document.getElementById('tcExportTabDays').setAttribute('aria-selected','true'); document.getElementById('tcExportTabWeeks').setAttribute('aria-selected','false'); const seg = document.getElementById('tcExportSeg'); if (seg) seg.setAttribute('data-mode','days'); tcRenderExportList(); });
       on('tcExportSelectAll', () => {
         if (tcExportSelection.mode === 'weeks') tcExportAvailableWeekOffsets().forEach(o => tcExportSelection.weeks.add(o));
         else Array.from(new Set((tcState.entries || []).map(e => e.date || tcDateKey(e.clockIn)).filter(Boolean))).forEach(d => tcExportSelection.days.add(d));
