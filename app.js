@@ -8514,7 +8514,7 @@ function tcRenderEntryList(listEl, offset) {
     }
 
     function tcExportRowChunks(entries, size) {
-      const rows = Array.isArray(preRows) ? preRows : tcExportGroupRows(entries);
+      const rows = tcExportGroupRows(entries || []);
       const n = Math.max(1, size || 14);
       const chunks = [];
       for (let i = 0; i < rows.length; i += n) chunks.push(rows.slice(i, i + n));
