@@ -19,7 +19,7 @@
     <script>
     (function(){try{if(localStorage.getItem('lx8_theme')==='light')document.documentElement.classList.add('theme-light');}catch(e){}})();
   </script>
-  <link rel="stylesheet" href="app.css?v=57" />
+  <link rel="stylesheet" href="app.css?v=60" />
   
 
 
@@ -370,7 +370,11 @@
       </div>
       <div class="form-group">
         <label for="plEditJob">Job</label>
-        <select id="plEditJob"></select>
+        <div class="job-selector-wrap">
+          <select class="job-selector" id="plEditJob" aria-label="Select job">
+            <option value="">Select job</option>
+          </select>
+        </div>
       </div>
     </div>
     <button type="button" class="btn btn-outline pl-item-delete" id="plEditDelete">Delete punchlist</button>
@@ -517,7 +521,7 @@
         <datalist id="jobCustomerList"></datalist>
       </div>
       <div class="form-group">
-        <label>Sales order</label>
+        <label>Sales order (optional)</label>
         <input type="text" id="jobSO" placeholder="Sales order #" />
       </div>
       <div class="form-group">
@@ -532,7 +536,7 @@
         <input type="text" id="jobMachineCustom" class="hidden" placeholder="Machine type" autocomplete="off" style="margin-top:8px" />
       </div>
       <div class="form-group">
-        <label>Machine serials (optional)</label>
+        <label>Serials · auto-tagged Line 1, 2, 3…</label>
         <div id="jobSerialChips" class="job-serial-chips"></div>
         <div class="job-serial-add">
           <input type="text" id="jobSerialInput" placeholder="Add serial number" autocomplete="off" />
@@ -758,6 +762,14 @@
       <div class="modal-handle" aria-hidden="true"></div>
       <div class="modal-header"><h2 id="machineModalTitle">Machine & serial</h2></div>
       <div class="modal-body">
+        <div class="form-group hidden" id="inspectJobGroup">
+          <label>Job</label>
+          <div class="job-selector-wrap">
+            <select class="job-selector" id="inspectModalJobSelect" aria-label="Select job">
+              <option value="">Select job</option>
+            </select>
+          </div>
+        </div>
         <div class="form-group">
           <label>Machine</label>
           <select id="inspectMachine">
@@ -784,6 +796,32 @@
       </div>
     </div>
   </div>
+  
+  <div id="plStartSheet" class="modal-overlay hidden" aria-hidden="true">
+    <div class="modal machine-sheet" role="dialog" aria-modal="true" aria-labelledby="plStartTitle">
+      <div class="modal-handle" aria-hidden="true"></div>
+      <div class="modal-header"><h2 id="plStartTitle">New punchlist</h2></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="plStartName">Name</label>
+          <input type="text" id="plStartName" placeholder="Punchlist name" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label for="plStartJob">Job</label>
+          <div class="job-selector-wrap">
+            <select class="job-selector" id="plStartJob" aria-label="Select job">
+              <option value="">Select job</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="plStartCancel" class="btn btn-outline">Cancel</button>
+        <button type="button" id="plStartDone" class="btn btn-primary">Create punchlist</button>
+      </div>
+    </div>
+  </div>
+
   <div id="deleteModal" class="modal-backdrop hidden" aria-hidden="true">
     <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
       <div class="modal-title" id="deleteModalTitle">Delete inspection?</div>
@@ -832,6 +870,24 @@
       </div>
       <div id="tcWeekPickList" style="max-height:50vh;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
       <button type="button" class="btn btn-outline save-sheet-cancel" id="tcWeekPickCancel">Cancel</button>
+    </div>
+  </div>
+  <div id="tcExportScrim" class="tc-export-scrim" hidden></div>
+  <div id="tcExportSheet" class="save-sheet tc-export-sheet" hidden>
+    <div class="save-sheet-card tc-export-card">
+      <div class="save-sheet-handle" aria-hidden="true"></div>
+      <div class="modal-header tc-export-head">
+        <h2>Export</h2>
+        <p class="tc-export-sub">Select to export</p>
+      </div>
+      <div class="seg-control tc-export-tabs" role="tablist" aria-label="Export selection">
+        <button type="button" class="seg-btn on" id="tcExportTabWeeks" data-mode="weeks" role="tab" aria-selected="true">Weeks</button>
+        <button type="button" class="seg-btn" id="tcExportTabDays" data-mode="days" role="tab" aria-selected="false">Days</button>
+      </div>
+      <div id="tcExportList" class="tc-export-list"></div>
+      <div id="tcExportSummary" class="tc-export-summary"></div>
+      <button type="button" class="btn btn-primary" id="tcExportContinue">Continue</button>
+      <button type="button" class="btn btn-outline save-sheet-cancel" id="tcExportCancel">Cancel</button>
     </div>
   </div>
 <div id="tcNameSheet" class="save-sheet" hidden>
@@ -953,8 +1009,8 @@
   </div>
 
   <div class="toast" id="toast"></div>
-  <script src="qrcode.min.js?v=57" defer></script>
-  <script src="templates.js?v=57" defer></script>
-  <script src="app.js?v=57" defer></script>
+  <script src="qrcode.min.js?v=60" defer></script>
+  <script src="templates.js?v=60" defer></script>
+  <script src="app.js?v=60" defer></script>
 </body>
 </html>

@@ -573,16 +573,28 @@ const ICO = {
     function fillPunchlistEditJobSelect(selectedId) {
       const sel = document.getElementById('plEditJob');
       if (!sel) return;
-      const jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
-      let html = '<option value="">— No job —</option>';
-      jobs.forEach(j => {
-        if (!j || !j.id) return;
-        const label = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : (j.customer || 'Job');
-        if (typeof isInternalId === 'function' && isInternalId(label)) return;
-        const selAttr = selectedId && selectedId === j.id ? ' selected' : '';
-        html += '<option value="' + String(j.id).replace(/"/g, '&quot;') + '"' + selAttr + '>' + String(label).replace(/</g, '&lt;') + '</option>';
-      });
-      sel.innerHTML = html;
+      let jobs = [];
+      try {
+        jobs = (typeof inspectJobsSource === 'function') ? inspectJobsSource() : ((typeof loadJobs === 'function' ? loadJobs() : []) || []);
+      } catch (e) {
+        jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
+      }
+      jobs.forEach(j => { try { if (typeof ensureJobIdentity === 'function') ensureJobIdentity(j); } catch (e) {} });
+      const current = String(selectedId || '');
+      function labelOf(j) {
+        try {
+          const n = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : '';
+          if (n && String(n).trim() && n !== 'Job' && !(typeof isInternalId === 'function' && isInternalId(n))) return String(n);
+        } catch (e) {}
+        return j.customer || j.site || j.name || 'Untitled job';
+      }
+      const sorted = jobs.filter(j => j && j.id).slice().sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
+      sel.innerHTML = '<option value="">Select job</option>' + sorted.map(j => {
+        const id = String(j.id);
+        const selAttr = current && current === id ? ' selected' : '';
+        return '<option value="' + id.replace(/"/g,'&quot;') + '"' + selAttr + '>' + labelOf(j).replace(/</g,'&lt;') + '</option>';
+      }).join('');
+      if (current && sorted.some(j => String(j.id) === current)) sel.value = current;
     }
 
     function openPunchlistEdit(key, opts) {
@@ -1273,14 +1285,12 @@ const ICO = {
       return arr;
     }
     function loadJobs() {
-      if (storeMem.jobs) {
-        storeMem.jobs = ensureJobsIdentities(ensureSampleJob(storeMem.jobs));
-        if (applyJobStatuses(storeMem.jobs)) saveJobs(storeMem.jobs);
-        return storeMem.jobs;
-      }
-      const raw = lsRead('lx8_jobs', []);
-      storeMem.jobs = ensureJobsIdentities(ensureSampleJob(Array.isArray(raw) ? raw : []));
-      try { saveJobs(storeMem.jobs); } catch (e) {}
+      window.loadJobs = loadJobs;
+      const fromLs = lsRead('lx8_jobs', []);
+      const mem = Array.isArray(storeMem.jobs) ? storeMem.jobs : [];
+      const src = mem.length ? mem : (Array.isArray(fromLs) ? fromLs : []);
+      storeMem.jobs = ensureJobsIdentities(ensureSampleJob(src));
+      if (applyJobStatuses(storeMem.jobs)) saveJobs(storeMem.jobs);
       return storeMem.jobs;
     }
 
@@ -1390,7 +1400,7 @@ const ICO = {
       document.getElementById('jobNotes').value = job?.notes || '';
       fillJobCustomerList();
       setJobMachineFields(job?.machine || 'LX-8');
-      jobSerialsDraft = Array.isArray(job?.serials) ? job.serials.slice() : [];
+      jobSerialsDraft = normalizeJobSerials(Array.isArray(job?.serials) ? job.serials : []);
       populateJobSerialSelect(jobSerialsDraft, jobSerialsDraft[0] || '');
       if (typeof renderJobSerialChips === 'function') renderJobSerialChips();
       updateJobMachineSummary();
@@ -1412,11 +1422,15 @@ const ICO = {
       const modal = document.getElementById('machineModal');
       if (!modal) return;
       if (!machineModalMode) machineModalMode = 'job';
+      if (typeof hideInspectJobSelect === 'function' && machineModalMode === 'job') hideInspectJobSelect();
       if (machineModalMode === 'job') {
         const title = document.getElementById('machineModalTitle');
         const done = document.getElementById('machineModalDone');
         if (title) title.textContent = 'Machine & serials';
         if (done) done.textContent = 'Done';
+      }
+      if (machineModalMode === 'startInspect' && typeof populateInspectJobSelect === 'function') {
+        populateInspectJobSelect(pendingInspectJobId);
       }
       modal.classList.remove('hidden');
       modal.classList.add('show');
@@ -1436,20 +1450,50 @@ const ICO = {
       updateJobMachineSummary();
     }
 
+
+    function serialSortValue(s) {
+      const m = String(s || '').match(/(\d+)(?!.*\d)/);
+      return m ? parseInt(m[1], 10) : 0;
+    }
+    function jobSerialText(s) {
+      if (s && typeof s === 'object') return String(s.serial || s.id || '').trim();
+      return String(s || '').trim();
+    }
+    function normalizeJobSerials(list) {
+      const out = [];
+      (list || []).forEach(s => {
+        const text = jobSerialText(s);
+        if (!text) return;
+        if (out.some(x => jobSerialText(x).toLowerCase() === text.toLowerCase())) return;
+        out.push(text);
+      });
+      return out.sort((a, b) => serialSortValue(a) - serialSortValue(b) || a.localeCompare(b));
+    }
+    function taggedJobSerials(list) {
+      return normalizeJobSerials(list).map((serial, i) => ({ serial, line: String(i + 1) }));
+    }
     function renderJobSerialChips() {
       const wrap = document.getElementById('jobSerialChips');
       if (!wrap) return;
+      jobSerialsDraft = normalizeJobSerials(jobSerialsDraft);
       if (!jobSerialsDraft.length) {
         wrap.innerHTML = '<div class="job-serial-empty">No serials yet</div>';
+        updateJobMachineSummary();
         return;
       }
-      wrap.innerHTML = jobSerialsDraft.map((s, i) =>
-        `<button type="button" class="job-serial-chip" data-idx="${i}">${jobEsc(s)} <span aria-hidden="true">×</span></button>`
+      const tagged = taggedJobSerials(jobSerialsDraft);
+      wrap.innerHTML = tagged.map((row, i) =>
+        `<div class="job-serial-row">
+          <span class="line-chip on">${jobEsc(row.line)}</span>
+          <span class="job-serial-text">${jobEsc(row.serial)}</span>
+          <button type="button" class="job-serial-chip job-serial-remove" data-idx="${i}" aria-label="Remove">×</button>
+        </div>`
       ).join('');
-      wrap.querySelectorAll('.job-serial-chip').forEach(btn => {
+      wrap.querySelectorAll('.job-serial-remove').forEach(btn => {
         btn.addEventListener('click', () => {
           const idx = Number(btn.getAttribute('data-idx'));
           jobSerialsDraft.splice(idx, 1);
+          jobSerialsDraft = normalizeJobSerials(jobSerialsDraft);
           renderJobSerialChips();
         });
       });
@@ -1461,7 +1505,8 @@ const ICO = {
       if (!input) return;
       const v = input.value.trim();
       if (!v) return;
-      if (!jobSerialsDraft.some(s => s.toLowerCase() === v.toLowerCase())) jobSerialsDraft.push(v);
+      if (!jobSerialsDraft.some(s => jobSerialText(s).toLowerCase() === v.toLowerCase())) jobSerialsDraft.push(v);
+      jobSerialsDraft = normalizeJobSerials(jobSerialsDraft);
       input.value = '';
       renderJobSerialChips();
     }
@@ -1516,6 +1561,54 @@ const ICO = {
       return sel.value;
     }
 
+    function inspectJobsSource() {
+      let jobs = [];
+      try { jobs = loadJobs() || []; } catch (e) { jobs = []; }
+      if (!jobs.length) {
+        try { jobs = JSON.parse(localStorage.getItem('lx8_jobs') || '[]') || []; } catch (e) { jobs = []; }
+      }
+      jobs = (jobs || []).filter(j => j && typeof j === 'object');
+      jobs.forEach(j => { try { ensureJobIdentity(j); } catch (e) {} });
+      return jobs;
+    }
+    function populateInspectJobSelect(selectedId) {
+      const wrap = document.getElementById('inspectJobGroup');
+      const sel = document.getElementById('inspectModalJobSelect');
+      if (wrap) {
+        wrap.classList.remove('hidden');
+        wrap.style.display = 'block';
+      }
+      if (!sel) return;
+      const jobs = inspectJobsSource();
+      const current = String(selectedId || pendingInspectJobId || sel.value || '');
+      function labelOf(j) {
+        try {
+          const n = jobDisplayName(j);
+          if (n && String(n).trim() && n !== 'Job') return String(n);
+        } catch (e) {}
+        return j.customer || j.site || 'Untitled job';
+      }
+      const sorted = jobs.slice().sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
+      sel.innerHTML = '<option value="">Select job</option>' + sorted.map(j => {
+        const id = String(j.id || '');
+        if (!id) return '';
+        const selAttr = id === current ? ' selected' : '';
+        return '<option value="' + id.replace(/"/g,'&quot;') + '"' + selAttr + '>' + labelOf(j).replace(/</g,'&lt;') + '</option>';
+      }).join('');
+      if (current && jobs.some(j => String(j.id) === current)) sel.value = current;
+      sel.onchange = function() {
+        const id = sel.value || '';
+        pendingInspectJobId = id || null;
+        const job = jobs.find(j => String(j.id) === String(id));
+        jobSerialsDraft = (job && Array.isArray(job.serials)) ? job.serials.slice() : [];
+        if (job && job.machine && typeof setInspectMachineFields === 'function') setInspectMachineFields(job.machine);
+        if (typeof populateJobSerialSelect === 'function') populateJobSerialSelect(jobSerialsDraft, jobSerialsDraft[0] || '');
+      };
+    }
+        function hideInspectJobSelect() {
+      const wrap = document.getElementById('inspectJobGroup');
+      if (wrap) wrap.classList.add('hidden');
+    }
     function populateJobSerialSelect(serials, selected) {
       const sel = document.getElementById('inspectSerialSelect');
       const custom = document.getElementById('inspectSerialInput');
@@ -1729,21 +1822,56 @@ const ICO = {
       }
 
       const punchList = document.getElementById('jobDetailPunchList');
-      if (!punchLinked && punchTotal === 0) {
+      let punchRows = [];
+      try {
+        if (typeof window.getPunchlistSummaries === 'function') {
+          const rows = await window.getPunchlistSummaries();
+          punchRows = (rows || []).filter(r => r && r.jobId && String(r.jobId) === String(job.id));
+        }
+      } catch (e) { punchRows = []; }
+      if (!punchRows.length && punchLinked) {
+        punchRows = [{ key: '', name: punchName, total: punchTotal, complete: punchDone, jobId: job.id }];
+      }
+      if (!punchRows.length) {
         punchList.innerHTML = `<div class="empty-state compact"><p>No punchlist linked. Edit a punchlist and pick this job.</p></div>`;
       } else {
-        const open = punchTotal - punchDone;
-        const allDone = open === 0;
-        punchList.innerHTML = `<div class="list-item ${allDone ? 'list-complete' : ''}" data-action="open-punch">
+        punchList.innerHTML = punchRows.map((row) => {
+          const total = row.total || 0;
+          const done = row.complete || 0;
+          const openN = total - done;
+          const allDone = total > 0 && openN === 0;
+          const title = row.name || punchName || 'Punchlist';
+          const key = row.key || '';
+          return `<div class="list-item ${allDone ? 'list-complete' : ''}" data-action="open-punch" data-pl-key="${jobEsc(key)}" data-pl-name="${jobEsc(title)}">
           <div class="list-item-main">
-            <div class="title">${jobEsc(punchName || jobDisplayName(job))}</div>
-            <div class="sub">${punchTotal} item${punchTotal !== 1 ? 's' : ''} · ${punchDone} complete${open ? ' · ' + open + ' open' : ''}</div>
+            <div class="title">${jobEsc(title)}</div>
+            <div class="sub">${total} item${total !== 1 ? 's' : ''} · ${done} complete${openN ? ' · ' + openN + ' open' : ''}</div>
           </div>
           <div class="list-item-actions">
             <span class="badge ${allDone ? 'badge-complete' : 'badge-draft'}">${allDone ? 'Complete' : 'Open'}</span>
           </div>
         </div>`;
-        punchList.querySelector('[data-action="open-punch"]').addEventListener('click', () => startPunchlistForDetailJob());
+        }).join('');
+        punchList.querySelectorAll('[data-action="open-punch"]').forEach(el => {
+          el.addEventListener('click', async () => {
+            const key = el.getAttribute('data-pl-key') || '';
+            const name = el.getAttribute('data-pl-name') || '';
+            try {
+              if (typeof window.openPunchlistByName !== 'function') {
+                toast('Punchlist not ready');
+                return;
+              }
+              await window.openPunchlistByName(key || name);
+              showScreen('screenPunchlist');
+              setHeader('Punchlist');
+              if (typeof window.populateJobSelect === 'function') window.populateJobSelect();
+              if (typeof window.renderList === 'function') window.renderList();
+            } catch (err) {
+              console.error(err);
+              toast('Could not open punchlist');
+            }
+          });
+        });
       }
     }
 
@@ -1781,8 +1909,9 @@ const ICO = {
       machineModalMode = 'startInspect';
       const title = document.getElementById('machineModalTitle');
       const done = document.getElementById('machineModalDone');
-      if (title) title.textContent = 'Machine & serial';
+      if (title) title.textContent = 'Link job';
       if (done) done.textContent = 'Start inspection';
+      if (typeof populateInspectJobSelect === 'function') populateInspectJobSelect(job && job.id);
       setInspectMachineFields(job.machine || 'LX-8');
       populateJobSerialSelect(jobSerialsDraft, jobSerialsDraft[0] || '');
       openMachineModal();
@@ -1805,7 +1934,12 @@ const ICO = {
     }
 
     function startInspectionFromMachinePopup() {
-      const jobId = pendingInspectJobId || detailJobId;
+      const picked = document.getElementById('inspectModalJobSelect') || document.getElementById('inspectJobSelect');
+      const jobId = (picked && picked.value) || pendingInspectJobId || detailJobId;
+      if (machineModalMode === 'startInspect' && !jobId) {
+        toast('Select a job to link this inspection');
+        return;
+      }
       const job = jobId ? loadJobs().find(j => j.id === jobId) : null;
       const serial = readJobSerial();
       const model = (typeof readInspectMachine === 'function' && readInspectMachine()) || (job && job.machine) || 'LX-8';
@@ -1892,8 +2026,7 @@ const ICO = {
           toast('Punchlist not ready');
           return;
         }
-        const key = await window.createPunchlistForJob(job);
-        openPunchlistEdit(key, { isNew: true, job: job });
+        openPunchlistStartSheet(job);
         return;
       } catch (e) {
         console.error(e);
@@ -1917,10 +2050,6 @@ const ICO = {
       const so = document.getElementById('jobSO').value.trim();
       if (!customer || !tech) {
         toast('Please fill Customer and Technician');
-        return;
-      }
-      if (!so) {
-        toast('Please fill Sales order');
         return;
       }
       const payload = {
@@ -2835,30 +2964,81 @@ const ICO = {
       machineModalMode = 'startInspect';
       const title = document.getElementById('machineModalTitle');
       const done = document.getElementById('machineModalDone');
-      if (title) title.textContent = 'Machine & serial';
+      if (title) title.textContent = 'Link job';
       if (done) done.textContent = 'Start inspection';
+      if (typeof populateInspectJobSelect === 'function') populateInspectJobSelect(job && job.id);
       if (typeof setInspectMachineFields === 'function') setInspectMachineFields(model);
       if (typeof populateJobSerialSelect === 'function') populateJobSerialSelect(jobSerialsDraft, jobSerialsDraft[0] || '');
       openMachineModal();
-      toast('Add machine type and serial number to start inspection');
+      toast('Select a job, machine, and serial to start inspection');
     }
-    async function startPunchlistForCurrentJob(job) {
+    function fillPunchlistStartJobSelect(selectedId) {
+      const sel = document.getElementById('plStartJob');
+      if (!sel) return;
+      let jobs = [];
       try {
-        if (typeof window.openPunchlistForJob !== 'function') {
-          toast('Punchlist not ready');
-          return;
-        }
-        const key = await window.createPunchlistForJob(job || null);
-        openPunchlistEdit(key, { isNew: true, job: job || null });
-        return;
-      } catch (err) {
-        console.error(err);
-        toast('Could not open punchlist');
+        jobs = (typeof inspectJobsSource === 'function') ? inspectJobsSource() : ((typeof loadJobs === 'function' ? loadJobs() : []) || []);
+      } catch (e) {
+        jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
       }
+      jobs.forEach(j => { try { if (typeof ensureJobIdentity === 'function') ensureJobIdentity(j); } catch (e) {} });
+      const current = String(selectedId || '');
+      function labelOf(j) {
+        try {
+          const n = (typeof jobDisplayName === 'function') ? jobDisplayName(j) : '';
+          if (n && String(n).trim() && n !== 'Job') return String(n);
+        } catch (e) {}
+        return j.customer || j.site || 'Untitled job';
+      }
+      const sorted = jobs.filter(j => j && j.id).slice().sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
+      sel.innerHTML = '<option value="">Select job</option>' + sorted.map(j => {
+        const id = String(j.id);
+        const selAttr = current && current === id ? ' selected' : '';
+        return '<option value="' + id.replace(/"/g,'&quot;') + '"' + selAttr + '>' + labelOf(j).replace(/</g,'&lt;') + '</option>';
+      }).join('');
+      if (current && sorted.some(j => String(j.id) === current)) sel.value = current;
+    }
+    function openPunchlistStartSheet(job) {
+      const sheet = document.getElementById('plStartSheet');
+      if (!sheet) { toast('Punchlist sheet missing'); return; }
+      const nameEl = document.getElementById('plStartName');
+      if (nameEl) nameEl.value = '';
+      fillPunchlistStartJobSelect(job && job.id);
+      sheet.classList.remove('hidden');
+      sheet.classList.add('show');
+      sheet.setAttribute('aria-hidden', 'false');
+    }
+    function closePunchlistStartSheet() {
+      const sheet = document.getElementById('plStartSheet');
+      if (!sheet) return;
+      sheet.classList.add('hidden');
+      sheet.classList.remove('show');
+      sheet.setAttribute('aria-hidden', 'true');
+    }
+    async function confirmPunchlistStart() {
+      const nameEl = document.getElementById('plStartName');
+      let name = ((nameEl && nameEl.value) || '').trim() || 'Punchlist';
+      if (typeof isInternalId === 'function' && isInternalId(name)) { toast('Choose a different name'); return; }
+      const jobId = (document.getElementById('plStartJob') && document.getElementById('plStartJob').value) || '';
+      const jobs = (typeof loadJobs === 'function' ? loadJobs() : []) || [];
+      const job = jobId ? (jobs.find(j => j && String(j.id) === String(jobId)) || null) : null;
+      if (typeof window.createPunchlistForJob !== 'function') { toast('Punchlist not ready'); return; }
+      const key = await window.createPunchlistForJob(job || null);
+      if (typeof window.updatePunchlistMeta === 'function') await window.updatePunchlistMeta(key, name, jobId);
+      closePunchlistStartSheet();
+      if (typeof window.openPunchlistByName === 'function') await window.openPunchlistByName(key);
+      showScreen('screenPunchlist');
+      setHeader('Punchlist');
+      if (typeof window.populateJobSelect === 'function') window.populateJobSelect();
+      if (typeof window.renderList === 'function') window.renderList();
+    }
+    function startPunchlistForCurrentJob(job) {
+      openPunchlistStartSheet(job || null);
     }
     document.getElementById('btnNewInspection').addEventListener('click', () => {
       closeSearch();
-      startInspectionForJob(getActiveCurrentJob());
+      const current = (typeof getActiveCurrentJob === 'function') ? getActiveCurrentJob() : null;
+      startInspectionForJob(current || null);
     });
     
     (function bindPunchlistEditUi() {
@@ -2891,9 +3071,32 @@ const ICO = {
       }
     })();
 
+        (function bindPunchlistStartSheet() {
+      const done = document.getElementById('plStartDone');
+      const cancel = document.getElementById('plStartCancel');
+      const sheet = document.getElementById('plStartSheet');
+      if (done && done.dataset.bound !== '1') {
+        done.dataset.bound = '1';
+        done.addEventListener('click', () => { confirmPunchlistStart().catch(err => { console.error(err); toast('Could not create punchlist'); }); });
+      }
+      if (cancel && cancel.dataset.bound !== '1') {
+        cancel.dataset.bound = '1';
+        cancel.addEventListener('click', closePunchlistStartSheet);
+      }
+      if (sheet && sheet.dataset.bound !== '1') {
+        sheet.dataset.bound = '1';
+        sheet.addEventListener('click', (e) => { if (e.target.id === 'plStartSheet') closePunchlistStartSheet(); });
+      }
+    })();
     document.getElementById('btnNewPunchlist').addEventListener('click', () => {
-      closeSearch();
-      startPunchlistForCurrentJob(getActiveCurrentJob());
+      try { if (typeof closeSearch === 'function') closeSearch(); } catch (e) {}
+      try {
+        const job = (typeof getActiveCurrentJob === 'function') ? getActiveCurrentJob() : null;
+        openPunchlistStartSheet(job || null);
+      } catch (err) {
+        console.error(err);
+        toast('Could not open punchlist');
+      }
     });
 
 
@@ -3984,6 +4187,7 @@ const ICO = {
         if (has('plExportSheet')) { closePlExportSheet(); closed = true; }
         if (has('saveSheet')) { closeSaveSheet(); closed = true; }
         if (has('tcWeekPickSheet')) { tcCloseWeekPick(); closed = true; }
+        if (has('tcExportSheet')) { tcCloseExportSheet(); closed = true; }
         if (has('plLinkJobSheet')) { closePunchlistLinkSheet(); closed = true; }
         if (has('tcNameSheet')) {
           const el = document.getElementById('tcNameSheet');
@@ -5566,7 +5770,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-16', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-v60', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -6169,7 +6373,9 @@ const IDB_NAME = "FieldPunchlistDB";
         <div class="form-row">
           <div class="form-group">
             <label>Line</label>
-            <input type="text" id="f-line" value="${escapeHtml(item.line || '')}" placeholder="LH / RH / both">
+            <div class="line-chip-row" id="f-line-chips"></div>
+            <input type="hidden" id="f-line" value="${escapeHtml(item.line || '')}">
+            <input type="hidden" id="f-serial" value="${escapeHtml(item.serial || '')}">
           </div>
           <div class="form-group">
             <label>Priority</label>
@@ -6233,6 +6439,7 @@ const IDB_NAME = "FieldPunchlistDB";
         </div>
       `;
       document.getElementById("pl-modal").classList.add("show");
+      if (typeof bindPunchlistLineChips === 'function') bindPunchlistLineChips();
       if (typeof pinPlModalBar === 'function') pinPlModalBar();
       const delBtn = document.getElementById("btn-delete-item");
       if (delBtn) {
@@ -6306,9 +6513,72 @@ const IDB_NAME = "FieldPunchlistDB";
       showForm({ line:"", location:"", description:"", action:"", department:"Service", responsible:"", dueDate:"", createdAt: nowStamp(), priority:"Normal", comments:"", status:"Not Started", photo:null }, true);
     });
 
+
+    function punchlistLinkedJob() {
+      try {
+        const load = (typeof loadJobs === 'function') ? loadJobs : window.loadJobs;
+        const jobs = (typeof load === 'function' ? load() : []) || [];
+        const key = data && data.currentJob;
+        const jid = (data && data.jobIdByKey && key) ? data.jobIdByKey[key] : '';
+        if (jid) {
+          const byId = jobs.find(j => j && String(j.id) === String(jid));
+          if (byId) return byId;
+        }
+        if (key) {
+          const name = (typeof punchlistDisplayName === 'function') ? punchlistDisplayName(key) : '';
+          const byName = jobs.find(j => j && (j.customer === name || ((typeof jobDisplayName === 'function') && jobDisplayName(j) === name)));
+          if (byName) return byName;
+        }
+        if (typeof currentJob === 'function') {
+          const cur = currentJob();
+          if (cur) return cur;
+        }
+      } catch (e) {}
+      return null;
+    }
+    function serialForLine(line, job) {
+      const tagged = (typeof taggedJobSerials === 'function') ? taggedJobSerials(job && job.serials) : [];
+      const hit = tagged.find(t => String(t.line) === String(line));
+      return hit ? String(hit.serial) : '';
+    }
+    function bindPunchlistLineChips() {
+      const row = document.getElementById('f-line-chips');
+      const hidden = document.getElementById('f-line');
+      const hiddenSerial = document.getElementById('f-serial');
+      if (!row || !hidden) return;
+      const job = punchlistLinkedJob();
+      const tagged = (typeof taggedJobSerials === 'function') ? taggedJobSerials(job && job.serials) : [];
+      const lines = ['1','2','3','4'];
+      let selected = String(hidden.value || '').trim();
+      if (selected && !lines.includes(selected)) selected = '';
+      function serialOf(line) {
+        const hit = tagged.find(t => t.line === line);
+        return hit ? String(hit.serial) : '';
+      }
+      if (hiddenSerial) hiddenSerial.value = selected ? serialOf(selected) : '';
+      function paint() {
+        row.innerHTML = lines.map(line => {
+          const serial = serialOf(line);
+          const label = serial ? (line + ' · ' + serial) : line;
+          return '<button type="button" class="chip line-chip' + (line === selected ? ' on' : '') + '" data-line="' + line + '" data-serial="' + serial.replace(/"/g,'&quot;') + '">' + label + '</button>';
+        }).join('');
+        row.querySelectorAll('.line-chip').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const line = btn.getAttribute('data-line');
+            selected = (selected === line) ? '' : line;
+            hidden.value = selected;
+            if (hiddenSerial) hiddenSerial.value = selected ? serialOf(selected) : '';
+            paint();
+          });
+        });
+      }
+      paint();
+    }
+
     function saveItem() {
       const formData = {
         line: document.getElementById("f-line").value.trim(),
+        serial: (document.getElementById("f-serial") && document.getElementById("f-serial").value.trim()) || serialForLine(document.getElementById("f-line").value.trim(), punchlistLinkedJob()) || "",
         location: document.getElementById("f-location").value.trim(),
         description: document.getElementById("f-description").value.trim(),
         action: document.getElementById("f-action").value.trim(),
@@ -8108,20 +8378,76 @@ function tcRenderEntryList(listEl, offset) {
       });
     }
 
-    async function exportTimeCardExcel() {
-      await ensureExcelLibs();
-      if (typeof ExcelJS === 'undefined') { toast('Excel library not available'); return; }
-      const weekEntries = tcEntriesForWeek(tcState.weekOffset);
-      let techName = tcResolveExportName(weekEntries);
-      if (!techName) {
-        const entered = await tcOpenNameSheet('');
-        if (entered === null) return; // cancelled
-        if (!entered) { toast('Name required for export'); return; }
-        techName = entered;
-      }
-      const { start } = tcWeekBounds(tcState.weekOffset);
-      const weekBegin = (start.getMonth() + 1) + '/' + start.getDate() + '/' + String(start.getFullYear()).slice(-2);
-      const entries = weekEntries;
+    let tcExportSelection = { mode: 'weeks', weeks: new Set(), days: new Set() };
+
+    function tcExportDateLabel(dateKey) {
+      if (!dateKey) return '';
+      const parts = String(dateKey).split('-').map(Number);
+      if (parts.length !== 3 || parts.some(isNaN)) return String(dateKey);
+      const d = new Date(parts[0], parts[1] - 1, parts[2]);
+      return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function tcExportWeekDateKey(offset) {
+      const b = tcWeekBounds(offset).start;
+      return tcDateKey(b);
+    }
+
+    function tcExportAvailableWeekOffsets() {
+      const offsets = new Set();
+      // Keep the picker useful even when a technician has not entered hours yet.
+      for (let i = -12; i <= 4; i++) offsets.add(i);
+      (tcState.entries || []).forEach(en => {
+        const key = en.date || tcDateKey(en.clockIn);
+        if (!key) return;
+        const d = new Date(key + 'T12:00:00');
+        if (isNaN(d.getTime())) return;
+        const nowStart = tcWeekBounds(0).start.getTime();
+        const weekStart = (() => {
+          const day = d.getDay();
+          const mo = day === 0 ? -6 : 1 - day;
+          const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + mo);
+          x.setHours(0,0,0,0); return x;
+        })().getTime();
+        offsets.add(Math.round((weekStart - nowStart) / (7 * 86400000)));
+      });
+      return Array.from(offsets).filter(n => n >= -104 && n <= 104).sort((a,b) => b-a);
+    }
+
+    function tcExportEntriesForSelectedDays(days) {
+      const set = days instanceof Set ? days : new Set(days || []);
+      return (tcState.entries || []).filter(en => {
+        const d = en.date || tcDateKey(en.clockIn);
+        return d && set.has(d);
+      }).sort((a,b) => (a.clockIn || 0) - (b.clockIn || 0));
+    }
+
+    function tcExportEntriesForSelectedWeeks(weeks) {
+      const set = weeks instanceof Set ? weeks : new Set(weeks || []);
+      const all = [];
+      set.forEach(off => all.push(...tcEntriesForWeek(Number(off))));
+      return all.sort((a,b) => (a.clockIn || 0) - (b.clockIn || 0));
+    }
+
+    function tcExportGroupByWeek(entries) {
+      const groups = new Map();
+      entries.forEach(en => {
+        const dkey = en.date || tcDateKey(en.clockIn);
+        if (!dkey) return;
+        const d = new Date(dkey + 'T12:00:00');
+        if (isNaN(d.getTime())) return;
+        const day = d.getDay();
+        const mo = day === 0 ? -6 : 1 - day;
+        const start = new Date(d.getFullYear(), d.getMonth(), d.getDate() + mo);
+        start.setHours(0,0,0,0);
+        const wk = tcDateKey(start);
+        if (!groups.has(wk)) groups.set(wk, []);
+        groups.get(wk).push(en);
+      });
+      return groups;
+    }
+
+    function tcExportGroupRows(entries) {
       const byKey = {};
       entries.forEach(en => {
         const d = en.date || tcDateKey(en.clockIn);
@@ -8133,16 +8459,32 @@ function tcRenderEntryList(listEl, offset) {
         else if (en.type === 'shop') byKey[key].shop += h;
         else byKey[key].bakery += h;
       });
-      const rows = Object.keys(byKey).sort().map(k => byKey[k]);
-      const tcRes = await fetch('timecard-template.xlsx');
-      if (!tcRes.ok) throw new Error('Could not load timecard-template.xlsx');
-      const buf = await tcRes.arrayBuffer();
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(buf);
-      const ws = wb.worksheets[0];
-      // Dark banner: Service Hours Weekly Report (matches original template art)
+      return Object.keys(byKey).sort().map(k => byKey[k]);
+    }
+
+    function tcExportFormatWeekBegin(dateKey) {
+      const parts = String(dateKey || '').split('-');
+      if (parts.length !== 3) return dateKey || '';
+      return Number(parts[1]) + '/' + Number(parts[2]) + '/' + parts[0].slice(-2);
+    }
+
+    function tcExportSheetName(dateKey, index) {
+      const parts = String(dateKey || '').split('-');
+      const base = parts.length === 3 ? ('Week ' + parts[1] + '-' + parts[2] + '-' + parts[0].slice(-2)) : ('Week ' + (index + 1));
+      return base.slice(0,31);
+    }
+
+    function tcCloneWorksheetFromTemplate(wb, sourceWs, name, idHint) {
+      const model = JSON.parse(JSON.stringify(sourceWs.model));
+      model.name = name;
+      model.id = idHint || (wb.worksheets.length + 1);
+      const ws = wb.addWorksheet('TEMP_' + Math.random().toString(36).slice(2,7));
+      ws.model = model;
+      return ws;
+    }
+
+    function tcPopulateExportSheet(ws, techName, weekKey, entries) {
       try {
-        const bannerRow = 9;
         ws.mergeCells('B9:F9');
         const banner = ws.getCell('B9');
         banner.value = 'Service Hours Weekly Report';
@@ -8155,72 +8497,169 @@ function tcRenderEntryList(listEl, offset) {
           c.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
           c.alignment = { horizontal: 'center', vertical: 'middle' };
         }
-        // Red accent bar on the left of the banner (column A)
-        const accent = ws.getCell('A9');
-        accent.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD4223B' } };
+        ws.getCell('A9').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD4223B' } };
         ws.getRow(9).height = 22;
-        // Ensure a little space above like the template
         if (!ws.getRow(8).height) ws.getRow(8).height = 10;
       } catch (e) { console.warn('banner', e); }
 
       ws.getCell('B12').value = 'Name: ' + techName;
       ws.getCell('C12').value = 'Week Beginning:';
-      ws.getCell('D12').value = weekBegin;
-      const first = 17;
-      const maxRows = 14;
+      ws.getCell('D12').value = tcExportFormatWeekBegin(weekKey);
+      const rows = tcExportGroupRows(entries);
+      const first = 17, maxRows = 14;
       const thin = { style: 'thin', color: { argb: 'FF000000' } };
       const box = { top: thin, left: thin, bottom: thin, right: thin };
       for (let i = 0; i < maxRows; i++) {
-        const row = ws.getRow(first + i);
-        const data = rows[i];
-        if (data) {
-          const parts = String(data.date).split('-');
-          let dateVal = data.date;
-          if (parts.length === 3) dateVal = parts[1] + '/' + parts[2] + '/' + parts[0].slice(-2);
-          row.getCell(2).value = dateVal;
-          row.getCell(3).value = data.bakeryName || '';
-          row.getCell(4).value = data.bakery ? Math.round(data.bakery * 100) / 100 : null;
-          row.getCell(5).value = data.travel ? Math.round(data.travel * 100) / 100 : null;
-          row.getCell(6).value = data.shop ? Math.round(data.shop * 100) / 100 : null;
+        const row = ws.getRow(first + i), data = rows[i];
+        row.getCell(2).value = data ? tcExportFormatWeekBegin(data.date) : null;
+        row.getCell(3).value = data ? (data.bakeryName || '') : null;
+        row.getCell(4).value = data && data.bakery ? Math.round(data.bakery * 100) / 100 : null;
+        row.getCell(5).value = data && data.travel ? Math.round(data.travel * 100) / 100 : null;
+        row.getCell(6).value = data && data.shop ? Math.round(data.shop * 100) / 100 : null;
+        for (let c = 2; c <= 6; c++) row.getCell(c).border = box;
+      }
+      try { for (const ref of ['E32','F32','E33','F33','E34','F34','E35','F35']) ws.getCell(ref).border = box; } catch (e) {}
+    }
+
+    function tcCloseExportSheet() {
+      const sheet = document.getElementById('tcExportSheet'), scrim = document.getElementById('tcExportScrim');
+      if (sheet) { sheet.classList.remove('show'); sheet.hidden = true; sheet.setAttribute('hidden',''); }
+      if (scrim) { scrim.classList.remove('show'); scrim.hidden = true; scrim.setAttribute('hidden',''); }
+    }
+
+    function tcExportSummary() {
+      const list = document.getElementById('tcExportSummary');
+      if (!list) return;
+      let entries = tcExportSelection.mode === 'days'
+        ? tcExportEntriesForSelectedDays(tcExportSelection.days)
+        : tcExportEntriesForSelectedWeeks(tcExportSelection.weeks);
+      const total = entries.reduce((sum,e) => sum + tcEntryHours(e), 0);
+      const groups = tcExportGroupByWeek(entries);
+      const jobs = new Set(entries.map(e => e.bakeryName || 'No job').filter(Boolean));
+      const count = tcExportSelection.mode === 'days' ? tcExportSelection.days.size : tcExportSelection.weeks.size;
+      const label = tcExportSelection.mode === 'days' ? (count === 1 ? 'day' : 'days') : (count === 1 ? 'week' : 'weeks');
+      list.innerHTML = '<strong>' + count + ' ' + label + ' selected</strong><span>' + groups.size + ' Excel ' + (groups.size === 1 ? 'sheet' : 'sheets') + ' · ' + total.toFixed(2) + ' hours · ' + jobs.size + ' ' + (jobs.size === 1 ? 'job' : 'jobs') + '</span>';
+    }
+
+    function tcRenderExportList() {
+      const list = document.getElementById('tcExportList');
+      if (!list) return;
+      if (tcExportSelection.mode === 'weeks') {
+        const offsets = tcExportAvailableWeekOffsets();
+        list.innerHTML = offsets.map(off => {
+          const t = tcWeekTotals(off);
+          const checked = tcExportSelection.weeks.has(off) ? ' checked' : '';
+          const kicker = off === 0 ? 'This week' : (off === -1 ? 'Last week' : (off === 1 ? 'Next week' : 'Week'));
+          const jobs = new Set(tcEntriesForWeek(off).map(e => e.bakeryName || '').filter(Boolean)).size;
+          return '<label class="tc-export-row"><input type="checkbox" class="tc-export-check" data-offset="' + off + '"' + checked + '><span class="tc-export-checkmark" aria-hidden="true"></span><span class="tc-export-row-main"><span class="tc-export-row-title">' + kicker + ' · ' + tcWeekLabelText(off) + '</span><span class="tc-export-row-sub">' + t.total.toFixed(2) + ' hours · ' + t.count + ' entries · ' + jobs + ' ' + (jobs === 1 ? 'job' : 'jobs') + '</span></span></label>';
+        }).join('');
+        list.querySelectorAll('.tc-export-check').forEach(cb => cb.addEventListener('change', () => {
+          const off = Number(cb.dataset.offset);
+          if (cb.checked) tcExportSelection.weeks.add(off); else tcExportSelection.weeks.delete(off);
+          tcExportSummary();
+        }));
+      } else {
+        const dates = Array.from(new Set((tcState.entries || []).map(e => e.date || tcDateKey(e.clockIn)).filter(Boolean))).sort().reverse();
+        if (!dates.length) {
+          list.innerHTML = '<div class="tc-export-empty">No time-entry days are available yet.</div>';
         } else {
-          row.getCell(2).value = null;
-          row.getCell(3).value = null;
-          row.getCell(4).value = null;
-          row.getCell(5).value = null;
-          row.getCell(6).value = null;
-        }
-        // Ensure full grid borders on data cells (template borders can drop after write)
-        for (let c = 2; c <= 6; c++) {
-          const cell = row.getCell(c);
-          cell.border = box;
+          list.innerHTML = dates.map(d => {
+            const entries = (tcState.entries || []).filter(e => (e.date || tcDateKey(e.clockIn)) === d);
+            const total = entries.reduce((sum,e) => sum + tcEntryHours(e), 0);
+            const jobs = new Set(entries.map(e => e.bakeryName || '').filter(Boolean)).size;
+            const checked = tcExportSelection.days.has(d) ? ' checked' : '';
+            return '<label class="tc-export-row"><input type="checkbox" class="tc-export-check" data-date="' + d + '"' + checked + '><span class="tc-export-checkmark" aria-hidden="true"></span><span class="tc-export-row-main"><span class="tc-export-row-title">' + tcExportDateLabel(d) + '</span><span class="tc-export-row-sub">' + total.toFixed(2) + ' hours · ' + entries.length + ' entries · ' + jobs + ' ' + (jobs === 1 ? 'job' : 'jobs') + '</span></span></label>';
+          }).join('');
+          list.querySelectorAll('.tc-export-check').forEach(cb => cb.addEventListener('change', () => {
+            const d = cb.dataset.date;
+            if (cb.checked) tcExportSelection.days.add(d); else tcExportSelection.days.delete(d);
+            tcExportSummary();
+          }));
         }
       }
-      // Totals box borders
-      try {
-        for (const ref of ['E32','F32','E33','F33','E34','F34','E35','F35']) {
-          const cell = ws.getCell(ref);
-          cell.border = box;
-        }
-      } catch (e) {}
+      tcExportSummary();
+    }
+
+    function tcOpenExportSheet() {
+      tcLoad();
+      const current = tcState.weekOffset || 0;
+      tcExportSelection = { mode: 'weeks', weeks: new Set([current]), days: new Set() };
+      const sheet = document.getElementById('tcExportSheet'), scrim = document.getElementById('tcExportScrim');
+      if (!sheet || !scrim) return;
+      sheet.hidden = false; sheet.removeAttribute('hidden');
+      scrim.hidden = false; scrim.removeAttribute('hidden');
+      requestAnimationFrame(() => { sheet.classList.add('show'); scrim.classList.add('show'); });
+      tcRenderExportList();
+    }
+
+    async function tcContinueExport() {
+      let entries = tcExportSelection.mode === 'days'
+        ? tcExportEntriesForSelectedDays(tcExportSelection.days)
+        : tcExportEntriesForSelectedWeeks(tcExportSelection.weeks);
+      if (!entries.length) { toast('Select at least one day or week with time'); return; }
+      tcCloseExportSheet();
+      let techName = tcResolveExportName(entries);
+      if (!techName) {
+        const entered = await tcOpenNameSheet('');
+        if (entered === null) return;
+        if (!entered) { toast('Name required for export'); return; }
+        techName = entered;
+      }
+      await ensureExcelLibs();
+      if (typeof ExcelJS === 'undefined') { toast('Excel library not available'); return; }
+
+      const groups = tcExportGroupByWeek(entries);
+      const weekKeys = Array.from(groups.keys()).sort();
+      const tcRes = await fetch('timecard-template.xlsx');
+      if (!tcRes.ok) throw new Error('Could not load timecard-template.xlsx');
+      const buf = await tcRes.arrayBuffer();
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buf);
+      const templateWs = wb.worksheets[0];
+      // First selected week reuses the template sheet; later weeks are exact model clones.
+      const firstKey = weekKeys[0];
+      templateWs.name = tcExportSheetName(firstKey, 0);
+      tcPopulateExportSheet(templateWs, techName, firstKey, groups.get(firstKey) || []);
+      for (let i = 1; i < weekKeys.length; i++) {
+        const key = weekKeys[i];
+        const ws = tcCloneWorksheetFromTemplate(wb, templateWs, tcExportSheetName(key, i), i + 1);
+        tcPopulateExportSheet(ws, techName, key, groups.get(key) || []);
+      }
       const out = await wb.xlsx.writeBuffer();
       const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const safe = String(techName).replace(/[\\/:*?"<>|]/g, '-').trim() || 'TimeCard';
-      const fname = safe + ' Time Card ' + weekBegin.replace(/\//g, '-') + '.xlsx';
+      const firstBegin = tcExportFormatWeekBegin(firstKey).replace(/\//g, '-');
+      const suffix = weekKeys.length === 1 ? firstBegin : (weekKeys.length + '-Weeks');
+      const fname = safe + ' Time Card ' + suffix + '.xlsx';
       try {
         if (typeof downloadBlob === 'function') await downloadBlob(blob, fname);
         else {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
+          const url = URL.createObjectURL(blob), a = document.createElement('a');
           a.href = url; a.download = fname; document.body.appendChild(a); a.click();
           setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
         }
       } catch (e) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        const url = URL.createObjectURL(blob), a = document.createElement('a');
         a.href = url; a.download = fname; document.body.appendChild(a); a.click();
         setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
       }
-      toast('Time card Excel ready');
+      toast(weekKeys.length === 1 ? 'Time card Excel ready' : ('Time card Excel ready · ' + weekKeys.length + ' weeks'));
+    }
+
+    function bindTcExportPicker() {
+      const on = (id, fn) => { const el = document.getElementById(id); if (el && el.dataset.tcExportBound !== '1') { el.dataset.tcExportBound = '1'; el.addEventListener('click', fn); } };
+      on('tcExportClose', tcCloseExportSheet);
+      on('tcExportCancel', tcCloseExportSheet);
+      on('tcExportScrim', tcCloseExportSheet);
+      on('tcExportTabWeeks', () => { tcExportSelection.mode = 'weeks'; document.getElementById('tcExportTabWeeks').classList.add('on'); document.getElementById('tcExportTabDays').classList.remove('on'); document.getElementById('tcExportTabWeeks').setAttribute('aria-selected','true'); document.getElementById('tcExportTabDays').setAttribute('aria-selected','false'); tcRenderExportList(); });
+      on('tcExportTabDays', () => { tcExportSelection.mode = 'days'; document.getElementById('tcExportTabDays').classList.add('on'); document.getElementById('tcExportTabWeeks').classList.remove('on'); document.getElementById('tcExportTabDays').setAttribute('aria-selected','true'); document.getElementById('tcExportTabWeeks').setAttribute('aria-selected','false'); tcRenderExportList(); });
+      on('tcExportSelectAll', () => {
+        if (tcExportSelection.mode === 'weeks') tcExportAvailableWeekOffsets().forEach(o => tcExportSelection.weeks.add(o));
+        else Array.from(new Set((tcState.entries || []).map(e => e.date || tcDateKey(e.clockIn)).filter(Boolean))).forEach(d => tcExportSelection.days.add(d));
+        tcRenderExportList();
+      });
+      on('tcExportClearAll', () => { tcExportSelection.weeks.clear(); tcExportSelection.days.clear(); tcRenderExportList(); });
+      on('tcExportContinue', () => { tcContinueExport().catch(err => { console.warn(err); toast('Could not export time card'); }); });
     }
 
     function openTimeCards() {
@@ -8256,14 +8695,11 @@ function tcRenderEntryList(listEl, offset) {
       once('btnTcClockIn', tcClockIn);
       once('btnTcClockOut', tcClockOut);
       
-      once('btnTcExport', () => {
-        exportTimeCardExcel().catch(err => { console.warn(err); toast('Could not export time card'); });
-      });
+      once('btnTcExport', tcOpenExportSheet);
       once('btnTcAddManual', tcOpenManual);
       once('btnTcAddManualWeek', tcOpenManual);
-      once('btnTcWeekExport', () => {
-        exportTimeCardExcel().catch(err => { console.warn(err); toast('Could not export time card'); });
-      });
+      once('btnTcWeekExport', tcOpenExportSheet);
+      bindTcExportPicker();
       const weekHead = document.getElementById('tcWeekDetailHead');
       if (weekHead && weekHead.dataset.tcBound !== '1') {
         weekHead.dataset.tcBound = '1';
@@ -8436,12 +8872,12 @@ function tcRenderEntryList(listEl, offset) {
       if (typeof showPlActionBars === 'function') showPlActionBars();
     }
     function showPlActionBars() {
-      document.body.classList.remove('kb-open');
+      const hide = document.body.classList.contains('kb-open');
       document.querySelectorAll('#pl-modal .btn-row, #pl-modal .pl-item-bar').forEach((bar) => {
-        bar.style.setProperty('display', 'flex', 'important');
-        bar.style.setProperty('visibility', 'visible', 'important');
-        bar.style.setProperty('opacity', '1', 'important');
-        bar.style.setProperty('pointer-events', 'auto', 'important');
+        bar.style.setProperty('display', hide ? 'none' : 'flex', 'important');
+        bar.style.setProperty('visibility', hide ? 'hidden' : 'visible', 'important');
+        bar.style.setProperty('opacity', hide ? '0' : '1', 'important');
+        bar.style.setProperty('pointer-events', hide ? 'none' : 'auto', 'important');
       });
     }
 
@@ -8451,7 +8887,7 @@ function tcRenderEntryList(listEl, offset) {
       const SEL = '#screenJobForm .btn-row, #screenStart .btn-row, .btn-row.tc-edit-bar';
       const field = (el) => {
         if (!el || el === document.body) return false;
-        if (el.closest && el.closest('#pl-modal')) return false;
+        /* punchlist item fields should hide action bars behind the keyboard */
         const tag = (el.tagName || '').toLowerCase();
         if (tag === 'select') return false;
         if (tag === 'input') {
@@ -8468,7 +8904,15 @@ function tcRenderEntryList(listEl, offset) {
           bar.style.setProperty('display', hide ? 'none' : 'flex', 'important');
           bar.style.setProperty('visibility', hide ? 'hidden' : 'visible', 'important');
         });
-        showPlActionBars();
+        if (!hide && typeof showPlActionBars === 'function') showPlActionBars();
+        else if (hide) {
+          document.querySelectorAll('#pl-modal .btn-row, #pl-modal .pl-item-bar').forEach((bar) => {
+            bar.style.setProperty('display', 'none', 'important');
+            bar.style.setProperty('visibility', 'hidden', 'important');
+            bar.style.setProperty('opacity', '0', 'important');
+            bar.style.setProperty('pointer-events', 'none', 'important');
+          });
+        }
       };
       document.addEventListener('focusin', (e) => {
         if (field(e.target)) apply(true);
@@ -8479,6 +8923,22 @@ function tcRenderEntryList(listEl, offset) {
           apply(field(document.activeElement));
         }, 60);
       }, true);
+      const syncKb = () => {
+        const modal = document.getElementById('pl-modal');
+        const modalOpen = !!(modal && (modal.classList.contains('show') || !modal.classList.contains('hidden')));
+        const active = document.activeElement;
+        const typingField = field(active) || !!(modalOpen && active && active.closest && active.closest('#pl-modal') && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName || ''));
+        const vv = window.visualViewport;
+        const kb = vv ? Math.max(0, window.innerHeight - vv.height - (vv.offsetTop || 0)) : 0;
+        const hide = typingField || (modalOpen && kb > 60);
+        apply(hide);
+      };
+      window.addEventListener('resize', syncKb);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', syncKb);
+        window.visualViewport.addEventListener('scroll', syncKb);
+      }
+
     })();
 
     
