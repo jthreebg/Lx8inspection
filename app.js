@@ -5749,6 +5749,8 @@ const ICO = {
     initApp();
     bootStorage().then(() => {
       try { refreshHome(); } catch (e) {}
+      const later = window.requestIdleCallback || function(fn){ setTimeout(fn, 1800); };
+      later(() => { warmExcelLibs(); });
     }).catch(() => {});
 
     // Register service worker (PWA) and keep drafts on device
@@ -5770,7 +5772,7 @@ const ICO = {
     }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=flat-v61', { updateViaCache: 'none' }).then((reg) => {
+        navigator.serviceWorker.register('./sw.js?v=flat-v62', { updateViaCache: 'none' }).then((reg) => {
           const check = () => { try { reg.update(); } catch (e) {} };
           check();
           document.addEventListener('visibilitychange', () => {
@@ -7024,12 +7026,39 @@ const IDB_NAME = "FieldPunchlistDB";
 
     
 
+    async function loadWorkbookTemplate(fileName, cacheKey) {
+      const key = cacheKey || fileName;
+      try {
+        const cached = await idbGetKv(key);
+        if (cached && (cached.byteLength || (cached.buffer && cached.byteLength !== 0))) {
+          return cached.buffer ? cached : cached;
+        }
+      } catch (e) {}
+      const names = [fileName, './' + fileName, fileName.split('/').pop()];
+      let lastErr = null;
+      for (const name of names) {
+        try {
+          const res = await fetch(name, { cache: 'reload' });
+          if (!res.ok) { lastErr = new Error('HTTP ' + res.status + ' ' + name); continue; }
+          const buf = await res.arrayBuffer();
+          if (!buf || buf.byteLength < 100) { lastErr = new Error('Empty template ' + name); continue; }
+          const head = new Uint8Array(buf.slice(0, 2));
+          if (head[0] !== 0x50 || head[1] !== 0x4B) { lastErr = new Error('Not an xlsx: ' + name); continue; }
+          try { await idbSetKv(key, buf); } catch (e) {}
+          return buf;
+        } catch (e) { lastErr = e; }
+      }
+      try {
+        const cached = await idbGetKv(key);
+        if (cached) return cached.buffer ? cached : cached;
+      } catch (e) {}
+      throw lastErr || new Error('Could not load ' + fileName);
+    }
     async function getStoredTemplateBuffer() {
-      const res = await fetch('Punchlist-Template.xlsx');
-      if (!res.ok) throw new Error('Could not load Punchlist-Template.xlsx');
-      const buf = await res.arrayBuffer();
-      try { await idbSet("templateXlsx", buf); } catch (e) {}
-      return buf;
+      return loadWorkbookTemplate('Punchlist-Template.xlsx', 'templateXlsx');
+    }
+    async function getTimecardTemplateBuffer() {
+      return loadWorkbookTemplate('timecard-template.xlsx', 'timecardTemplateXlsx');
     }
 
     function loadScriptOnce(src) {
@@ -7051,6 +7080,41 @@ const IDB_NAME = "FieldPunchlistDB";
       });
     }
 
+
+    const EXPORT_LIB_BTNS = ['tcExportContinue','saveSheetXlsx','plExportXlsx'];
+    function excelLibsReady() { return typeof ExcelJS !== 'undefined'; }
+    function setExportButtonsReady(ready) {
+      EXPORT_LIB_BTNS.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = !ready;
+        el.setAttribute('aria-disabled', ready ? 'false' : 'true');
+        el.classList.toggle('is-waiting-lib', !ready);
+        if (!el.dataset.readyLabel) el.dataset.readyLabel = el.textContent;
+        if (!ready) el.textContent = 'Loading Excel…';
+        else el.textContent = el.dataset.readyLabel;
+      });
+    }
+    let excelWarm;
+    function warmExcelLibs() {
+      if (excelLibsReady()) { setExportButtonsReady(true); return Promise.resolve(true); }
+      if (excelWarm) return excelWarm;
+      setExportButtonsReady(false);
+      excelWarm = ensureExcelLibs().then(() => {
+        const ok = excelLibsReady();
+        setExportButtonsReady(ok);
+        return ok;
+      }).catch((err) => {
+        console.warn(err);
+        setExportButtonsReady(false);
+        EXPORT_LIB_BTNS.forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = 'Excel unavailable';
+        });
+        return false;
+      });
+      return excelWarm;
+    }
     async function ensureExportLibs() {
       return ensureExcelLibs();
     }
@@ -7450,6 +7514,8 @@ const IDB_NAME = "FieldPunchlistDB";
       sheet.hidden = false;
       sheet.removeAttribute('hidden');
       sheet.classList.add('show');
+      setExportButtonsReady(excelLibsReady());
+      warmExcelLibs();
     }
     function closePlExportSheet() {
       const sheet = document.getElementById('plExportSheet');
@@ -8610,6 +8676,8 @@ function tcRenderEntryList(listEl, offset) {
       if (seg) seg.setAttribute('data-mode', tcExportSelection.mode || 'weeks');
       requestAnimationFrame(() => { sheet.classList.add('show'); scrim.classList.add('show'); });
       tcRenderExportList();
+      setExportButtonsReady(excelLibsReady());
+      warmExcelLibs();
     }
 
     async function tcContinueExport() {
@@ -8625,15 +8693,31 @@ function tcRenderEntryList(listEl, offset) {
         if (!entered) { toast('Name required for export'); return; }
         techName = entered;
       }
-      await ensureExcelLibs();
-      if (typeof ExcelJS === 'undefined') { toast('Excel library not available'); return; }
+      setExportButtonsReady(false);
+      const ok = await warmExcelLibs();
+      if (!ok || typeof ExcelJS === 'undefined') { toast('Excel is still loading. Try again in a moment'); setExportButtonsReady(excelLibsReady()); return; }
 
       const chunks = tcExportRowChunks(entries, 14);
-      const tcRes = await fetch('timecard-template.xlsx');
-      if (!tcRes.ok) throw new Error('Could not load timecard-template.xlsx');
-      const buf = await tcRes.arrayBuffer();
+      let buf;
+      try {
+        buf = await getTimecardTemplateBuffer();
+      } catch (e) {
+        console.warn(e);
+        toast('Time card template missing. Re-upload timecard-template.xlsx');
+        return;
+      }
       const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(buf);
+      try {
+        await wb.xlsx.load(buf);
+      } catch (e) {
+        console.warn(e);
+        toast('Time card template could not be read');
+        return;
+      }
+      if (!wb.worksheets || !wb.worksheets[0]) {
+        toast('Time card template has no sheet');
+        return;
+      }
       const templateWs = wb.worksheets[0];
       function chunkWeekKey(rows) {
         const firstDate = (rows && rows[0] && rows[0].date) || '';
@@ -8660,6 +8744,7 @@ function tcRenderEntryList(listEl, offset) {
       const suffix = chunks.length === 1 ? firstBegin : (chunks.length + '-Sheets');
       const fname = safe + ' Time Card ' + suffix + '.xlsx';
       try {
+        toast('Saving time card…');
         if (typeof downloadBlob === 'function') await downloadBlob(blob, fname);
         else {
           const url = URL.createObjectURL(blob), a = document.createElement('a');
@@ -8687,7 +8772,7 @@ function tcRenderEntryList(listEl, offset) {
         tcRenderExportList();
       });
       on('tcExportClearAll', () => { tcExportSelection.weeks.clear(); tcExportSelection.days.clear(); tcRenderExportList(); });
-      on('tcExportContinue', () => { tcContinueExport().catch(err => { console.warn(err); toast('Could not export time card'); }); });
+      on('tcExportContinue', () => { tcContinueExport().catch(err => { console.warn(err); toast((err && err.message) ? ('Export failed: ' + err.message) : 'Could not export time card'); }); });
     }
 
     function openTimeCards() {

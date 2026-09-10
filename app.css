@@ -6095,3 +6095,9 @@
       background: #ffffff;
       box-shadow: 0 3px 8px rgba(15,23,42,0.12), inset 0 1px 0 #fff;
     }
+
+    .btn.is-waiting-lib,
+    button.is-waiting-lib {
+      opacity: 0.55;
+      pointer-events: none;
+    }

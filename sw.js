@@ -1,11 +1,14 @@
-const CACHE = 'lematic-fs-flat-v61';
+const CACHE = 'lematic-fs-flat-v63';
 const PRECACHE = [
   './',
   './index.html',
-  './app.css?v=61',
-  './app.js?v=61',
-  './templates.js?v=61',
-  './qrcode.min.js?v=61',
+  './app.css?v=63',
+  './app.js?v=63',
+  './templates.js?v=63',
+  './qrcode.min.js?v=63',
+  './exceljs.min.js',
+  './timecard-template.xlsx',
+  './Punchlist-Template.xlsx',
   './manifest.webmanifest',
   './apple-touch-icon.png',
   './icon-192.png'
@@ -25,11 +28,21 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  const path = url.pathname.toLowerCase();
+  const isDoc = req.mode === 'navigate' || path.endsWith('.html') || path.endsWith('/');
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const cached = await cache.match(req) || await cache.match(url.pathname);
-    // Cache-first makes repeat launches instant. A background refresh keeps
-    // the app current without blocking the first paint on network latency.
+    const cached = await cache.match(req) || await cache.match(url.pathname) || await cache.match('.' + url.pathname.split('/').pop());
+    if (!isDoc) {
+      try {
+        const fresh = await fetch(req);
+        if (fresh && fresh.ok) cache.put(req, fresh.clone());
+        return fresh;
+      } catch (e) {
+        if (cached) return cached;
+        return new Response('Not available offline', { status: 503, statusText: 'Offline' });
+      }
+    }
     if (cached) {
       event.waitUntil(
         fetch(req).then((fresh) => {
