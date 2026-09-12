@@ -19,7 +19,7 @@
     <script>
     (function(){try{if(localStorage.getItem('lx8_theme')==='light')document.documentElement.classList.add('theme-light');}catch(e){}})();
   </script>
-  <link rel="stylesheet" href="app.css?v=64" />
+  <link rel="stylesheet" href="app.css?v=70" />
   
 
 
@@ -159,7 +159,7 @@
         <div class="list-page-kicker">Field service</div>
         <h2>Time Cards</h2>
       </div>
-      <button type="button" class="btn btn-outline" id="btnTcExport" style="width:auto;padding:0 14px;height:40px;min-height:40px;line-height:40px;font-size:0.85rem;">Export</button>
+      <button type="button" class="btn btn-outline" id="btnTcExport" style="width:auto;padding:0 14px;height:40px;min-height:40px;line-height:40px;font-size:0.85rem;" class="icon-btn export-icon-btn" title="Export" aria-label="Export"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8.2 9.2H7A2 2 0 0 0 5 11.2v7.6A2 2 0 0 0 7 20.8h10a2 2 0 0 0 2-2V11.2a2 2 0 0 0-2-2h-1.2" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"/><path d="M12 16.2V4.2M12 4.2 8.6 7.6M12 4.2l3.4 3.4" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
 
     <div class="card tc-status-card" id="tcStatusCard">
@@ -194,7 +194,7 @@
         <h2 id="tcWeekDetailTitle">Week</h2>
         <select id="tcWeekSelect" aria-label="Select week" class="tc-week-select-native"></select>
       </div>
-      <button type="button" class="btn btn-outline" id="btnTcWeekExport" style="width:auto;padding:0 14px;height:40px;min-height:40px;line-height:40px;font-size:0.85rem;">Export</button>
+      <button type="button" class="btn btn-outline" id="btnTcWeekExport" style="width:auto;padding:0 14px;height:40px;min-height:40px;line-height:40px;font-size:0.85rem;" class="icon-btn export-icon-btn" title="Export" aria-label="Export"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8.2 9.2H7A2 2 0 0 0 5 11.2v7.6A2 2 0 0 0 7 20.8h10a2 2 0 0 0 2-2V11.2a2 2 0 0 0-2-2h-1.2" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"/><path d="M12 16.2V4.2M12 4.2 8.6 7.6M12 4.2l3.4 3.4" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
     <div class="tc-week-totals" id="tcWeekDetailTotals">
       <span>Bakery<strong id="tcDetBakery">0.00</strong></span>
@@ -242,7 +242,7 @@
       </div>
       <div class="form-group">
         <label for="tcEditHours">Hours</label>
-        <input type="number" id="tcEditHours" min="0" max="24" step="0.25" inputmode="decimal" />
+        <input type="number" id="tcEditHours" min="0" max="24" step="0.01" inputmode="decimal" />
         <div class="tc-hours-hint" id="tcHoursHint">Calculated from clock in / out — you can override</div>
       </div>
       <div class="form-group">
@@ -336,8 +336,10 @@
         <div class="job-selector-wrap">
           <select class="job-selector" id="job-select" aria-label="Select job"></select>
         </div>
-        <button type="button" class="btn btn-outline" id="btnPunchlistAllLists" title="All Lists" aria-label="All Lists" style="width:auto;padding:0 14px;height:40px;min-height:40px;line-height:40px;font-size:0.85rem;">All Lists</button>
-        <button type="button" class="btn btn-outline" id="btn-export" title="Export" aria-label="Export" style="width:auto;padding:0 14px;height:40px;min-height:40px;line-height:40px;font-size:0.85rem;">Export</button>
+        <div class="pl-toolbar-actions">
+          <button type="button" class="btn btn-outline" id="btnPunchlistAllLists" title="List" aria-label="List">List</button>
+          <button type="button" class="btn btn-outline icon-btn export-icon-btn" id="btn-export" title="Export" aria-label="Export"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8.2 9.2H7A2 2 0 0 0 5 11.2v7.6A2 2 0 0 0 7 20.8h10a2 2 0 0 0 2-2V11.2a2 2 0 0 0-2-2h-1.2" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"/><path d="M12 16.2V4.2M12 4.2 8.6 7.6M12 4.2l3.4 3.4" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
       </div>
       <div class="stats-row">
         <button type="button" class="stat-chip" id="stat-open" data-filter="Not Started"><strong>0</strong> Open</button>
@@ -850,7 +852,7 @@
     <div class="bar-preview hidden" id="barPreview">
       <button class="btn btn-outline" id="btnPreviewBack">Back</button>
       <button class="header-btn save-sheet-btn" id="btnSaveInspect" title="Save" aria-label="Save">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 3v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
           <path d="M8 7l4-4 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -901,7 +903,7 @@
           <input type="text" id="tcExportNameInput" placeholder="Technician name" autocomplete="name" style="width:100%;min-height:48px;height:48px;padding:14px;font-size:1rem;border-radius:var(--radius-sm);border:1px solid rgba(249,253,255,0.08);background:#0d0d0f;color:var(--text);" />
         </div>
       </div>
-      <button type="button" class="btn btn-primary" id="tcNameSheetOk">Export</button>
+      <button type="button" class="btn btn-primary" id="tcNameSheetOk"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8.2 9.2H7A2 2 0 0 0 5 11.2v7.6A2 2 0 0 0 7 20.8h10a2 2 0 0 0 2-2V11.2a2 2 0 0 0-2-2h-1.2" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"/><path d="M12 16.2V4.2M12 4.2 8.6 7.6M12 4.2l3.4 3.4" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button type="button" class="btn btn-outline save-sheet-cancel" id="tcNameSheetCancel">Cancel</button>
     </div>
   </div>
@@ -1010,8 +1012,8 @@
   </div>
 
   <div class="toast" id="toast"></div>
-  <script src="qrcode.min.js?v=64" defer></script>
-  <script src="templates.js?v=64" defer></script>
-  <script src="app.js?v=64" defer></script>
+  <script src="qrcode.min.js?v=70" defer></script>
+  <script src="templates.js?v=70" defer></script>
+  <script src="app.js?v=70" defer></script>
 </body>
 </html>
