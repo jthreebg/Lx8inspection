@@ -1692,7 +1692,16 @@ const ICO = {
       if (!desc) {
         if (idx > -1) req.parts.splice(idx, 1);
       } else {
-        const serialNote = (serial && serial !== req.serial) ? ('Serial ' + serial) : '';
+        // Bugfix: this used to only show the serial when it differed
+        // from the request's own req.serial — meant to avoid repeating
+        // it when they matched, since req.serial is already shown
+        // elsewhere on the request. In practice this made the note
+        // appear or disappear based on a comparison the technician has
+        // no visibility into, so a part generated from a punchlist item
+        // that always has a serial attached would sometimes show it and
+        // sometimes not, with no visible reason why. Now shows whenever
+        // the source item has a serial, full stop.
+        const serialNote = serial ? ('Serial ' + serial) : '';
         if (idx > -1) {
           const line = req.parts[idx];
           line.description = desc;
