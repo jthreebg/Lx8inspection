@@ -340,8 +340,16 @@ const ICO = {
       try {
         await idbSetKv('visits', slimVisits);
         await idbSetKv('inspections', slimIns);
+        // Phase 7C (C4): clears a previously-recorded durable-persist
+        // failure once a later attempt actually succeeds — see the
+        // catch below for where the flag gets set. Settings surfaces
+        // this quietly; nothing toasts from here, this runs on every
+        // 180ms debounce and a toast per occurrence would spam the
+        // technician for a background operation they didn't initiate.
+        if (window.__lxPersistDurableFailed) window.__lxPersistDurableFailed = null;
       } catch (e) {
         console.warn('IndexedDB persist failed', e);
+        window.__lxPersistDurableFailed = { at: Date.now(), err: String((e && e.message) || e) };
       }
       lsWrite('lx8_visits_meta', slimVisits.map(v => ({
         id: v.id, customer: v.customer, equip: v.equip, dates: v.dates, tech: v.tech,
@@ -507,18 +515,14 @@ const ICO = {
       }
       document.body.classList.toggle('inspect-active', id === 'screenInspect');
       document.body.classList.toggle('on-findings', id === 'screenFindings');
-      document.body.classList.toggle('on-inspect-notes', id === 'screenNotes');
-      document.body.classList.toggle('on-inspect-preview', id === 'screenInspectPreview');
       if (id === 'screenInspect' && typeof window.bindInspectCamFab === 'function') window.bindInspectCamFab();
       const bottom = document.getElementById('bottomBar');
       const barInspect = document.getElementById('barInspect');
       const bars = {
-        screenInspect: 'barInspect',
+        screenInspect: 'barInspect'
         // screenFindings intentionally has no bottom bar — replaced with a
         // header Export button (see #btnInspectExport), matching the
         // Time Cards / Punchlist pattern instead of Back+Save.
-        screenNotes: 'barFindings',
-        screenInspectPreview: 'barFindings'
       };
       const barIds = ['barInspect', 'barFindings', 'barNotes', 'barPreview'];
       if (bottom) {
@@ -560,7 +564,6 @@ const ICO = {
         }
       }
       document.body.classList.toggle('on-list-search', id === 'screenInspectList' || id === 'screenJobsList');
-      document.body.classList.toggle('on-notes', id === 'screenNotes');
       if (id === 'screenNotes') {
         initNotesEditor();
         requestAnimationFrame(placeNotesFormatBar);
@@ -568,18 +571,15 @@ const ICO = {
         document.body.classList.remove('notes-focus');
         document.body.classList.remove('notes-typing');
       }
-      const inspectFlow = id === 'screenInspect' || id === 'screenFindings' || id === 'screenNotes';
+      const inspectFlow = id === 'screenInspect' || id === 'screenFindings';
       document.body.classList.toggle('on-inspect-flow', inspectFlow);
       const inInspections = (
         id === 'screenStart' ||
         id === 'screenInspect' ||
-        id === 'screenFindings' ||
-        (id === 'screenNotes') ||
-        id === 'screenInspectPreview'
+        id === 'screenFindings'
       );
       document.body.classList.toggle('on-inspections', inInspections);
       if (id === 'screenFindings') extraSectionTab = 'findings';
-      else if (id === 'screenNotes') extraSectionTab = 'notes';
       else if (id === 'screenInspect') extraSectionTab = null;
       if (inspectFlow && typeof APP_DATA !== 'undefined' && APP_DATA && APP_DATA.sections) {
         renderSectionDots(true);
@@ -1024,6 +1024,14 @@ const ICO = {
       if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
       return (n / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
     }
+    // Phase 7C (C4): purely read-only display of window.__lxPersistDurableFailed
+    // (set/cleared by persistAllStores). No toast, no modal, no Home
+    // badge — just this one line, shown only while the flag is set.
+    function refreshDurablePersistNotice() {
+      const el = document.getElementById('durablePersistNotice');
+      if (!el) return;
+      el.hidden = !window.__lxPersistDurableFailed;
+    }
     async function refreshStorageCard() {
       const line = document.getElementById('storageLine');
       const sub = document.getElementById('storageSub');
@@ -1091,6 +1099,45 @@ const ICO = {
         const inspections = stripInspectionPhotos(JSON.parse(JSON.stringify(loadInspections() || [])));
         const jobs = JSON.parse(JSON.stringify(loadJobs() || []));
         const partsRequests = JSON.parse(JSON.stringify(loadPartsRequests() || []));
+        // Time cards live in their own lx8_timecards key (an object —
+        // {entries, active} — not an array like the datasets above) and
+        // were never part of this backup at all until now. Read straight
+        // from storage rather than the in-memory tcState, since tcState
+        // is only populated once the Time screen has actually been
+        // opened this session — reading storage directly means an export
+        // is correct even if the technician never visited that screen.
+        // Isolated in its own try/catch, per the Phase 1 spec, so a
+        // time-card serialization problem can't take down the rest of
+        // an otherwise-good backup.
+        let timecardsData = null;
+        let timecardsError = null;
+        try {
+          const raw = lsRead('lx8_timecards', null);
+          if (raw && typeof raw === 'object') {
+            timecardsData = {
+              entries: Array.isArray(raw.entries) ? raw.entries : [],
+              active: raw.active || null
+            };
+          }
+        } catch (e) {
+          timecardsError = e;
+          console.warn('timecards backup failed', e);
+        }
+        // Phase 10 (F-1): customers/sites/serials — the stable identity
+        // layer underneath a job's own customer/site/machine text
+        // fields — were live, read/written on every save, and never
+        // once included in a backup. Same isolation shape as timecards
+        // above: each store gets its own try/catch so one failing
+        // (e.g. loadCustomers throwing) doesn't drop the other two, or
+        // anything else, from the zip.
+        let customersData = null, sitesData = null, serialsData = null;
+        let identityErrors = [];
+        try { customersData = JSON.parse(JSON.stringify(loadCustomers() || [])); }
+        catch (e) { identityErrors.push('customers'); console.warn('customers backup failed', e); }
+        try { sitesData = JSON.parse(JSON.stringify(loadSites() || [])); }
+        catch (e) { identityErrors.push('sites'); console.warn('sites backup failed', e); }
+        try { serialsData = JSON.parse(JSON.stringify(loadSerials() || [])); }
+        catch (e) { identityErrors.push('serials'); console.warn('serials backup failed', e); }
         const photos = await idbGetAllPhotos();
         const files = [
           { name: 'manifest.json', data: JSON.stringify({
@@ -1101,6 +1148,10 @@ const ICO = {
             inspections: inspections.length,
             jobs: jobs.length,
             partsRequests: partsRequests.length,
+            timeCardEntries: timecardsData ? timecardsData.entries.length : 0,
+            customers: customersData ? customersData.length : 0,
+            sites: sitesData ? sitesData.length : 0,
+            serials: serialsData ? serialsData.length : 0,
             photos: photos.length
           }, null, 2) },
           { name: 'visits.json', data: JSON.stringify(visits) },
@@ -1111,6 +1162,12 @@ const ICO = {
         if (typeof window.getPunchlistBackup === 'function') {
           files.push({ name: 'punchlist.json', data: JSON.stringify(window.getPunchlistBackup()) });
         }
+        if (timecardsData) {
+          files.push({ name: 'timecards.json', data: JSON.stringify(timecardsData) });
+        }
+        if (customersData) files.push({ name: 'customers.json', data: JSON.stringify(customersData) });
+        if (sitesData) files.push({ name: 'sites.json', data: JSON.stringify(sitesData) });
+        if (serialsData) files.push({ name: 'serials.json', data: JSON.stringify(serialsData) });
         for (const rec of photos) {
           if (!rec || !rec.id || !rec.blob) continue;
           const ext = (rec.blob.type && rec.blob.type.indexOf('png') >= 0) ? 'png' : 'jpg';
@@ -1129,7 +1186,18 @@ const ICO = {
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-        toast('Backup downloaded');
+        // The backup itself still succeeded even if time cards and/or
+        // identity records specifically couldn't be read — but the
+        // technician needs to know that piece didn't make it in, not
+        // just see a generic "downloaded" message that implies
+        // everything did. Phase 1's timecards phrasing is left exactly
+        // as it was for that single-failure case; identity failure
+        // gets its own line, and if both happen at once one toast
+        // admits both rather than only reporting whichever came last.
+        const omitted = [];
+        if (timecardsError) omitted.push('time cards');
+        if (identityErrors.length) omitted.push('identity records (' + identityErrors.join('/') + ')');
+        toast(omitted.length ? ('Backup downloaded — ' + omitted.join(' and ') + ' could not be included') : 'Backup downloaded');
       } catch (e) {
         console.warn(e);
         toast('Backup failed');
@@ -1200,16 +1268,90 @@ const ICO = {
         }
         storeMem.inspections = await hydrateInspectionBlobs(storeMem.inspections);
         await persistAllStores();
+        // Phase 2 audit finding: the final toast used to be keyed off
+        // whether punchlist.json existed in the zip, not whether
+        // setPunchlistBackup actually succeeded — so a corrupt or
+        // wrong-shaped punchlist.json (setPunchlistBackup throws on
+        // anything without a .jobs field) still ended in "Backup
+        // restored", even though the technician's punchlist data was
+        // never touched. Existing local punchlist data was never at
+        // risk here (setPunchlistBackup throwing means data = saved
+        // never runs), only the message was wrong. Tracking the real
+        // outcome below so the toast can say so.
+        let punchlistRestored = false;
+        let punchlistFailed = false;
         if (byName['punchlist.json'] && typeof window.setPunchlistBackup === 'function') {
           try {
             const pl = JSON.parse(u8ToText(byName['punchlist.json']));
             await window.setPunchlistBackup(pl);
+            punchlistRestored = true;
           } catch (err) {
+            punchlistFailed = true;
             console.warn('punchlist restore', err);
           }
         }
+        // Time cards: absence of timecards.json is expected for any
+        // backup made before this fix, and must not be treated as "zero
+        // time cards" — existing local entries are left completely
+        // alone in that case, not cleared. A malformed file is the same
+        // story: isolated in its own try/catch like punchlist above, so
+        // a bad timecards.json can't take down restore of everything
+        // else, and specifically does NOT touch lx8_timecards at all
+        // rather than overwriting good local data with something
+        // unverified.
+        let timecardsRestored = false;
+        let timecardsFailed = false;
+        if (byName['timecards.json']) {
+          try {
+            const tc = JSON.parse(u8ToText(byName['timecards.json']));
+            if (tc && typeof tc === 'object' && Array.isArray(tc.entries)) {
+              lsWrite('lx8_timecards', { entries: tc.entries, active: tc.active || null });
+              if (typeof tcLoad === 'function') tcLoad();
+              timecardsRestored = true;
+            } else {
+              throw new Error('unexpected timecards.json shape');
+            }
+          } catch (err) {
+            timecardsFailed = true;
+            console.warn('timecards restore', err);
+          }
+        }
+        // Phase 10 (F-1): customers/sites/serials, same isolation shape
+        // as timecards just above — a missing file is the expected,
+        // normal case for any pre-Phase-10 backup and must leave local
+        // identity data completely untouched (never
+        // saveCustomers([])); a present-but-malformed file is caught
+        // per-store so one bad file can't block the other two or
+        // anything else already restored above. Written in the order
+        // the phase spec calls for: customers, then sites, then
+        // serials.
+        let identityRestoredStores = [];
+        let identityFailedStores = [];
+        const restoreIdentityStore = (fileKey, saveFn, label) => {
+          if (!byName[fileKey]) return; // absent — leave local data alone
+          try {
+            const parsed = JSON.parse(u8ToText(byName[fileKey]));
+            if (!Array.isArray(parsed)) throw new Error('unexpected ' + fileKey + ' shape');
+            saveFn(parsed);
+            identityRestoredStores.push(label);
+          } catch (err) {
+            identityFailedStores.push(label);
+            console.warn(label + ' restore', err);
+          }
+        };
+        restoreIdentityStore('customers.json', saveCustomers, 'customers');
+        restoreIdentityStore('sites.json', saveSites, 'sites');
+        restoreIdentityStore('serials.json', saveSerials, 'serials');
+
         refreshHome();
-        toast(byName['punchlist.json'] ? 'Backup restored' : 'Inspections restored — this zip has no punchlists');
+        let summary = punchlistRestored ? 'Backup restored'
+          : punchlistFailed ? 'Backup restored — punchlists in this backup were unreadable and were not restored'
+          : 'Inspections restored — this zip has no punchlists';
+        if (timecardsFailed) summary += ' — time cards in this backup were unreadable and were not restored';
+        else if (timecardsRestored) summary += ', time cards included';
+        if (identityFailedStores.length) summary += ' — some identity records (' + identityFailedStores.join('/') + ') were unreadable and were not restored';
+        else if (identityRestoredStores.length) summary += ', identity records included';
+        toast(summary);
       } catch (e) {
         console.warn(e);
         toast(String(e && e.message) === 'compressed-zip' ? 'Need an uncompressed LeMatic backup' : 'Restore failed');
@@ -2017,8 +2159,18 @@ const ICO = {
       } catch (e) { toast('Could not attach photo'); }
     }
 
+    // Phase 7C (C1): now returns the real persist outcome instead of
+    // leaving savePartsRequests' return value on the floor. The
+    // "saved" toast — and the two callers below that already show
+    // their own completion toast right after a persist
+    // (performDeletePartsRequest, performDeletePartsLine) — are
+    // conditioned on it, same shape as the job/punchlist-item fix in
+    // Phase 7B. showConfirmation=false callers (e.g. autosave-on-part-
+    // line-delete below) still persist silently either way — this
+    // only changes whether a toast that was ALREADY going to show
+    // fires on the right condition, not whether persistence happens.
     function savePartsFormDraft(showConfirmation) {
-      if (!partsFormDraft) return;
+      if (!partsFormDraft) return true;
       if (!partsFormDraft.seq) {
         partsFormDraft.seq = nextPartsRequestSeq();
         // The screen header shows this once assigned — update it in place
@@ -2029,9 +2181,12 @@ const ICO = {
       const all = loadPartsRequests();
       const idx = all.findIndex(r => r.id === partsFormDraft.id);
       if (idx >= 0) all[idx] = partsFormDraft; else all.unshift(partsFormDraft);
-      savePartsRequests(all);
-      if (showConfirmation) toast('Parts request saved');
+      const ok = savePartsRequests(all);
+      if (showConfirmation) {
+        toast(ok ? 'Parts request saved' : 'Could not save parts request — storage full or unavailable');
+      }
       if (partsFormDraft.jobId === detailJobId) refreshJobDetailPartsSection();
+      return ok;
     }
 
     function performDeletePartsRequest(id) {
@@ -2040,10 +2195,10 @@ const ICO = {
       const target = all.find(r => r.id === id);
       const next = all.filter(r => r.id !== id);
       if (next.length === all.length) { toast('Parts request not found'); closeDeleteModal(); return; }
-      savePartsRequests(next);
+      const ok = savePartsRequests(next);
       if (partsFormDraft && partsFormDraft.id === id) partsFormDraft = null;
       closeDeleteModal();
-      toast('Parts request deleted');
+      toast(ok ? 'Parts request deleted' : 'Could not save parts request — storage full or unavailable');
       refreshPartsList();
       if (target && target.jobId === detailJobId) refreshJobDetailPartsSection();
     }
@@ -2051,9 +2206,9 @@ const ICO = {
       if (!id || !partsFormDraft) { toast('No part to delete'); return; }
       partsFormDraft.parts = (partsFormDraft.parts || []).filter(p => p.id !== id);
       closeDeleteModal();
-      toast('Part deleted');
       renderPartsForm();
-      savePartsFormDraft(false);
+      const ok = savePartsFormDraft(false);
+      toast(ok ? 'Part deleted' : 'Could not save parts request — storage full or unavailable');
     }
 
     async function sendPartsFormDraft() {
@@ -2806,11 +2961,12 @@ const ICO = {
       payload.status = jobStatusFromDates(payload);
       try { lsWrite('lx8_last_tech', tech); } catch (e) {}
       const list = loadJobs();
+      let successCopy;
       if (editingJobId) {
         const idx = list.findIndex(j => j.id === editingJobId);
         if (idx < 0) { toast('Job not found'); return; }
         list[idx] = { ...list[idx], ...payload };
-        toast('Job updated');
+        successCopy = 'Job updated';
       } else {
         const newId = newEntityId('job');
         list.unshift(ensureJobIdentity({
@@ -2819,9 +2975,23 @@ const ICO = {
           ...payload
         }));
         editingJobId = newId;
-        toast('Job saved');
+        successCopy = 'Job saved';
       }
-      saveJobs(list);
+      // Phase 7B: the success toast used to fire right here,
+      // unconditionally, before saveJobs was even called. Now it only
+      // fires once saveJobs' own return value confirms the write
+      // actually happened — on failure the technician sees a failure
+      // toast instead of "Job saved"/"Job updated" for an edit that
+      // didn't persist. list (in-memory) already holds the edit either
+      // way, same as before this phase — a reload before a later
+      // successful save would still lose an edit that failed to
+      // persist here.
+      const ok = saveJobs(list);
+      if (!ok) {
+        toast('Could not save job — storage full or unavailable');
+        return;
+      }
+      toast(successCopy);
       const savedId = editingJobId;
       editingJobId = null;
       if (savedId) {
@@ -4006,6 +4176,60 @@ const ICO = {
       if (file) importBackupZip(file);
     });
 
+    // Phase 6 — runs only when explicitly tapped, never on startup and
+    // never when the Punchlist screen opens, per the phase's
+    // performance requirement. Read-only: renders whatever
+    // analyzePunchlistIntegrity() returns, does not call any save/
+    // mutation function.
+    function renderPunchlistDiagReport(report) {
+      const body = document.getElementById('punchlistDiagBody');
+      if (!body) return;
+      const esc = (typeof jobEsc === 'function') ? jobEsc : (s => String(s == null ? '' : s));
+      const parts = [];
+      parts.push('<p style="color:var(--muted);font-size:0.85rem;margin:0 0 14px;">These records may need review. No changes have been made.</p>');
+      parts.push('<p style="font-size:0.85rem;margin:0 0 14px;">' + report.totalBuckets + ' Punchlist bucket(s) total · ' + report.validBuckets + ' structurally valid</p>');
+      if (report.currentJobFinding) {
+        parts.push('<div class="card" style="padding:12px;margin-bottom:10px;border-color:var(--danger,#f87171);"><strong>' + esc(report.currentJobFinding.classification) + '</strong><div style="font-size:0.8rem;color:var(--muted);margin-top:4px;">' + esc(report.currentJobFinding.reason) + '</div></div>');
+      }
+      if (!report.findings.length) {
+        parts.push('<p style="font-size:0.85rem;color:var(--muted);">No structural issues found.</p>');
+      }
+      report.findings.forEach(f => {
+        const bucketLines = (f.buckets || []).map(b =>
+          '&nbsp;&nbsp;' + esc(b.name) + ' (' + esc(b.bucketKey) + ') — ' + b.itemCount + ' item' + (b.itemCount === 1 ? '' : 's') + (b.isCurrent ? ' · current' : '')
+        ).join('<br>');
+        parts.push(
+          '<div class="card" style="padding:12px;margin-bottom:10px;">' +
+            '<strong>' + esc(f.classification) + '</strong>' +
+            '<div style="font-size:0.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-top:2px;">' + esc(f.determinism) + '</div>' +
+            (f.jobId ? '<div style="font-size:0.8rem;margin-top:6px;">Job: ' + esc(f.jobId) + '</div>' : '') +
+            (bucketLines ? '<div style="font-size:0.8rem;margin-top:6px;">' + bucketLines + '</div>' : '') +
+            '<div style="font-size:0.8rem;color:var(--muted);margin-top:6px;">' + esc(f.reason) + '</div>' +
+          '</div>'
+        );
+      });
+      if (report.emptyBuckets && report.emptyBuckets.length) {
+        const lines = report.emptyBuckets.map(b => '&nbsp;&nbsp;' + esc(b.name) + ' (' + esc(b.bucketKey) + ')').join('<br>');
+        parts.push('<div class="card" style="padding:12px;margin-bottom:10px;"><strong>Empty Punchlists — review</strong><div style="font-size:0.8rem;color:var(--muted);margin-top:6px;">An empty Punchlist may be intentional (not yet used) or a leftover. Listed for awareness only.</div><div style="font-size:0.8rem;margin-top:6px;">' + lines + '</div></div>');
+      }
+      body.innerHTML = parts.join('');
+    }
+    const btnPunchlistDiag = document.getElementById('btnPunchlistDiag');
+    const punchlistDiagModal = document.getElementById('punchlistDiagModal');
+    const punchlistDiagClose = document.getElementById('punchlistDiagClose');
+    if (btnPunchlistDiag) btnPunchlistDiag.addEventListener('click', async () => {
+      if (typeof window.analyzePunchlistIntegrity !== 'function') { toast('Diagnostic unavailable'); return; }
+      const report = await window.analyzePunchlistIntegrity();
+      renderPunchlistDiagReport(report);
+      if (punchlistDiagModal) { punchlistDiagModal.hidden = false; punchlistDiagModal.classList.add('show'); punchlistDiagModal.setAttribute('aria-hidden', 'false'); }
+    });
+    if (punchlistDiagClose) punchlistDiagClose.addEventListener('click', () => {
+      if (punchlistDiagModal) { punchlistDiagModal.classList.remove('show'); punchlistDiagModal.hidden = true; punchlistDiagModal.setAttribute('aria-hidden', 'true'); }
+    });
+    if (punchlistDiagModal) punchlistDiagModal.addEventListener('click', (e) => {
+      if (e.target === punchlistDiagModal) { punchlistDiagModal.classList.remove('show'); punchlistDiagModal.hidden = true; punchlistDiagModal.setAttribute('aria-hidden', 'true'); }
+    });
+
     function getActiveCurrentJob() {
       const list = (typeof getCurrentJobs === 'function') ? getCurrentJobs() : [];
       return (list && list[0]) || null;
@@ -4833,11 +5057,6 @@ const ICO = {
           window.filterInspectHome(btn.getAttribute('data-filter') || '');
         });
       });
-      const wrap = document.getElementById('inspectPreviewWrap');
-      if (wrap && wrap.dataset.bound !== '1') {
-        wrap.dataset.bound = '1';
-        wrap.addEventListener('click', () => wrap.classList.toggle('expanded'));
-      }
     }
     let inspectHomeFilter = '';
     function conditionBucket(value) {
@@ -5113,7 +5332,9 @@ const ICO = {
     }
     function placeNotesFormatBar() {
       const bar = document.getElementById('notesFormatBar');
-      if (!bar || !document.body.classList.contains('on-notes')) return;
+      // Phase 10 Task D: was !document.body.classList.contains('on-notes')
+      // — see the matching CSS fix above #notesFormatBar for why.
+      if (!bar || !document.body.classList.contains('notes-focus')) return;
       const vv = window.visualViewport;
       const kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
       const typing = kb > 80;
@@ -6263,6 +6484,7 @@ const ICO = {
       if (typeof fillProfileForm === 'function') fillProfileForm();
       if (typeof bindProfileForm === 'function') bindProfileForm();
       if (typeof refreshStorageCard === 'function') refreshStorageCard();
+      if (typeof refreshDurablePersistNotice === 'function') refreshDurablePersistNotice();
     });
     document.getElementById('btnHome').addEventListener('click', () => {
       navHistory.length = 0;
@@ -7067,14 +7289,13 @@ const IDB_NAME = "FieldPunchlistDB";
     window.addEventListener("offline", updateOnlineStatus);
 
     function getItems() { return data.jobs[data.currentJob] || []; }
-    function setItems(items) { data.jobs[data.currentJob] = items; plSaveData(); }
-
-    function punchlistShowToast(msg) {
-      const t = document.getElementById("toast");
-      t.textContent = msg;
-      t.classList.add("show");
-      setTimeout(() => t.classList.remove("show"), 2200);
-    }
+    // Phase 7B: now async and returns the real outcome of the persist
+    // instead of firing plSaveData() and forgetting about it. Callers
+    // that don't care about the result (removePhoto, delete) can still
+    // call this without awaiting — that's unchanged, still fire-and-
+    // forget for them, same as before. saveItem is the one caller that
+    // now awaits this and acts on the result.
+    async function setItems(items) { data.jobs[data.currentJob] = items; return await plSaveData(); }
 
     function statusBadgeClass(s) {
       if (s === "Not Started") return "badge-notstarted";
@@ -7607,6 +7828,12 @@ const IDB_NAME = "FieldPunchlistDB";
         try { e.target.blur(); } catch (err) {}
         if (typeof showPlActionBars === 'function') showPlActionBars();
       };
+      // Phase 7C (C3): this had no failure path at all — a bad read
+      // left the technician with no preview and no error, previously
+      // indistinguishable from success. Same failure copy already used
+      // elsewhere in the app for this exact situation.
+      reader.onerror = () => { toast('Could not attach photo'); try { e.target.value = ''; } catch (err) {} };
+      reader.onabort = () => { toast('Could not attach photo'); try { e.target.value = ''; } catch (err) {} };
       reader.readAsDataURL(file);
     }
 
@@ -7717,7 +7944,7 @@ const IDB_NAME = "FieldPunchlistDB";
       paint();
     }
 
-    function saveItem() {
+    async function saveItem() {
       const formData = {
         line: document.getElementById("f-line").value.trim(),
         serial: (document.getElementById("f-serial") && document.getElementById("f-serial").value.trim()) || serialForLine(document.getElementById("f-line").value.trim(), punchlistLinkedJob()) || "",
@@ -7743,11 +7970,12 @@ const IDB_NAME = "FieldPunchlistDB";
 
       let items = getItems();
       let savedId;
+      let successCopy;
       if (editingId) {
         const idx = items.findIndex(i => String(i.id) === String(editingId));
         items[idx] = { ...items[idx], ...formData };
         savedId = editingId;
-        toast("Item updated");
+        successCopy = "Item updated";
       } else {
         // Standardized on newEntityId() (same generator Jobs/Parts
         // Requests/Time Cards use) instead of Math.max(existing ids)+1 —
@@ -7760,15 +7988,34 @@ const IDB_NAME = "FieldPunchlistDB";
         const newId = newEntityId('pli');
         items.push({ id: newId, ...formData });
         savedId = newId;
-        toast("Item added");
+        successCopy = "Item added";
       }
-      setItems(items);
+      // Phase 7B: the success toast used to fire unconditionally right
+      // here, before the persist was even attempted. Now it only fires
+      // once setItems (which now awaits plSaveData and returns its real
+      // result) confirms the write actually happened — on failure the
+      // technician sees a failure toast instead, not "Item added" for
+      // something that didn't save. The in-memory items array above is
+      // still updated either way (unchanged from before this phase) —
+      // a reload before a later successful save would still lose an
+      // item that failed to persist here, same as it always would have.
+      const ok = await setItems(items);
+      if (!ok) {
+        toast('Could not save item — storage full or unavailable');
+        closeModal();
+        renderList();
+        return;
+      }
+      toast(successCopy);
       // Auto-generates/updates a parts-request line when this item
       // names a part needed — one line per item, in whichever unsent
       // draft already exists for this job (or a new one). Clearing the
       // field removes the line again; typing something back in re-adds
       // it. Priority High on the item carries straight over as urgent
       // on the generated line, not something re-flagged separately.
+      // Phase 7B: only runs now when the item itself actually
+      // persisted — no parts line should get created or updated from
+      // an item edit that didn't save.
       if (typeof syncPartsRequestFromSource === 'function' && formData.partNeeded) {
         let job = punchlistLinkedJob();
         // punchlistLinkedJob() can come back empty for a punchlist
@@ -8075,6 +8322,20 @@ const IDB_NAME = "FieldPunchlistDB";
         if (typeof closeDeleteModal === 'function') closeDeleteModal();
         return;
       }
+      // Phase 5 fix: this deleted the bucket itself but never checked
+      // whether the job's reverse pointer (keyByJobId) pointed at it,
+      // leaving keyByJobId[jobId] = <this now-deleted key> behind —
+      // a stale mapping claiming a deleted bucket is still that job's
+      // active punchlist. A job can legitimately have more than one
+      // punchlist (e.g. "Electrical Punchlist" and "Mechanical
+      // Punchlist" both on the same job), so this only clears the
+      // reverse pointer when it actually points at the bucket being
+      // deleted — if it points at a different, still-existing bucket
+      // for the same job, that mapping is left completely alone.
+      const jobId = data.jobIdByKey && data.jobIdByKey[key];
+      if (jobId && data.keyByJobId && data.keyByJobId[jobId] === key) {
+        delete data.keyByJobId[jobId];
+      }
       delete data.jobs[key];
       if (data.listNames) delete data.listNames[key];
       if (data.jobIdByKey) delete data.jobIdByKey[key];
@@ -8114,7 +8375,42 @@ const IDB_NAME = "FieldPunchlistDB";
       } catch (e) {}
       return key;
     };
+    // Phase 3 fix: this used to unconditionally delegate straight to
+    // createPunchlistForJob(), which always mints a brand-new random
+    // bucket key with an empty item list — so opening the same job's
+    // punchlist a second time (completely normal navigation: leave the
+    // screen, come back) silently created a second, empty, orphaned
+    // bucket and reassigned that job's keyByJobId to it, making the
+    // first bucket's real items disappear from view even though they
+    // were still safely stored.
+    //
+    // The existing ensurePunchlistBucketForJob() nearby does check for
+    // a bucket before creating one, but it keys buckets by job.id
+    // directly — a different, incompatible scheme from the pl_<random>
+    // keys (mapped through jobIdByKey/keyByJobId) that
+    // createPunchlistForJob() has always actually used in every real
+    // bucket created through this path. Using that function here
+    // wouldn't find any of those existing buckets — it would just
+    // create a third, differently-keyed orphan. So this checks
+    // keyByJobId directly instead — the same map createPunchlistForJob
+    // itself already populates — and only creates a new bucket when
+    // that job genuinely doesn't have one yet.
     window.openPunchlistForJob = async function(job) {
+      if (job && job.id) {
+        try { if (typeof ensureJobIdentity === 'function') ensureJobIdentity(job); } catch (e) {}
+        await plLoadData();
+        const existingKey = data && data.keyByJobId && data.keyByJobId[job.id];
+        if (existingKey && data.jobs && Object.prototype.hasOwnProperty.call(data.jobs, existingKey)) {
+          data.currentJob = existingKey;
+          await plSaveData();
+          populateJobSelect();
+          renderList();
+          try {
+            if (typeof window.setLastPunchlistName === 'function') window.setLastPunchlistName(existingKey);
+          } catch (e) {}
+          return existingKey;
+        }
+      }
       return window.createPunchlistForJob(job);
     };
     window.getPunchlistStatsForJob = async function(jobOrName) {
@@ -8246,6 +8542,158 @@ const IDB_NAME = "FieldPunchlistDB";
       populateJobSelect();
       renderList();
       return true;
+    };
+
+    // Phase 6 — read-only diagnostic only. Never writes anything: no
+    // plSaveData, no mutation of `data` (it's deep-cloned before being
+    // inspected, purely as a defensive extra layer, since none of the
+    // logic below assigns into it regardless). Reports on the current
+    // state so a technician/admin can see which Punchlist records might
+    // deserve a look — it never decides anything on its own, and never
+    // claims a record was "definitely" caused by an old bug, since
+    // Phase 4 established the data model doesn't carry enough history
+    // to prove that either way.
+    window.analyzePunchlistIntegrity = async function() {
+      await plLoadData();
+      const snapshot = JSON.parse(JSON.stringify(data || { jobs: {} }));
+      const jobs = snapshot.jobs || {};
+      const listNames = snapshot.listNames || {};
+      const jobIdByKey = snapshot.jobIdByKey || {};
+      const keyByJobId = snapshot.keyByJobId || {};
+      const bucketKeys = Object.keys(jobs);
+
+      // Group every bucket that HAS a forward job mapping, by that job,
+      // so buckets sharing a job are judged together rather than each
+      // being compared to the reverse pointer in isolation — which is
+      // what would incorrectly flag one of two *legitimate* Punchlists
+      // for the same job as "inconsistent" (only one bucket can ever
+      // match keyByJobId at a time, by definition).
+      const byJob = {};
+      bucketKeys.forEach(key => {
+        if (Object.prototype.hasOwnProperty.call(jobIdByKey, key)) {
+          const jobId = jobIdByKey[key];
+          if (!byJob[jobId]) byJob[jobId] = [];
+          byJob[jobId].push(key);
+        }
+      });
+
+      const findings = [];
+      const describe = (key) => ({
+        bucketKey: key,
+        name: listNames[key] || 'Punchlist',
+        itemCount: (jobs[key] || []).length,
+        isCurrent: snapshot.currentJob === key
+      });
+
+      Object.keys(byJob).forEach(jobId => {
+        const keys = byJob[jobId];
+        const reverseTarget = keyByJobId[jobId];
+        if (keys.length > 1) {
+          // Rule E — multiple legitimate buckets for one job. Not a
+          // problem by itself; only worth a closer look if every one
+          // of them still carries the untouched default name, which is
+          // consistent with (but doesn't prove) old duplicate-bucket
+          // creation rather than deliberate multi-list use.
+          const allDefaultName = keys.every(k => (listNames[k] || 'Punchlist') === 'Punchlist');
+          findings.push({
+            classification: 'Multiple Punchlists for same job',
+            determinism: 'informational',
+            jobId,
+            buckets: keys.map(describe),
+            reason: allDefaultName
+              ? keys.length + ' Punchlists share job ' + jobId + ', and all still use the default "Punchlist" name — worth a look, but this alone does not prove they came from the old bug rather than deliberate use.'
+              : keys.length + ' Punchlists share job ' + jobId + ' with distinct names — looks like intentional multiple lists, not flagged as a problem.'
+          });
+        } else {
+          const key = keys[0];
+          if (reverseTarget === key) {
+            // Rule A — nothing to report; structurally valid.
+          } else if (reverseTarget && !Object.prototype.hasOwnProperty.call(jobs, reverseTarget)) {
+            // Rule C — the job's reverse pointer names a bucket that
+            // doesn't exist at all. High-value finding: this is exactly
+            // what Phase 5 was built to stop from happening on delete.
+            findings.push({
+              classification: 'Reverse mapping points to missing bucket',
+              determinism: 'definitive',
+              jobId,
+              buckets: [describe(key)],
+              reason: 'keyByJobId["' + jobId + '"] points to bucket "' + reverseTarget + '", which does not exist in jobs. This bucket ("' + key + '") has a valid forward mapping to this job but is not the one currently linked.'
+            });
+          } else {
+            // Rule B — forward mapping exists, reverse points somewhere
+            // else that isn't the same job (or is empty for this job).
+            findings.push({
+              classification: 'Inconsistent forward/reverse mapping',
+              determinism: 'definitive (structural)',
+              jobId,
+              buckets: [describe(key)],
+              reason: 'jobIdByKey["' + key + '"] = "' + jobId + '", but keyByJobId["' + jobId + '"] = ' + JSON.stringify(reverseTarget || null) + '. The two mappings disagree.'
+            });
+          }
+        }
+      });
+
+      // Rule C, second pass — the byJob loop above only catches a stale
+      // reverse pointer for jobs that still have exactly one forward
+      // mapping in jobIdByKey. A reverse pointer can also go stale for
+      // a job with NO forward mapping at all (e.g. every bucket that
+      // once pointed to it was individually removed) — that job would
+      // never enter byJob above and would be silently missed without
+      // this separate pass over keyByJobId directly.
+      const reportedJobIds = new Set(Object.keys(byJob));
+      Object.keys(keyByJobId).forEach(jobId => {
+        if (reportedJobIds.has(jobId)) return; // already handled above
+        const target = keyByJobId[jobId];
+        if (target && !Object.prototype.hasOwnProperty.call(jobs, target)) {
+          findings.push({
+            classification: 'Reverse mapping points to missing bucket',
+            determinism: 'definitive',
+            jobId,
+            buckets: [],
+            reason: 'keyByJobId["' + jobId + '"] points to bucket "' + target + '", which does not exist in jobs, and no bucket currently has a forward mapping to this job either.'
+          });
+        }
+      });
+
+      // Rule D / G — buckets with no forward job mapping at all.
+      bucketKeys.forEach(key => {
+        if (Object.prototype.hasOwnProperty.call(jobIdByKey, key)) return; // already handled above
+        const looksModern = /^pl_/.test(key);
+        findings.push({
+          classification: looksModern ? 'Missing job mapping — review' : 'Legacy/name-keyed Punchlist',
+          determinism: 'possible / requires review',
+          jobId: null,
+          buckets: [describe(key)],
+          reason: looksModern
+            ? 'Bucket "' + key + '" exists but has no entry in jobIdByKey, so no job currently claims it. Could be an older record, a manually-created list, or a leftover — not determinable from this data alone.'
+            : 'Bucket key "' + key + '" is a plain name rather than a generated pl_ key, consistent with the application\'s own built-in sample data (e.g. "Aryzta Australia", "Epi") or an older, pre-ID punchlist. Not treated as corruption.'
+        });
+      });
+
+      // Rule F — empty buckets, called out as a secondary note only
+      // (already covered above by whatever classification applies;
+      // this is just surfaced as an additional short list so it's easy
+      // to scan, not a separate top-level inconsistency).
+      const emptyBuckets = bucketKeys.filter(k => (jobs[k] || []).length === 0).map(describe);
+
+      // Rule H — currentJob pointing at nothing.
+      let currentJobFinding = null;
+      if (snapshot.currentJob && !Object.prototype.hasOwnProperty.call(jobs, snapshot.currentJob)) {
+        currentJobFinding = {
+          classification: 'Current Punchlist points to missing bucket',
+          determinism: 'definitive (structural)',
+          reason: 'data.currentJob = "' + snapshot.currentJob + '", but jobs["' + snapshot.currentJob + '"] does not exist.'
+        };
+      }
+
+      return {
+        totalBuckets: bucketKeys.length,
+        validBuckets: bucketKeys.length - findings.reduce((n, f) => n + f.buckets.length, 0),
+        findings,
+        emptyBuckets,
+        currentJobFinding,
+        scannedAt: new Date().toISOString()
+      };
     };
 
     
@@ -8715,7 +9163,7 @@ const IDB_NAME = "FieldPunchlistDB";
         doc.text('No punchlist items to report.', L, y);
       } else {
         lineKeys.forEach(key => {
-          lineHeader(key);
+          lineHeader(key === NO_LINE ? key : 'Line ' + key);
           groups.get(key)
             .slice()
             .sort((a, b) => rank(b.priority) - rank(a.priority))
@@ -9048,8 +9496,19 @@ const IDB_NAME = "FieldPunchlistDB";
       try { tcNormalizeEntryJobs(); } catch (e) {}
       tcEnsureSampleWeek();
     }
+    // Phase 7C (C2): used to swallow its own write failure completely
+    // (empty catch, no return value) — every one of its ~8 callers had
+    // no way to know whether the write actually happened. Now returns
+    // a real boolean. Only tcSaveEdit (the one user-facing "Saved"
+    // toast) is wired to check it, per the approved scope — the other
+    // callers (clock in/out, delete, etc.) keep their existing
+    // behavior unchanged, same as before this phase.
     function tcSave() {
-      try { lsWrite('lx8_timecards', { entries: tcState.entries, active: tcState.active }); } catch (e) {}
+      try {
+        return !!lsWrite('lx8_timecards', { entries: tcState.entries, active: tcState.active });
+      } catch (e) {
+        return false;
+      }
     }
 
     function tcResolveExportName(entries) {
@@ -9963,12 +10422,16 @@ function tcRenderEntryList(listEl, offset) {
           manualHours, autoCapped: false
         });
       }
-      tcSave();
+      // Phase 7C (C2): toast now reflects the real write outcome
+      // instead of always claiming "Saved". Navigation to the week
+      // view is left exactly as it was before this phase — only the
+      // toast text is conditioned.
+      const tcOk = tcSave();
       showScreen('screenTimeWeek');
       document.body.classList.add('on-time-week');
       document.body.classList.remove('on-time-edit');
       tcRenderWeekDetail();
-      toast('Saved');
+      toast(tcOk ? 'Saved' : 'Could not save time card — storage full or unavailable');
       try { if (typeof refreshJobDetail === 'function' && detailJobId) refreshJobDetail(); } catch (e) {}
     }
     function tcDeleteEdit(ev) {
